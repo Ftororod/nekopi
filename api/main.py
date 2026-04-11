@@ -5063,6 +5063,38 @@ async def ai_analyze(request: Request):
         return JSONResponse({"ok": False, "provider": provider,
                              "error": str(e)}, status_code=502)
 
+@app.get("/api/wifi/interfaces")
+async def wifi_interfaces():
+    """Lists wireless interfaces, marking which support monitor mode.
+    Used by the Roaming Analyzer to refuse non-monitor-capable adapters."""
+    out = run_cmd(["iw", "dev"], timeout=4)
+    items: list[dict] = []
+    cur: dict | None = None
+    for line in out.splitlines():
+        ls = line.strip()
+        m = re.match(r"phy#(\d+)", ls)
+        if m:
+            cur_phy = "phy" + m.group(1)
+            continue
+        m = re.match(r"Interface\s+(\S+)", ls)
+        if m:
+            cur = {"name": m.group(1), "phy": cur_phy if "cur_phy" in locals() else "",
+                   "type": "", "monitor": False}
+            items.append(cur)
+            continue
+        if cur and ls.startswith("type "):
+            cur["type"] = ls.split(" ", 1)[1].strip()
+
+    # Check monitor support per phy
+    phys: dict[str, bool] = {}
+    for it in items:
+        phy = it.get("phy", "")
+        if phy and phy not in phys:
+            info = run_cmd(["iw", "phy", phy, "info"], timeout=4)
+            phys[phy] = "* monitor" in info or " monitor\n" in info or "monitor\n" in info
+        it["monitor"] = phys.get(phy, False)
+    return {"interfaces": items}
+
 @app.get("/api/system/logs")
 async def system_logs(unit: str = "nekopi", lines: int = 200):
     """Returns the last N journalctl lines, optionally filtered to a unit."""

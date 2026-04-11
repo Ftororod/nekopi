@@ -1436,11 +1436,12 @@ input,select,textarea { font-family:inherit; }
           </div>
           <div class="divider"></div>
           <div style="display:flex;gap:20px;flex-wrap:wrap">
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">AP Scanner</span></label>
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">Rogue detection</span></label>
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">Deauth detection</span></label>
-            <label class="toggle-wrap"><div class="toggle-track"></div><span class="toggle-lbl">Air capture (.pcap)</span></label>
-            <label class="toggle-wrap"><div class="toggle-track"></div><span class="toggle-lbl">PMF check</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="wifiFilterScanner" checked><span class="toggle-lbl">AP Scanner</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="wifiFilterRogue"   checked><span class="toggle-lbl">Hide rogue/open</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="wifiFilterMin80"          ><span class="toggle-lbl">Hide RSSI &lt; -80dBm</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="wifiFilter6Only"          ><span class="toggle-lbl">6GHz only</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="wifiFilter5Only"          ><span class="toggle-lbl">5GHz only</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="wifiFilter24Only"         ><span class="toggle-lbl">2.4GHz only</span></label>
           </div>
         </div>
         <div class="wizard-footer">
@@ -1479,13 +1480,8 @@ input,select,textarea { font-family:inherit; }
             <div class="card-body">
               <table class="data-table">
                 <thead><tr><th>SSID</th><th>RSSI</th><th>Band</th><th>Security</th></tr></thead>
-                <tbody>
-                  <tr><td>CORP-MAIN-6G</td><td><span class="rssi rssi-great">-42</span></td><td><span class="band band-6">6G</span></td><td style="color:var(--green);font-size:10px">WPA3</td></tr>
-                  <tr><td>CORP-VOICE</td><td><span class="rssi rssi-good">-51</span></td><td><span class="band band-5">5G</span></td><td style="color:var(--green);font-size:10px">WPA3</td></tr>
-                  <tr><td>CORP-IOT</td><td><span class="rssi rssi-good">-55</span></td><td><span class="band band-5">5G</span></td><td style="color:var(--amber);font-size:10px">WPA2</td></tr>
-                  <tr><td>GUEST-WIFI</td><td><span class="rssi rssi-fair">-68</span></td><td><span class="band band-24">2.4G</span></td><td style="color:var(--amber);font-size:10px">WPA2</td></tr>
-                  <tr><td style="color:var(--red)">⚠ FREE-WIFI</td><td><span class="rssi rssi-poor">-74</span></td><td><span class="band band-24">2.4G</span></td><td style="color:var(--red);font-size:10px">OPEN</td></tr>
-                  <tr><td style="color:var(--red)">⚠ NETGEAR-5G</td><td><span class="rssi rssi-poor">-81</span></td><td><span class="band band-5">5G</span></td><td style="color:var(--amber);font-size:10px">WPA2</td></tr>
+                <tbody id="wifiResultsBody">
+                  <tr><td colspan="4" style="text-align:center;color:var(--text2);padding:14px">Run a scan to see results</td></tr>
                 </tbody>
               </table>
             </div>
@@ -3206,11 +3202,13 @@ input,select,textarea { font-family:inherit; }
             <span style="color:var(--text2)">&#128267; Optional: use a power bank to take NekoPi with you while walking the site.</span>
           </div>
           <div class="divider"></div>
-          <div style="display:flex;gap:16px;flex-wrap:wrap">
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">802.11r Fast Transition</span></label>
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">802.11k Neighbor Report</span></label>
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">802.11v BSS Transition</span></label>
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">Deauth on roam</span></label>
+          <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Event Type Filters</div>
+          <div style="display:flex;gap:14px;flex-wrap:wrap">
+            <label class="toggle-wrap"><input type="checkbox" id="roamFilterAssoc"  checked onchange="applyRoamFilter()"><span class="toggle-lbl">Assoc/Reassoc</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="roamFilterAuth"   checked onchange="applyRoamFilter()"><span class="toggle-lbl">Auth (incl. FT)</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="roamFilterDeauth" checked onchange="applyRoamFilter()"><span class="toggle-lbl">Deauth</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="roamFilterAction" checked onchange="applyRoamFilter()"><span class="toggle-lbl">802.11k/v Action</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="roamFilterProbe"          onchange="applyRoamFilter()"><span class="toggle-lbl">Probe Req</span></label>
           </div>
           <div class="divider"></div>
           <div style="display:flex;gap:8px">
@@ -5582,16 +5580,17 @@ const pages = {
   sensor:     { title:'Sensor Mode',       sub:'pktvisor · wiperf · InfluxDB · Grafana · Orb' },
   scan:       { title:'Network Scan',      sub:'nmap · CVE lookup · AI inline' },
   roaming:    { title:'Roaming Analyzer',  sub:'802.11r/k/v · FT timing', onload: function(){
-    // Populate WiFi interfaces from live data
-    fetchAPI('/api/network/info').then(function(d){
-      if(!d||!d.interfaces) return;
+    // Populate WiFi interfaces — only those that support monitor mode
+    fetchAPI('/api/wifi/interfaces').then(function(d){
       var sel = document.getElementById('roamIface');
       if(!sel) return;
-      var wifis = d.interfaces.filter(function(i){ return i.type==='wifi'; });
-      if(wifis.length){
-        sel.innerHTML = wifis.map(function(i){
-          return '<option value="'+i.name+'">'+i.name+' — '+(i.role||'wifi')+(i.ip?' ('+i.ip+')':'')+'</option>';
+      var monIfs = (d && d.interfaces || []).filter(function(i){ return i.monitor; });
+      if(monIfs.length){
+        sel.innerHTML = monIfs.map(function(i){
+          return '<option value="'+i.name+'">'+i.name+' — monitor capable ('+(i.type||'managed')+')</option>';
         }).join('');
+      } else {
+        sel.innerHTML = '<option value="">⚠ No monitor-capable adapter found — connect a USB WiFi card</option>';
       }
     }).catch(function(){});
   } },
@@ -6434,11 +6433,55 @@ function runWifiScan() {
 }
 
 function _populateWifiTable(aps) {
+  var tbody = document.getElementById('wifiResultsBody');
+  if (!tbody) return;
+  // Apply filter toggles from Step 1
+  var hideOpen = (document.getElementById('wifiFilterRogue') || {}).checked;
+  var minRssi  = (document.getElementById('wifiFilterMin80') || {}).checked ? -80 : -200;
+  var only6    = (document.getElementById('wifiFilter6Only') || {}).checked;
+  var only5    = (document.getElementById('wifiFilter5Only') || {}).checked;
+  var only24   = (document.getElementById('wifiFilter24Only')|| {}).checked;
+  var sorted = (aps||[]).slice().sort(function(a,b){ return (b.signal_dbm||-100)-(a.signal_dbm||-100); });
+  var filtered = sorted.filter(function(ap){
+    var sec = ap.security || [];
+    if (hideOpen && sec.length === 0) return false;
+    if ((ap.signal_dbm||-100) < minRssi) return false;
+    var b = (ap.band||'').replace(/[^0-9]/g,'');
+    if (only6  && b !== '6')                return false;
+    if (only5  && b !== '5')                return false;
+    if (only24 && !(b === '24' || b === '2')) return false;
+    return true;
+  });
+  tbody.innerHTML = '';
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:14px">No APs match the active filters</td></tr>';
+    return;
+  }
+  filtered.forEach(function(ap) {
+    var rssi = ap.signal_dbm || 0;
+    var rssiCls = rssi >= -60 ? 'rssi-great' : rssi >= -70 ? 'rssi-good' : rssi >= -80 ? 'rssi-fair' : 'rssi-poor';
+    var band = ap.band || '?';
+    var bandCls = band.indexOf('6')>=0 ? 'band-6' : band.indexOf('5')>=0 ? 'band-5' : 'band-24';
+    var sec = (ap.security||[]).join('+') || 'OPEN';
+    var secColor = sec === 'OPEN' ? 'var(--red)' : sec.indexOf('WPA3')>=0 ? 'var(--green)' : 'var(--amber)';
+    var ssidHtml = sec === 'OPEN' ? '<span style="color:var(--red)">⚠ '+(ap.ssid||'(hidden)')+'</span>' : (ap.ssid||'(hidden)');
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<td>'+ssidHtml+'</td>' +
+      '<td><span class="rssi '+rssiCls+'">'+rssi+'</span></td>' +
+      '<td><span class="band '+bandCls+'">'+band+'</span></td>' +
+      '<td style="color:'+secColor+';font-size:10px">'+sec+'</td>';
+    tbody.appendChild(tr);
+  });
+  // Cache for AI use
+  window._wifiLastScan = filtered;
+}
+
+function _populateWifiTable_unused(aps) {
   var tbody = document.getElementById('apTableBody'); if (!tbody) return;
   tbody.innerHTML = '';
+  var limit = 0;
   var displayAps = limit ? aps.slice(0, limit) : aps;
   if (limit && aps.length > limit) {
-    // Mostrar nota de APs adicionales
     var moreEl = document.getElementById('nearbyApMore');
     if (moreEl) moreEl.textContent = '+ ' + (aps.length - limit) + ' more APs — Full Scan →';
   }
@@ -6457,18 +6500,20 @@ function _populateWifiTable(aps) {
   });
 }
 function wifiFinish() { wizGoto('wifi', 2); }
-function runWifiAI() {
+
+function runWifiAI(ev) {
   var panel=document.getElementById('wifiAiPanel'), output=document.getElementById('wifiAiOutput');
   if(!panel||!output) return;
   panel.style.display=''; panel.scrollIntoView({behavior:'smooth',block:'nearest'});
-  typewriterAI(output, [
-    {text:'Analyzing WiFi scan results...', delay:400},
-    {text:'CORP-MAIN-6G on 6GHz WPA3 \u2014 optimal security posture.', delay:500},
-    {text:'CRITICAL \u2014 FREE-WIFI is OPEN (no encryption). Plaintext traffic visible to anyone.', cls:'critical', delay:500},
-    {text:'2.4GHz ch11 at 81% utilization \u2014 high congestion. Steer clients to 5GHz/6GHz.', delay:500},
-    {text:'No deauth attacks detected in scan window.', delay:400},
-    {text:'RECOMMENDATION: Locate FREE-WIFI source. Enable band-steering. Consider WPA3-only policy.', cls:'recommend', delay:500},
-  ]);
+  var aps = (window._wifiLastScan || []).slice(0, 30).map(function(ap){
+    return {
+      band: ap.band, channel: ap.channel,
+      signal_dbm: ap.signal_dbm,
+      security: ap.security, hidden: !ap.ssid,
+    };
+  });
+  var ctx = { ap_count: aps.length, aps: aps };
+  callAI('wifi', ctx, output, { button: ev && ev.currentTarget });
 }
 
 // Regulatory domain
@@ -11301,22 +11346,40 @@ var roamAllEvents = [];   // full unfiltered event log
 var roamSeenMacs  = {};   // mac → count
 
 function applyRoamFilter() {
-  var filter  = (document.getElementById('roamMacFilter') || {}).value || '';
-  var mac     = filter.trim().toLowerCase();
-  var tbody   = document.getElementById('roamEventBody');
+  var mac   = ((document.getElementById('roamMacFilter') || {}).value || '').trim().toLowerCase();
+  var ssid  = ((document.getElementById('roamSSID')      || {}).value || '').trim().toLowerCase();
   var bar     = document.getElementById('roamFilterBar');
   var label   = document.getElementById('roamFilterLabel');
   var count   = document.getElementById('roamFilterCount');
-  if (!tbody) return;
+  if (!document.getElementById('roamEventBody')) return;
 
-  var filtered = mac
-    ? roamAllEvents.filter(function(e) { return e.mac.toLowerCase().indexOf(mac) >= 0; })
-    : roamAllEvents;
+  var allowAssoc  = (document.getElementById('roamFilterAssoc')  || {checked:true}).checked;
+  var allowAuth   = (document.getElementById('roamFilterAuth')   || {checked:true}).checked;
+  var allowDeauth = (document.getElementById('roamFilterDeauth') || {checked:true}).checked;
+  var allowAction = (document.getElementById('roamFilterAction') || {checked:true}).checked;
+  var allowProbe  = (document.getElementById('roamFilterProbe')  || {checked:false}).checked;
 
-  // Update filter bar
-  if (mac && bar) {
+  function passType(t){
+    t = (t||'').toLowerCase();
+    if (t.indexOf('probe') === 0)  return allowProbe;
+    if (t.indexOf('deauth') >= 0)  return allowDeauth;
+    if (t.indexOf('auth') >= 0)    return allowAuth;
+    if (t.indexOf('assoc') >= 0 || t.indexOf('reassoc') >= 0) return allowAssoc;
+    if (t.indexOf('802.11k') >= 0 || t.indexOf('802.11v') >= 0 || t === 'action') return allowAction;
+    return true;
+  }
+
+  var filtered = roamAllEvents.filter(function(e) {
+    if (mac  && (e.mac||'').toLowerCase().indexOf(mac) < 0) return false;
+    if (ssid && ((e.toAP||'').toLowerCase().indexOf(ssid) < 0 && (e.fromAP||'').toLowerCase().indexOf(ssid) < 0)) return false;
+    if (!passType(e.type)) return false;
+    return true;
+  });
+
+  var hasFilter = mac || ssid || !allowAssoc || !allowAuth || !allowDeauth || !allowAction || allowProbe;
+  if (hasFilter && bar) {
     bar.style.display = 'flex';
-    if (label) label.textContent = mac;
+    if (label) label.textContent = [mac && 'MAC='+mac, ssid && 'SSID='+ssid].filter(Boolean).join(' · ') || 'type filters';
     if (count) count.textContent = '(' + filtered.length + ' of ' + roamAllEvents.length + ' events)';
   } else if (bar) {
     bar.style.display = 'none';
