@@ -204,7 +204,6 @@ async def services_status():
     has_wired  = any(i["type"] == "eth"  for i in ifaces)
     has_influx  = _svc_active("influxdb")       or _port_open(8086)
     has_grafana = _svc_active("grafana-server") or _port_open(3000)
-    has_ollama  = _svc_active("ollama")         or _port_open(11434)
     has_ttyd    = _svc_active("ttyd")           or _port_open(7681)
     has_webssh  = _svc_active("webssh")         or _port_open(8888)
     has_lldpd   = _svc_active("lldpd")
@@ -212,22 +211,35 @@ async def services_status():
     has_nmap    = bool(run_cmd(["which", "nmap"]))
     has_orb     = bool(run_cmd(["which", "orb"]))
 
-    # Detectar modelo Ollama activo
-    ollama_model = None
-    if has_ollama:
+    # AI backend availability — RPi is NEVER an Ollama host. Ollama is always
+    # remote. Returns whichever side is configured + online so the UI can show
+    # both states (some modules need Ollama specifically for privacy).
+    try:
+        s = json.loads((BASE_DIR / "data" / "settings.json").read_text())
+    except Exception:
+        s = {}
+    gemini_online = bool(s.get("gemini_key"))
+    ollama_url    = s.get("ollama_url") or ""
+    ollama_online = False
+    ollama_model  = ""
+    if ollama_url:
         try:
             import urllib.request
-            with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2) as r:
+            with urllib.request.urlopen(f"{ollama_url.rstrip('/')}/api/tags", timeout=2) as r:
                 tags = json.loads(r.read())
                 models = tags.get("models", [])
                 if models:
-                    ollama_model = models[0]["name"]
-        except: pass
+                    ollama_online = True
+                    ollama_model  = models[0].get("name", "")
+        except Exception:
+            ollama_online = False
 
     return {
         "wifi": has_wifi, "wired": has_wired,
         "influx": has_influx, "grafana": has_grafana,
-        "ollama": has_ollama, "ollama_model": ollama_model,
+        "ai_gemini_online": gemini_online,
+        "ai_ollama_online": ollama_online,
+        "ai_ollama_model":  ollama_model,
         "ttyd": has_ttyd, "webssh": has_webssh,
         "lldpd": has_lldpd, "iperf3": has_iperf3, "nmap": has_nmap, "orb": has_orb,
     }
@@ -1386,14 +1398,14 @@ async def path_stop():
 
 @app.get("/api/path/status")
 async def path_status():
-    hops_list = []
+    raw_hops = []
     for hop_n in sorted(_PATH["hops"].keys()):
         h    = _PATH["hops"][hop_n]
         rtts = h["rtts"]
         avg  = round(sum(rtts) / len(rtts), 2) if rtts else None
         last = rtts[-1] if rtts else None
         loss = round(h["loss_count"] / max(h["total"], 1) * 100) if h["total"] else 0
-        hops_list.append({
+        raw_hops.append({
             "hop":      h["hop"],
             "ip":       h["ip"],
             "host":     h["ip"],
@@ -1404,6 +1416,16 @@ async def path_status():
             "rtts":     rtts[-20:],
             "note":     h.get("note", ""),
         })
+    # Collapse consecutive hops that share the same IP — mtr sometimes reports
+    # the destination twice when the previous router is the destination itself,
+    # which used to show e.g. 8.8.8.8 duplicated at the end of the trace.
+    hops_list: list[dict] = []
+    for hop in raw_hops:
+        if hops_list and hops_list[-1]["ip"] == hop["ip"] and hop["ip"] not in ("???", ""):
+            # Keep the latest row's rtt + avg, but update the slot in place
+            hops_list[-1] = hop
+        else:
+            hops_list.append(hop)
     return {
         "running": _PATH["running"],
         "target":  _PATH["target"],
@@ -2177,10 +2199,16 @@ async def roaming_stop():
     _ROAM_RUNNING = False
     run_cmd(["sudo", "pkill", "-f", "tcpdump.*type mgt"])
     await asyncio.sleep(1)
-    # Restore interface
-    run_cmd(["sudo", "ip", "link", "set", _ROAM_IFACE, "down"])
-    run_cmd(["sudo", "iw", "dev", _ROAM_IFACE, "set", "type", "managed"])
-    run_cmd(["sudo", "ip", "link", "set", _ROAM_IFACE, "up"])
+    iface = _ROAM_IFACE or ""
+    # If a monitor vif (e.g. wlan1mon) was created during capture, drop it
+    # before restoring the managed interface — otherwise the orphan vif keeps
+    # the radio busy and managed mode fails to come back up cleanly.
+    if iface:
+        for candidate in (f"{iface}mon", "mon0"):
+            run_cmd(["sudo", "iw", "dev", candidate, "del"])  # ignore failures
+        run_cmd(["sudo", "ip", "link", "set", iface, "down"])
+        run_cmd(["sudo", "iw", "dev", iface, "set", "type", "managed"])
+        run_cmd(["sudo", "ip", "link", "set", iface, "up"])
     return {"ok": True}
 
 @app.get("/api/roaming/events")
@@ -4720,12 +4748,26 @@ def _report_build_html(meta: dict, snap: dict) -> str:
 </html>
 """
 
+_REPORT_PDF_ERROR: str = ""  # last WeasyPrint failure, surfaced to UI
+
 def _report_render_pdf(html: str) -> bytes | None:
-    """Returns PDF bytes if WeasyPrint is available, otherwise None."""
+    """Returns PDF bytes if WeasyPrint is available. Surfaces the failure
+    reason via _REPORT_PDF_ERROR so the UI can show "PDF unavailable: …"
+    instead of silently falling back to HTML."""
+    global _REPORT_PDF_ERROR
     try:
         from weasyprint import HTML  # type: ignore
+    except ImportError as e:
+        _REPORT_PDF_ERROR = f"WeasyPrint not installed: {e}"
+        return None
+    except Exception as e:
+        # Native lib (cairo/pango/fontconfig) load failure — most common on Pi
+        _REPORT_PDF_ERROR = f"WeasyPrint import failed: {e}"
+        return None
+    try:
         return HTML(string=html).write_pdf()
-    except Exception:
+    except Exception as e:
+        _REPORT_PDF_ERROR = f"WeasyPrint render failed: {e}"
         return None
 
 @app.post("/api/reports/export")
@@ -4828,12 +4870,13 @@ async def reports_generate(request: Request):
     })
     if len(_REPORT_HISTORY) > 50:
         del _REPORT_HISTORY[50:]
+    note = _REPORT_PDF_ERROR or "WeasyPrint not installed - served as HTML"
     return Response(
         content=html, media_type="text/html",
         headers={"Content-Disposition": f'attachment; filename="{fname}"',
                  "X-Nekopi-Report-Id": rid,
                  "X-Nekopi-Report-Format": "html",
-                 "X-Nekopi-Report-Note": "WeasyPrint not installed - served as HTML"},
+                 "X-Nekopi-Report-Note": note[:240]},
     )
 
 @app.get("/api/reports/list")
@@ -4853,12 +4896,13 @@ async def reports_download(rid: str):
 
 
 # ═══════════════════════════════════════════════════════════════
-#  AI — dual strategy (Ollama local + Gemini external)
+#  AI — remote backends only (Gemini API or remote Ollama agent)
+#  The RPi is NEVER an Ollama host: Ollama URLs always point to a
+#  remote machine on the engineer's lab/laptop network.
 # ═══════════════════════════════════════════════════════════════
 import urllib.request as _ai_req
 import urllib.error   as _ai_err
 
-# Persistent settings (Ollama URL/model + Gemini key) — overridable from UI.
 SETTINGS_FILE = BASE_DIR / "data" / "settings.json"
 
 def _settings_load() -> dict:
@@ -4876,280 +4920,245 @@ def _settings_save(d: dict) -> None:
     except Exception:
         pass
 
-def _ai_cfg() -> dict:
-    s = _settings_load()
-    return {
-        "ollama_url":   s.get("ollama_url")   or os.environ.get("NEKOPI_OLLAMA_URL", "http://127.0.0.1:11434"),
-        "ollama_model": s.get("ollama_model") or os.environ.get("NEKOPI_OLLAMA_MODEL", ""),
-        "gemini_key":   s.get("gemini_key")   or os.environ.get("GEMINI_API_KEY", ""),
-        "gemini_model": s.get("gemini_model") or os.environ.get("NEKOPI_GEMINI_MODEL", "gemini-1.5-flash"),
-    }
+# Shared posture/safety preamble — applied to every module call so the
+# assistant never replaces the on-site engineer's judgement.
+AI_POSTURE_PROMPT = (
+    "Eres un asistente de diagnóstico de redes para ingenieros de campo. "
+    "Tu rol es SUGERIR y ORIENTAR, NO reemplazar el criterio del ingeniero.\n\n"
+    "Reglas estrictas:\n"
+    "- USA frases como: 'podría indicar', 'una posible causa es', "
+    "'te sugiero verificar', 'esto podría deberse a'.\n"
+    "- EVITA: 'el problema ES', 'la causa ES', afirmaciones absolutas sin "
+    "verificación física.\n"
+    "- Siempre termina con una línea: 'Para confirmar, verifica en sitio: ...'.\n"
+    "- Si los datos no son suficientes para orientar, indícalo y pide la "
+    "información faltante. No inventes datos que no están en el contexto recibido.\n"
+    "- Responde SIEMPRE en español, máximo 4 párrafos, directo y técnico."
+)
 
 def _gemini_endpoint(model: str) -> str:
     return ("https://generativelanguage.googleapis.com/v1beta/"
             f"models/{model}:generateContent")
 
-_AI_PROMPTS = {
-    "wired": {
-        "en": ("You are a network engineer analyzing a NekoPi wired/LAN test result. "
-               "Focus on LLDP/CDP neighbors, link speed, duplex, 802.1X posture, "
-               "iPerf3 throughput and DNS benchmark. Give a 3-4 paragraph diagnosis "
-               "with root cause, impact, and concrete next steps. Be direct."),
-        "es": ("Eres un ingeniero de redes analizando un resultado de Wired/LAN de "
-               "NekoPi. Enfócate en vecinos LLDP/CDP, velocidad/dúplex del enlace, "
-               "postura 802.1X, throughput iPerf3 y benchmark DNS. Entrega un "
-               "diagnóstico de 3-4 párrafos con causa raíz, impacto y próximos pasos "
-               "concretos. Sé directo y técnico."),
-    },
-    "security": {
-        "en": ("You are a security auditor reviewing a NekoPi network audit. Summarize "
-               "the severity distribution, highlight the most dangerous findings, and "
-               "give prioritized remediation steps grouped by impact."),
-        "es": ("Eres un auditor de seguridad revisando una auditoría de red NekoPi. "
-               "Resume la distribución de severidad, destaca los hallazgos más "
-               "peligrosos y entrega pasos de remediación priorizados por impacto."),
-    },
-    "roaming": {
-        "en": ("You are a WiFi roaming specialist. Analyze these BSSID transitions and "
-               "RSSI deltas. Identify sticky-client behavior, 802.11r/k/v gaps, and "
-               "recommend AP configuration changes."),
-        "es": ("Eres un especialista en roaming WiFi. Analiza estas transiciones de "
-               "BSSID y deltas de RSSI. Identifica comportamiento sticky-client, "
-               "huecos de 802.11r/k/v, y recomienda cambios de configuración en APs."),
-    },
-    "wifits": {
-        "en": ("You are a WiFi troubleshooter. Given these RF, PHY and network metrics "
-               "plus the reported symptoms, produce a 3-4 paragraph diagnosis: likely "
-               "root cause, impact, concrete remediation, and what to verify in the "
-               "AP/controller."),
-        "es": ("Eres un experto en troubleshooting WiFi. Dadas estas métricas RF, PHY "
-               "y de red más los síntomas reportados, entrega un diagnóstico de 3-4 "
-               "párrafos: causa raíz probable, impacto, pasos concretos de solución, "
-               "y qué verificar en el AP/controlador."),
-    },
-    "wifi": {
-        "en": ("You are a WiFi RF analyst. Analyze this scan: channel utilization, "
-               "co-channel/adjacent interference, signal quality, security posture. "
-               "Recommend channel/width/power changes for better performance."),
-        "es": ("Eres un analista RF WiFi. Analiza este escaneo: uso de canales, "
-               "interferencia co-canal/adyacente, calidad de señal, postura de "
-               "seguridad. Recomienda cambios de canal/ancho/potencia."),
-    },
-    "network": {
-        "en": ("You are a network reconnaissance analyst. Classify the discovered "
-               "devices, flag anomalies, identify likely roles (server, IoT, printer, "
-               "AP, camera) and risks. Be concise and actionable."),
-        "es": ("Eres un analista de reconocimiento de red. Clasifica los dispositivos "
-               "descubiertos, marca anomalías, identifica roles probables (servidor, "
-               "IoT, impresora, AP, cámara) y riesgos. Sé conciso y accionable."),
-    },
-    "quickcheck": {
-        "en": ("You are a network field engineer reviewing a quick health check "
-               "(gateway, DNS, captive portal, latency). Give a 2-paragraph summary: "
-               "is the link healthy, what's broken, what to do next."),
-        "es": ("Eres un ingeniero de red revisando un quick check (gateway, DNS, "
-               "portal cautivo, latencia). Entrega un resumen de 2 párrafos: ¿está "
-               "sano el enlace?, ¿qué está roto?, ¿qué hacer ahora?"),
-    },
-    "reports": {
-        "en": ("You are writing the executive summary for a NekoPi field report. "
-               "From the JSON results across all modules, write 3 short paragraphs: "
-               "overall posture, biggest risks, prioritized next steps. No lists."),
-        "es": ("Estás escribiendo el resumen ejecutivo de un reporte de campo NekoPi. "
-               "Con los resultados JSON de todos los módulos, escribe 3 párrafos "
-               "cortos: postura general, riesgos principales, próximos pasos "
-               "priorizados. Sin listas."),
-    },
-}
+def _ai_call_gemini(prompt: str, key: str, model: str) -> tuple[str, str]:
+    if not key:
+        raise RuntimeError("Gemini API key not configured")
+    body = json.dumps({
+        "contents": [{"role": "user", "parts": [{"text": f"{AI_POSTURE_PROMPT}\n\n{prompt}"}]}],
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 768},
+    }).encode()
+    url = f"{_gemini_endpoint(model)}?key={key}"
+    req = _ai_req.Request(url, data=body, headers={"Content-Type": "application/json"})
+    with _ai_req.urlopen(req, timeout=30) as r:
+        data = json.loads(r.read())
+        cands = data.get("candidates") or []
+        if not cands:
+            return "", model
+        parts = (cands[0].get("content") or {}).get("parts") or []
+        return "".join(p.get("text", "") for p in parts).strip(), model
 
-_PII_IP  = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
-_PII_MAC = re.compile(r"\b([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b")
-
-def _ai_sanitize(obj):
-    """Redacts IPs, MACs and SSIDs from an arbitrary JSON-serializable object
-    so that only abstract technical parameters leave the device."""
-    if isinstance(obj, dict):
-        out = {}
-        for k, v in obj.items():
-            kl = str(k).lower()
-            if kl in ("ssid", "bssid", "mac", "ip", "hostname", "host",
-                      "client", "ap_name", "dns", "gateway"):
-                if v is None:
-                    out[k] = None
-                elif isinstance(v, (list, tuple)):
-                    out[k] = f"[redacted x{len(v)}]"
-                else:
-                    out[k] = "[redacted]"
-            else:
-                out[k] = _ai_sanitize(v)
-        return out
-    if isinstance(obj, list):
-        return [_ai_sanitize(x) for x in obj]
-    if isinstance(obj, str):
-        s = _PII_IP.sub("[ip]", obj)
-        s = _PII_MAC.sub("[mac]", s)
-        return s
-    return obj
-
-def _ai_ollama_available(url: str | None = None) -> bool:
-    url = url or _ai_cfg()["ollama_url"]
+def _ai_call_ollama(prompt: str, base_url: str) -> tuple[str, str]:
+    """Calls a REMOTE Ollama agent — never localhost. Auto-detects model
+    if none stored."""
+    if not base_url:
+        raise RuntimeError("Ollama URL not configured")
+    base = base_url.rstrip("/")
+    # Pick first available model (the remote agent decides what's installed)
     try:
-        with _ai_req.urlopen(f"{url}/api/tags", timeout=1.5) as r:
-            return r.status == 200
-    except Exception:
-        return False
-
-def _ai_ollama_models(url: str | None = None) -> list:
-    url = url or _ai_cfg()["ollama_url"]
-    try:
-        with _ai_req.urlopen(f"{url}/api/tags", timeout=2) as r:
-            data = json.loads(r.read())
-            return [m.get("name", "") for m in data.get("models", [])]
-    except Exception:
-        return []
-
-def _ai_resolve_ollama_model(cfg: dict) -> str | None:
-    """Pick a usable Ollama model: configured one if installed, else first available."""
-    models = _ai_ollama_models(cfg["ollama_url"])
+        with _ai_req.urlopen(f"{base}/api/tags", timeout=3) as r:
+            tags = json.loads(r.read())
+            models = [m.get("name", "") for m in tags.get("models", []) if m.get("name")]
+    except Exception as e:
+        raise RuntimeError(f"No se pudo conectar al agente Ollama remoto: {e}")
     if not models:
-        return None
-    requested = cfg["ollama_model"]
-    if requested:
-        if requested in models:
-            return requested
-        # tolerate ":latest" suffix differences
-        for m in models:
-            if m == requested or m.split(":")[0] == requested.split(":")[0]:
-                return m
-    return models[0]
-
-def _ai_call_ollama(system: str, user: str, cfg: dict) -> str:
-    model = _ai_resolve_ollama_model(cfg)
-    if not model:
-        raise RuntimeError("No Ollama models installed")
+        raise RuntimeError("El agente remoto no tiene modelos instalados")
+    model = models[0]
     body = json.dumps({
         "model": model,
-        "prompt": f"{system}\n\n{user}",
+        "prompt": f"{AI_POSTURE_PROMPT}\n\n{prompt}",
         "stream": False,
-        "options": {"temperature": 0.2, "num_predict": 384, "num_ctx": 2048},
+        "options": {"temperature": 0.2, "num_predict": 512, "num_ctx": 2048},
     }).encode()
-    req = _ai_req.Request(f"{cfg['ollama_url']}/api/generate", data=body,
+    req = _ai_req.Request(f"{base}/api/generate", data=body,
                           headers={"Content-Type": "application/json"})
     with _ai_req.urlopen(req, timeout=300) as r:
         data = json.loads(r.read())
         return (data.get("response") or "").strip(), model
 
-def _ai_call_gemini(system: str, user: str, cfg: dict) -> str:
-    key = cfg["gemini_key"]
-    if not key:
-        raise RuntimeError("GEMINI_API_KEY not set")
-    body = json.dumps({
-        "contents": [{"role": "user", "parts": [{"text": f"{system}\n\n{user}"}]}],
-        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 768},
-    }).encode()
-    url = f"{_gemini_endpoint(cfg['gemini_model'])}?key={key}"
-    req = _ai_req.Request(url, data=body,
-                          headers={"Content-Type": "application/json"})
-    with _ai_req.urlopen(req, timeout=30) as r:
-        data = json.loads(r.read())
-        cands = data.get("candidates") or []
-        if not cands:
-            return ""
-        parts = (cands[0].get("content") or {}).get("parts") or []
-        return "".join(p.get("text", "") for p in parts).strip()
+def _ai_probe_ollama(url: str) -> tuple[bool, str]:
+    """Returns (online, first_model_name) for the given remote Ollama URL."""
+    if not url:
+        return False, ""
+    try:
+        with _ai_req.urlopen(f"{url.rstrip('/')}/api/tags", timeout=2) as r:
+            tags = json.loads(r.read())
+            ms = [m.get("name", "") for m in tags.get("models", []) if m.get("name")]
+            if ms:
+                return True, ms[0]
+    except Exception:
+        pass
+    return False, ""
+
 
 @app.get("/api/ai/status")
 async def ai_status():
-    cfg = _ai_cfg()
-    ollama_ok = _ai_ollama_available(cfg["ollama_url"])
-    models = _ai_ollama_models(cfg["ollama_url"]) if ollama_ok else []
-    active_model = _ai_resolve_ollama_model(cfg) if ollama_ok else None
+    """Returns the live state of BOTH backends. callAI() decides which one
+    to use per call (privacy via localOnly, otherwise prefer Gemini)."""
+    s = _settings_load()
+    gemini_key   = s.get("gemini_key") or ""
+    gemini_model = s.get("gemini_model") or "gemini-1.5-flash"
+    ollama_url   = s.get("ollama_url") or ""
+
+    gemini_configured = bool(gemini_key)
+    gemini_online     = gemini_configured  # key presence is enough for Gemini
+
+    ollama_configured = bool(ollama_url)
+    ollama_online, ollama_model = _ai_probe_ollama(ollama_url) if ollama_configured else (False, "")
+
+    # Default backend (no localOnly): prefer Gemini if configured, else Ollama.
+    # localOnly callers always use Ollama regardless of this default.
+    default_backend = None
+    default_model   = ""
+    if gemini_online:
+        default_backend, default_model = "gemini", gemini_model
+    elif ollama_online:
+        default_backend, default_model = "ollama", ollama_model
+
     return {
-        "ollama": {
-            "available": ollama_ok,
-            "url":       cfg["ollama_url"],
-            "model":     active_model or cfg["ollama_model"] or "",
-            "models":    models,
-        },
         "gemini": {
-            "available": bool(cfg["gemini_key"]),
-            "model":     cfg["gemini_model"],
-            "has_key":   bool(cfg["gemini_key"]),
+            "configured": gemini_configured,
+            "online":     gemini_online,
+            "model":      gemini_model,
         },
+        "ollama": {
+            "configured": ollama_configured,
+            "online":     ollama_online,
+            "model":      ollama_model,
+            "url":        ollama_url,
+        },
+        # Back-compat fields used by older callers — derived from above
+        "backend": default_backend,
+        "online":  bool(default_backend),
+        "model":   default_model,
     }
 
-@app.post("/api/ai/analyze")
-async def ai_analyze(request: Request):
-    """Dispatches an AI analysis request.
 
-    Body:
-      module:   one of wired|security|roaming|wifits|network|quickcheck (system prompt)
-      context:  JSON-serializable dict with module results
-      strategy: local|external|auto   (default: auto)
-      lang:     en|es                  (default: en)
-    """
+@app.post("/api/ai/gemini")
+async def ai_gemini(request: Request):
+    """Body: { prompt: str }. Reads key from settings."""
     try:
         body = await request.json()
     except Exception:
         body = {}
-    module   = (body.get("module") or "wifits").lower()
-    context  = body.get("context") or {}
-    strategy = (body.get("strategy") or "auto").lower()
-    lang     = (body.get("lang") or "en").lower()
-    if lang not in ("en", "es"): lang = "en"
-
-    system = (_AI_PROMPTS.get(module) or _AI_PROMPTS["wifits"])[lang]
-
-    cfg = _ai_cfg()
-    ollama_ok = _ai_ollama_available(cfg["ollama_url"]) and bool(_ai_resolve_ollama_model(cfg))
-    gemini_ok = bool(cfg["gemini_key"])
-
-    provider = None
-    if strategy == "local":
-        provider = "ollama" if ollama_ok else None
-    elif strategy == "external":
-        provider = "gemini" if gemini_ok else None
-    else:  # auto — prefer local for privacy, fall back to gemini
-        if ollama_ok:
-            provider = "ollama"
-        elif gemini_ok:
-            provider = "gemini"
-
-    if provider is None:
-        return JSONResponse({
-            "ok": False,
-            "error": "No AI provider available. Start Ollama or set Gemini API key in Settings.",
-            "ollama_available": ollama_ok,
-            "gemini_available": gemini_ok,
-        }, status_code=503)
-
-    if provider == "gemini":
-        ctx_for_model = _ai_sanitize(context)
-    else:
-        ctx_for_model = context
-    user_msg = (f"Module: {module}\n"
-                f"Context (JSON):\n{json.dumps(ctx_for_model, indent=2, default=str)}")
-
+    prompt = (body.get("prompt") or "").strip()
+    if not prompt:
+        return JSONResponse({"ok": False, "error": "empty prompt"}, status_code=400)
+    s = _settings_load()
+    key = s.get("gemini_key") or ""
+    if not key:
+        return JSONResponse({"ok": False, "error": "Gemini API key not configured"},
+                            status_code=400)
+    model = s.get("gemini_model") or "gemini-1.5-flash"
     try:
-        if provider == "ollama":
-            text, used_model = _ai_call_ollama(system, user_msg, cfg)
-            return {"ok": True, "provider": "ollama",
-                    "model": used_model, "response": text,
-                    "sanitized": False}
-        else:
-            text = _ai_call_gemini(system, user_msg, cfg)
-            return {"ok": True, "provider": "gemini",
-                    "model": cfg["gemini_model"], "response": text,
-                    "sanitized": True}
+        text, used = _ai_call_gemini(prompt, key, model)
+        return {"ok": True, "backend": "gemini", "model": used, "response": text}
     except _ai_err.HTTPError as e:
         try:    detail = e.read().decode("utf-8", "ignore")[:300]
         except: detail = ""
-        return JSONResponse({"ok": False, "provider": provider,
-                             "error": f"HTTP {e.code}: {e.reason} {detail}"},
-                            status_code=502)
+        return JSONResponse(
+            {"ok": False, "backend": "gemini",
+             "error": f"HTTP {e.code}: {e.reason} {detail}"}, status_code=502)
     except Exception as e:
-        return JSONResponse({"ok": False, "provider": provider,
+        return JSONResponse({"ok": False, "backend": "gemini",
                              "error": str(e)}, status_code=502)
+
+
+@app.post("/api/ai/ollama")
+async def ai_ollama(request: Request):
+    """Body: { prompt: str }. Reads remote URL from settings (NOT localhost)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    prompt = (body.get("prompt") or "").strip()
+    if not prompt:
+        return JSONResponse({"ok": False, "error": "empty prompt"}, status_code=400)
+    s = _settings_load()
+    url = s.get("ollama_url") or ""
+    if not url:
+        return JSONResponse({"ok": False, "error": "Ollama URL not configured"},
+                            status_code=400)
+    try:
+        text, used = _ai_call_ollama(prompt, url)
+        return {"ok": True, "backend": "ollama", "model": used, "response": text}
+    except _ai_err.HTTPError as e:
+        try:    detail = e.read().decode("utf-8", "ignore")[:300]
+        except: detail = ""
+        return JSONResponse(
+            {"ok": False, "backend": "ollama",
+             "error": f"HTTP {e.code}: {e.reason} {detail}"}, status_code=502)
+    except Exception as e:
+        return JSONResponse({"ok": False, "backend": "ollama",
+                             "error": str(e)}, status_code=502)
+
+
+@app.post("/api/ai/test/gemini")
+async def ai_test_gemini(request: Request):
+    """Validates a Gemini API key by sending a tiny ping prompt."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    key   = (body.get("key") or "").strip()
+    model = (body.get("model") or "gemini-1.5-flash").strip() or "gemini-1.5-flash"
+    if not key:
+        return JSONResponse({"ok": False, "error": "missing key"}, status_code=400)
+    try:
+        text, used = _ai_call_gemini("Responde solo: ok", key, model)
+        return {"ok": True, "model": used, "response": text}
+    except _ai_err.HTTPError as e:
+        return JSONResponse({"ok": False, "error": f"HTTP {e.code}: {e.reason}"},
+                            status_code=200)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=200)
+
+
+@app.post("/api/ai/test/ollama")
+async def ai_test_ollama(request: Request):
+    """Probes a remote Ollama URL: /api/tags then a tiny generate call."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    url = (body.get("url") or "").strip().rstrip("/")
+    if not url:
+        return JSONResponse({"ok": False, "error": "missing url"}, status_code=400)
+    # Step 1 — discover models
+    try:
+        with _ai_req.urlopen(f"{url}/api/tags", timeout=3) as r:
+            tags = json.loads(r.read())
+            models = [m.get("name", "") for m in tags.get("models", []) if m.get("name")]
+    except Exception as e:
+        return {"ok": False, "error": "No se encuentra agente en esa dirección",
+                "detail": str(e)}
+    if not models:
+        return {"ok": False, "error": "El agente respondió pero no tiene modelos instalados"}
+    # Step 2 — confirm model can answer
+    model = models[0]
+    try:
+        body2 = json.dumps({
+            "model": model, "prompt": "responde solo: ok", "stream": False,
+            "options": {"temperature": 0.0, "num_predict": 16},
+        }).encode()
+        req = _ai_req.Request(f"{url}/api/generate", data=body2,
+                              headers={"Content-Type": "application/json"})
+        with _ai_req.urlopen(req, timeout=15) as r:
+            data = json.loads(r.read())
+            text = (data.get("response") or "").strip()
+    except Exception as e:
+        return {"ok": True, "model": model, "warning": f"tags ok, generate failed: {e}",
+                "models": models}
+    return {"ok": True, "model": model, "models": models, "response": text}
 
 # ═══════════════════════════════════════════════════════════════
 #  SENSOR MODE — pktvisor integration (on-demand only)
@@ -5213,6 +5222,480 @@ async def sensor_stop():
     _PKT["proc"] = None
     _PKT["iface"] = ""
     return {"ok": True, "running": False}
+
+
+# ── PCAP capture (one-shot, downloadable + Deep Analysis fodder) ──
+CAPTURE_DIR = BASE_DIR / "captures"
+CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+
+@app.post("/api/sensor/pcap/capture")
+async def sensor_pcap_capture(iface: str = "eth1", seconds: int = 10, count: int = 0):
+    """Captures live traffic to a downloadable .pcap. Default: 10 seconds on
+    eth1. The file lives in /opt/nekopi/captures/ so the Deep Analysis module
+    can analyze it locally without ever leaving the device."""
+    if not re.match(r"^[a-zA-Z0-9_-]+$", iface):
+        return {"ok": False, "error": "invalid iface"}
+    if seconds < 1 or seconds > 120:
+        seconds = 10
+    if count < 0 or count > 50000:
+        count = 0
+    fname = f"sensor-{int(time.time())}-{iface}.pcap"
+    fpath = CAPTURE_DIR / fname
+    cmd = ["sudo", "tcpdump", "-i", iface, "-w", str(fpath),
+           "-G", str(seconds), "-W", "1"]
+    if count > 0:
+        cmd += ["-c", str(count)]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=seconds + 8)
+    except subprocess.TimeoutExpired:
+        # tcpdump should self-terminate at -G seconds, but cap it just in case
+        return {"ok": False, "error": "capture timeout"}
+    if not fpath.exists() or fpath.stat().st_size == 0:
+        return {"ok": False, "error": (proc.stderr or "no packets captured")[-300:]}
+    return {"ok": True, "file": fname, "size": fpath.stat().st_size,
+            "iface": iface, "seconds": seconds}
+
+
+@app.get("/api/sensor/pcap/list")
+async def sensor_pcap_list():
+    files = []
+    for p in sorted(CAPTURE_DIR.glob("*.pcap"), key=lambda f: f.stat().st_mtime, reverse=True):
+        files.append({"name": p.name, "size": p.stat().st_size,
+                      "mtime": int(p.stat().st_mtime)})
+    return {"files": files[:50]}
+
+
+@app.get("/api/sensor/pcap/download")
+async def sensor_pcap_download(name: str):
+    # Strict filename whitelist — no path traversal
+    if not re.match(r"^[a-zA-Z0-9._-]+\.pcap$", name):
+        return JSONResponse({"error": "invalid filename"}, status_code=400)
+    p = CAPTURE_DIR / name
+    if not p.exists():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(str(p), media_type="application/vnd.tcpdump.pcap",
+                        filename=name)
+
+
+_ANON_IPV4 = re.compile(r"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b")
+_ANON_MAC  = re.compile(r"\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b")
+
+def _make_anonymizer():
+    """Returns a (text → text) anonymizer that replaces internal IPs with
+    Host-A, Host-B, … in deterministic order. Public addresses are masked
+    only by their last octet so the model still sees the network topology
+    without leaking the real address. Used by the Deep Analysis pipeline
+    so cloud providers (Gemini) never see raw client IPs/MACs."""
+    seen: dict[str, str] = {}
+    next_label = [0]
+    def label_for(ip: str) -> str:
+        if ip in seen:
+            return seen[ip]
+        # RFC1918 + CGNAT + link-local treated as "internal"
+        parts = ip.split(".")
+        try:
+            o1, o2 = int(parts[0]), int(parts[1])
+        except (ValueError, IndexError):
+            return ip
+        is_internal = (
+            o1 == 10 or
+            (o1 == 172 and 16 <= o2 <= 31) or
+            (o1 == 192 and o2 == 168) or
+            (o1 == 100 and 64 <= o2 <= 127) or
+            (o1 == 169 and o2 == 254) or
+            ip.startswith("127.")
+        )
+        if is_internal:
+            idx = next_label[0]
+            next_label[0] += 1
+            # Host-A, Host-B, …, Host-AA after Z
+            if idx < 26:
+                lbl = "Host-" + chr(ord("A") + idx)
+            else:
+                lbl = f"Host-{idx}"
+        else:
+            # Public: keep only the /24 prefix
+            lbl = f"{parts[0]}.{parts[1]}.{parts[2]}.x"
+        seen[ip] = lbl
+        return lbl
+
+    mac_seen: dict[str, str] = {}
+    def label_for_mac(mac: str) -> str:
+        if mac in mac_seen:
+            return mac_seen[mac]
+        idx = len(mac_seen)
+        if idx < 26:
+            lbl = "MAC-" + chr(ord("A") + idx)
+        else:
+            lbl = f"MAC-{idx}"
+        mac_seen[mac] = lbl
+        return lbl
+
+    def anonymize(text: str) -> str:
+        if not text:
+            return text
+        text = _ANON_IPV4.sub(lambda m: label_for(m.group(1)), text)
+        text = _ANON_MAC.sub(lambda m: label_for_mac(m.group(0)), text)
+        return text
+
+    anonymize.label_for = label_for
+    anonymize.label_for_mac = label_for_mac
+    anonymize.seen_ips = seen
+    anonymize.seen_macs = mac_seen
+    return anonymize
+
+
+def _pcap_summary(path: Path) -> dict:
+    """Summarizes a pcap with tshark — packet count, protocols, top talkers,
+    DNS queries, anomaly hints. The output is fed verbatim to the LLM via the
+    Deep Analysis module. The summary stays raw here; anonymization is applied
+    later by the deep-analyze pipeline so the same helper can serve both
+    local-only Ollama and cloud Gemini callers."""
+    if not shutil.which("tshark"):
+        return {"ok": False, "error": "tshark not installed"}
+    try:
+        info = subprocess.run(
+            ["tshark", "-r", str(path), "-q", "-z", "io,stat,0"],
+            capture_output=True, text=True, timeout=20)
+        conv = subprocess.run(
+            ["tshark", "-r", str(path), "-q", "-z", "conv,ip"],
+            capture_output=True, text=True, timeout=20)
+        proto = subprocess.run(
+            ["tshark", "-r", str(path), "-q", "-z", "io,phs"],
+            capture_output=True, text=True, timeout=20)
+        dns = subprocess.run(
+            ["tshark", "-r", str(path), "-Y", "dns.qry.name", "-T", "fields",
+             "-e", "dns.qry.name"],
+            capture_output=True, text=True, timeout=20)
+        # Bonus: cheap anomaly hints — broadcast volume, top DST ports
+        bcast = subprocess.run(
+            ["tshark", "-r", str(path), "-Y", "eth.dst == ff:ff:ff:ff:ff:ff",
+             "-T", "fields", "-e", "frame.number"],
+            capture_output=True, text=True, timeout=20)
+        ports = subprocess.run(
+            ["tshark", "-r", str(path), "-q", "-z", "endpoints,tcp"],
+            capture_output=True, text=True, timeout=20)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "tshark timeout"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    dns_counts: dict[str, int] = {}
+    for line in (dns.stdout or "").splitlines():
+        q = line.strip()
+        if q:
+            dns_counts[q] = dns_counts.get(q, 0) + 1
+    top_dns = sorted(dns_counts.items(), key=lambda x: -x[1])[:15]
+    bcast_count = len([l for l in (bcast.stdout or "").splitlines() if l.strip()])
+
+    return {
+        "ok": True,
+        "io_stat":     (info.stdout or "")[-1500:],
+        "top_conv":    (conv.stdout or "")[-2000:],
+        "protocols":   (proto.stdout or "")[-1500:],
+        "top_dns":     [{"name": n, "count": c} for n, c in top_dns],
+        "broadcast_count": bcast_count,
+        "tcp_endpoints":   (ports.stdout or "")[-1500:],
+    }
+
+
+@app.get("/api/sensor/pcap/summary")
+async def sensor_pcap_summary(name: str):
+    if not re.match(r"^[a-zA-Z0-9._-]+\.pcap$", name):
+        return JSONResponse({"error": "invalid filename"}, status_code=400)
+    p = CAPTURE_DIR / name
+    if not p.exists():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return _pcap_summary(p)
+
+
+@app.post("/api/sensor/pcap/analyze")
+async def sensor_pcap_analyze(name: str):
+    """Runs the Deep Analysis pipeline (anonymize → Gemini/Ollama) against a
+    pcap that's already on disk in CAPTURE_DIR — used by Sensor Mode so the
+    engineer can analyze a capture without re-uploading it."""
+    if not re.match(r"^[a-zA-Z0-9._-]+\.pcap$", name):
+        return JSONResponse({"ok": False, "error": "invalid filename"}, status_code=400)
+    p = CAPTURE_DIR / name
+    if not p.exists():
+        return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
+
+    s = _pcap_summary(p)
+    if not s.get("ok"):
+        return JSONResponse({"ok": False, "error": s.get("error", "pcap parse failed")},
+                            status_code=500)
+    summary = {"name": name, "size": p.stat().st_size, "ext": "pcap", "pcap": s}
+    anon = _make_anonymizer()
+    prompt = _build_deep_prompt("pcap", name, summary, anon)
+    summary["anon_map"] = {"ips": len(anon.seen_ips), "macs": len(anon.seen_macs)}
+
+    cfg = _settings_load()
+    gemini_key = cfg.get("gemini_key") or ""
+    ollama_url = cfg.get("ollama_url") or ""
+    backend = None
+    response = ""
+    model = ""
+    error = None
+
+    if gemini_key:
+        try:
+            response, model = _ai_call_gemini(
+                prompt, gemini_key, cfg.get("gemini_model") or "gemini-1.5-flash")
+            backend = "gemini"
+        except Exception as e:
+            error = f"Gemini failed: {e}"
+    if not response and ollama_url:
+        try:
+            response, model = _ai_call_ollama(prompt, ollama_url)
+            backend = "ollama"
+            error = None
+        except Exception as e:
+            error = (error + " · " if error else "") + f"Ollama failed: {e}"
+
+    if not response:
+        return JSONResponse({"ok": False, "error": error or "No AI backend configured",
+                             "summary": summary}, status_code=502)
+
+    return {"ok": True, "backend": backend, "model": model,
+            "response": response, "summary": summary}
+
+
+# ── Deep Analysis: file upload + summary for the AI module ──────────
+DEEP_ANALYSIS_DIR = BASE_DIR / "captures" / "deep"
+DEEP_ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
+DEEP_ANALYSIS_MAX = 20 * 1024 * 1024  # 20 MB
+
+def _deep_summary_log(text: str) -> dict:
+    """Best-effort log summary: counts, top tokens, error/warning lines."""
+    lines = text.splitlines()
+    crit = []
+    warn = []
+    err  = []
+    pat_crit = re.compile(r"(?i)\b(critical|fatal|panic|emerg)\b")
+    pat_err  = re.compile(r"(?i)\b(error|failed|denied|unreachable|timeout)\b")
+    pat_warn = re.compile(r"(?i)\b(warn|warning|deprecated|retry)\b")
+    for ln in lines:
+        if pat_crit.search(ln): crit.append(ln)
+        elif pat_err.search(ln): err.append(ln)
+        elif pat_warn.search(ln): warn.append(ln)
+    return {
+        "lines":    len(lines),
+        "critical": crit[:25],
+        "errors":   err[:25],
+        "warnings": warn[:15],
+        "head":     lines[:15],
+        "tail":     lines[-15:] if len(lines) > 15 else [],
+    }
+
+def _deep_summary_config(text: str) -> dict:
+    """Cisco-style config summary: count interfaces, ACLs, ssh/telnet, vlans."""
+    lines = text.splitlines()
+    return {
+        "lines":          len(lines),
+        "hostname":       (re.findall(r"^hostname\s+(\S+)", text, re.M) or ["—"])[0],
+        "version":        (re.findall(r"^version\s+(\S+)", text, re.M) or ["—"])[0],
+        "interfaces":     len(re.findall(r"^interface\s+\S+", text, re.M)),
+        "acl_count":      len(re.findall(r"^(?:ip\s+)?access-list\s+", text, re.M)),
+        "vlans":          len(re.findall(r"^vlan\s+\d+", text, re.M)),
+        "ssh_present":    "ip ssh version" in text or "transport input ssh" in text,
+        "telnet_present": "transport input telnet" in text or "transport input all" in text,
+        "no_password_service": "service password-encryption" not in text,
+        "snmp_v2_communities": re.findall(r"snmp-server community\s+(\S+)", text)[:5],
+        "head":           lines[:15],
+    }
+
+def _build_deep_prompt(ext: str, fname: str, summary: dict, anon) -> str:
+    """Builds the cloud-safe prompt for the Deep Analysis pipeline. Every
+    field is run through the anonymizer so internal IPs/MACs become
+    Host-A/MAC-A before reaching the model."""
+    parts = [
+        f"Archivo: {fname} · tipo: {ext}",
+        "",
+        "NOTA DE PRIVACIDAD: las IPs internas del cliente fueron reemplazadas",
+        "por etiquetas Host-A, Host-B, … y las MACs por MAC-A, MAC-B, …",
+        "Las IPs públicas se muestran con el último octeto enmascarado.",
+        "No solicites las IPs reales — el ingeniero las verifica en sitio.",
+        "",
+    ]
+    if ext in ("pcap", "pcapng"):
+        pc = summary.get("pcap") or {}
+        top_dns = "\n".join(
+            f"  {anon(d['name'])} ({d['count']})" for d in (pc.get("top_dns") or [])
+        ) or "  (sin DNS)"
+        parts += [
+            "=== I/O STAT (anonimizado) ===",
+            anon(pc.get("io_stat") or ""),
+            "",
+            "=== TOP CONVERSATIONS (anonimizado) ===",
+            anon(pc.get("top_conv") or ""),
+            "",
+            "=== PROTOCOL HIERARCHY ===",
+            pc.get("protocols") or "",
+            "",
+            "=== TCP ENDPOINTS (anonimizado) ===",
+            anon(pc.get("tcp_endpoints") or ""),
+            "",
+            "=== TOP DNS QUERIES (anonimizado) ===",
+            top_dns,
+            "",
+            f"Broadcast frames detectados: {pc.get('broadcast_count', 0)}",
+            "",
+            "Resume top talkers, distribución de protocolos, anomalías "
+            "(broadcast storm, posibles port scans, DNS sospechoso) y "
+            "sugiere qué validar en sitio.",
+        ]
+    elif ext in ("cfg", "conf"):
+        cf = summary.get("config") or {}
+        parts += [
+            f"Hostname: {anon(cf.get('hostname','—'))}",
+            f"Versión: {cf.get('version','—')}",
+            f"Interfaces configuradas: {cf.get('interfaces',0)}",
+            f"VLANs: {cf.get('vlans',0)}",
+            f"ACLs: {cf.get('acl_count',0)}",
+            f"SSH presente: {cf.get('ssh_present')}",
+            f"Telnet presente: {cf.get('telnet_present')} (riesgo si True)",
+            f"service password-encryption ausente: {cf.get('no_password_service')}",
+            f"SNMP v2 communities: {', '.join(cf.get('snmp_v2_communities') or []) or '(ninguna)'}",
+            "",
+            "Primeras líneas (anonimizadas):",
+            anon("\n".join(cf.get("head") or [])),
+            "",
+            "Revisa esta configuración bajo buenas prácticas (gestión segura, "
+            "hardening, logging). Sugiere qué validar.",
+        ]
+    else:  # log/txt
+        lg = summary.get("log") or {}
+        parts += [
+            f"Líneas: {lg.get('lines', 0)} · Críticos: {len(lg.get('critical', []))}"
+            f" · Errores: {len(lg.get('errors', []))} · Warnings: {len(lg.get('warnings', []))}",
+            "",
+            "=== CRÍTICOS (anonimizado) ===",
+            anon("\n".join((lg.get("critical") or [])[:12])),
+            "",
+            "=== ERRORES (anonimizado) ===",
+            anon("\n".join((lg.get("errors") or [])[:12])),
+            "",
+            "=== WARNINGS (anonimizado) ===",
+            anon("\n".join((lg.get("warnings") or [])[:8])),
+            "",
+            "Identifica patrones sospechosos, fallas críticas y servicios "
+            "afectados. Sugiere qué investigar primero.",
+        ]
+    return "\n".join(parts)
+
+
+@app.post("/api/ai/deep-analyze")
+async def ai_deep_analyze(file: UploadFile = File(...)):
+    """Hybrid Deep Analysis pipeline:
+      1. Receive the raw file (pcap/log/cfg/conf/txt).
+      2. Pre-process LOCALLY → tshark/regex extracts metrics, anomalies, etc.
+      3. Anonymize the summary (Host-A, Host-B, MAC-A, …) — the raw file
+         and real IPs NEVER leave the device.
+      4. Dispatch the anonymized summary to Gemini (preferred for quality)
+         or fall back to a remote Ollama agent if Gemini is not configured.
+      5. Return the anonymized summary + the model response so the engineer
+         can audit what actually went out to the cloud.
+    """
+    name = (file.filename or "").strip()
+    if not re.match(r"^[\w.\- ]+$", name):
+        return JSONResponse({"ok": False, "error": "invalid filename"}, status_code=400)
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if ext not in ("pcap", "pcapng", "log", "txt", "cfg", "conf"):
+        return JSONResponse({"ok": False, "error": "unsupported file type"}, status_code=400)
+
+    safe_name = f"{int(time.time())}-{name.replace(' ', '_')}"
+    dest = DEEP_ANALYSIS_DIR / safe_name
+    size = 0
+    with dest.open("wb") as fh:
+        while True:
+            chunk = await file.read(64 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > DEEP_ANALYSIS_MAX:
+                fh.close()
+                dest.unlink(missing_ok=True)
+                return JSONResponse({"ok": False, "error": "file too large (max 20MB)"},
+                                    status_code=413)
+            fh.write(chunk)
+
+    # Step 1 — local pre-processing
+    summary: dict = {"name": safe_name, "size": size, "ext": ext}
+    if ext in ("pcap", "pcapng"):
+        s = _pcap_summary(dest)
+        if not s.get("ok"):
+            return JSONResponse({"ok": False, "error": s.get("error", "pcap parse failed")},
+                                status_code=500)
+        summary["pcap"] = s
+    elif ext in ("cfg", "conf"):
+        try:
+            text = dest.read_text("utf-8", errors="replace")[:200_000]
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        summary["config"] = _deep_summary_config(text)
+    else:
+        try:
+            text = dest.read_text("utf-8", errors="replace")[:200_000]
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        summary["log"] = _deep_summary_log(text)
+
+    # Step 2 — anonymize + build prompt
+    anon = _make_anonymizer()
+    prompt = _build_deep_prompt(ext, name, summary, anon)
+    summary["anonymized_prompt"] = prompt
+    summary["anon_map"] = {
+        "ips":  len(anon.seen_ips),
+        "macs": len(anon.seen_macs),
+    }
+
+    # Step 3 — dispatch to Gemini (preferred) or Ollama (fallback)
+    s = _settings_load()
+    gemini_key = s.get("gemini_key") or ""
+    ollama_url = s.get("ollama_url") or ""
+    backend = None
+    response = ""
+    model = ""
+    error = None
+
+    if gemini_key:
+        try:
+            response, model = _ai_call_gemini(
+                prompt, gemini_key, s.get("gemini_model") or "gemini-1.5-flash")
+            backend = "gemini"
+        except Exception as e:
+            error = f"Gemini failed: {e}"
+            # fall through to Ollama
+
+    if not response and ollama_url:
+        try:
+            response, model = _ai_call_ollama(prompt, ollama_url)
+            backend = "ollama"
+            error = None
+        except Exception as e:
+            error = (error + " · " if error else "") + f"Ollama failed: {e}"
+
+    if not response:
+        return JSONResponse({
+            "ok":      False,
+            "error":   error or "No AI backend configured",
+            "summary": {k: v for k, v in summary.items() if k != "pcap"},
+        }, status_code=502)
+
+    return {
+        "ok":       True,
+        "backend":  backend,
+        "model":    model,
+        "response": response,
+        "summary":  summary,
+    }
+
+
+# Back-compat alias — older Edge AI build called this path
+@app.post("/api/ai/deep/upload")
+async def ai_deep_upload_legacy(file: UploadFile = File(...)):
+    return await ai_deep_analyze(file)
 
 @app.get("/api/sensor/status")
 async def sensor_status():
@@ -5329,6 +5812,118 @@ async def wifi_interfaces():
         it["monitor"] = phys.get(phy, False)
     return {"interfaces": items}
 
+# ── Terminal sessions: ttyd local bash + per-host ttyd SSH ───────────
+# We spawn one ttyd process per remote SSH session on a free port and proxy
+# the iframe to the engineer. No SSH password ever touches the backend — the
+# user types it inside the embedded terminal.
+TTYD_BIN = shutil.which("ttyd") or "/usr/bin/ttyd"
+_TTYD_LOCAL_PORT = 7681  # the systemd ttyd service port for local bash
+_TTYD_SSH_PORT_BASE = 7700
+_TTYD_SESSIONS: dict[str, dict] = {}  # session_id → {proc, port, host, user}
+
+def _ttyd_alloc_port() -> int:
+    used = {s.get("port") for s in _TTYD_SESSIONS.values()}
+    for p in range(_TTYD_SSH_PORT_BASE, _TTYD_SSH_PORT_BASE + 30):
+        if p in used:
+            continue
+        if _port_open(p):
+            continue
+        return p
+    raise RuntimeError("no free ttyd port available")
+
+@app.get("/api/terminal/local")
+async def terminal_local():
+    """Returns the URL of the local-bash ttyd already managed by systemd."""
+    return {
+        "ok": _port_open(_TTYD_LOCAL_PORT),
+        "port": _TTYD_LOCAL_PORT,
+        "url":  f"http://{{host}}:{_TTYD_LOCAL_PORT}/",
+    }
+
+@app.post("/api/terminal/ssh")
+async def terminal_ssh(request: Request):
+    """Spawns a one-shot ttyd that runs `ssh user@host`. The engineer types
+    the password inside the embedded terminal — no credentials touch the
+    backend. Returns {ok, session_id, port}."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    host = (body.get("host") or "").strip()
+    user = (body.get("user") or "nekopi").strip()
+    port_ssh = int(body.get("port") or 22)
+    if not re.match(r"^[\w.\-]+$", host or ""):
+        return JSONResponse({"ok": False, "error": "invalid host"}, status_code=400)
+    if not re.match(r"^[\w.\-]+$", user):
+        return JSONResponse({"ok": False, "error": "invalid user"}, status_code=400)
+    if port_ssh < 1 or port_ssh > 65535:
+        return JSONResponse({"ok": False, "error": "invalid port"}, status_code=400)
+    if not Path(TTYD_BIN).exists():
+        return JSONResponse({"ok": False, "error": "ttyd not installed"}, status_code=500)
+    try:
+        ttyd_port = _ttyd_alloc_port()
+    except RuntimeError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=503)
+    cmd = [
+        TTYD_BIN, "-p", str(ttyd_port), "-W",
+        "ssh",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "GlobalKnownHostsFile=/dev/null",
+        "-p", str(port_ssh),
+        f"{user}@{host}",
+    ]
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.PIPE, text=True)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    time.sleep(0.6)
+    if proc.poll() is not None:
+        try:    err = (proc.stderr.read() or "")[-300:]
+        except: err = ""
+        return JSONResponse({"ok": False, "error": f"ttyd exited: {err.strip()}"},
+                            status_code=500)
+    session_id = f"sess-{int(time.time())}-{ttyd_port}"
+    _TTYD_SESSIONS[session_id] = {
+        "proc": proc, "port": ttyd_port, "host": host, "user": user,
+        "started_at": int(time.time()),
+    }
+    return {"ok": True, "session_id": session_id, "port": ttyd_port,
+            "host": host, "user": user}
+
+@app.post("/api/terminal/stop")
+async def terminal_stop(session_id: str):
+    sess = _TTYD_SESSIONS.pop(session_id, None)
+    if not sess:
+        return {"ok": True, "note": "no such session"}
+    proc = sess.get("proc")
+    if proc and proc.poll() is None:
+        try: proc.terminate()
+        except Exception: pass
+        try: proc.wait(timeout=3)
+        except Exception:
+            try: proc.kill()
+            except Exception: pass
+    return {"ok": True}
+
+@app.get("/api/terminal/sessions")
+async def terminal_sessions():
+    out = []
+    dead = []
+    for sid, s in _TTYD_SESSIONS.items():
+        proc = s.get("proc")
+        if proc and proc.poll() is None:
+            out.append({"session_id": sid, "port": s["port"],
+                        "host": s["host"], "user": s["user"],
+                        "started_at": s["started_at"]})
+        else:
+            dead.append(sid)
+    for sid in dead:
+        _TTYD_SESSIONS.pop(sid, None)
+    return {"sessions": out}
+
+
 @app.get("/api/system/logs")
 async def system_logs(unit: str = "nekopi", lines: int = 200):
     """Returns the last N journalctl lines, optionally filtered to a unit."""
@@ -5343,12 +5938,12 @@ async def settings_get():
     s = _settings_load()
     return {
         "ollama_url":   s.get("ollama_url",   ""),
-        "ollama_model": s.get("ollama_model", ""),
         "gemini_key":   "••••••••" if s.get("gemini_key") else "",
         "gemini_model": s.get("gemini_model", "gemini-1.5-flash"),
         "ui_lang":      s.get("ui_lang", "es"),
         "client_name":  s.get("client_name", ""),
         "engineer":     s.get("engineer", ""),
+        "device_name":  s.get("device_name", ""),
     }
 
 @app.post("/api/settings")
@@ -5358,8 +5953,8 @@ async def settings_set(request: Request):
     except Exception:
         body = {}
     cur = _settings_load()
-    for k in ("ollama_url", "ollama_model", "gemini_model",
-              "ui_lang", "client_name", "engineer"):
+    for k in ("ollama_url", "gemini_model",
+              "ui_lang", "client_name", "engineer", "device_name"):
         if k in body and body[k] is not None:
             cur[k] = str(body[k]).strip()
     # gemini_key only updated when caller sends a non-mask value
@@ -5369,5 +5964,7 @@ async def settings_set(request: Request):
             cur["gemini_key"] = v
         elif v == "":
             cur.pop("gemini_key", None)
+    # Drop the legacy radio field if present
+    cur.pop("ai_backend", None)
     _settings_save(cur)
     return {"ok": True}
