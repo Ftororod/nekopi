@@ -4763,12 +4763,36 @@ async def reports_download(rid: str):
 import urllib.request as _ai_req
 import urllib.error   as _ai_err
 
-OLLAMA_URL      = os.environ.get("NEKOPI_OLLAMA_URL", "http://127.0.0.1:11434")
-OLLAMA_MODEL    = os.environ.get("NEKOPI_OLLAMA_MODEL", "llama3")
-GEMINI_API_KEY  = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL    = os.environ.get("NEKOPI_GEMINI_MODEL", "gemini-1.5-flash")
-GEMINI_ENDPOINT = ("https://generativelanguage.googleapis.com/v1beta/"
-                   f"models/{GEMINI_MODEL}:generateContent")
+# Persistent settings (Ollama URL/model + Gemini key) — overridable from UI.
+SETTINGS_FILE = BASE_DIR / "data" / "settings.json"
+
+def _settings_load() -> dict:
+    try:
+        if SETTINGS_FILE.exists():
+            return json.loads(SETTINGS_FILE.read_text())
+    except Exception:
+        pass
+    return {}
+
+def _settings_save(d: dict) -> None:
+    try:
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        SETTINGS_FILE.write_text(json.dumps(d, indent=2))
+    except Exception:
+        pass
+
+def _ai_cfg() -> dict:
+    s = _settings_load()
+    return {
+        "ollama_url":   s.get("ollama_url")   or os.environ.get("NEKOPI_OLLAMA_URL", "http://127.0.0.1:11434"),
+        "ollama_model": s.get("ollama_model") or os.environ.get("NEKOPI_OLLAMA_MODEL", ""),
+        "gemini_key":   s.get("gemini_key")   or os.environ.get("GEMINI_API_KEY", ""),
+        "gemini_model": s.get("gemini_model") or os.environ.get("NEKOPI_GEMINI_MODEL", "gemini-1.5-flash"),
+    }
+
+def _gemini_endpoint(model: str) -> str:
+    return ("https://generativelanguage.googleapis.com/v1beta/"
+            f"models/{model}:generateContent")
 
 _AI_PROMPTS = {
     "wired": {
@@ -4808,6 +4832,39 @@ _AI_PROMPTS = {
                "párrafos: causa raíz probable, impacto, pasos concretos de solución, "
                "y qué verificar en el AP/controlador."),
     },
+    "wifi": {
+        "en": ("You are a WiFi RF analyst. Analyze this scan: channel utilization, "
+               "co-channel/adjacent interference, signal quality, security posture. "
+               "Recommend channel/width/power changes for better performance."),
+        "es": ("Eres un analista RF WiFi. Analiza este escaneo: uso de canales, "
+               "interferencia co-canal/adyacente, calidad de señal, postura de "
+               "seguridad. Recomienda cambios de canal/ancho/potencia."),
+    },
+    "network": {
+        "en": ("You are a network reconnaissance analyst. Classify the discovered "
+               "devices, flag anomalies, identify likely roles (server, IoT, printer, "
+               "AP, camera) and risks. Be concise and actionable."),
+        "es": ("Eres un analista de reconocimiento de red. Clasifica los dispositivos "
+               "descubiertos, marca anomalías, identifica roles probables (servidor, "
+               "IoT, impresora, AP, cámara) y riesgos. Sé conciso y accionable."),
+    },
+    "quickcheck": {
+        "en": ("You are a network field engineer reviewing a quick health check "
+               "(gateway, DNS, captive portal, latency). Give a 2-paragraph summary: "
+               "is the link healthy, what's broken, what to do next."),
+        "es": ("Eres un ingeniero de red revisando un quick check (gateway, DNS, "
+               "portal cautivo, latencia). Entrega un resumen de 2 párrafos: ¿está "
+               "sano el enlace?, ¿qué está roto?, ¿qué hacer ahora?"),
+    },
+    "reports": {
+        "en": ("You are writing the executive summary for a NekoPi field report. "
+               "From the JSON results across all modules, write 3 short paragraphs: "
+               "overall posture, biggest risks, prioritized next steps. No lists."),
+        "es": ("Estás escribiendo el resumen ejecutivo de un reporte de campo NekoPi. "
+               "Con los resultados JSON de todos los módulos, escribe 3 párrafos "
+               "cortos: postura general, riesgos principales, próximos pasos "
+               "priorizados. Sin listas."),
+    },
 }
 
 _PII_IP  = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
@@ -4839,53 +4896,63 @@ def _ai_sanitize(obj):
         return s
     return obj
 
-def _ai_ollama_available() -> bool:
+def _ai_ollama_available(url: str | None = None) -> bool:
+    url = url or _ai_cfg()["ollama_url"]
     try:
-        with _ai_req.urlopen(f"{OLLAMA_URL}/api/tags", timeout=1.5) as r:
+        with _ai_req.urlopen(f"{url}/api/tags", timeout=1.5) as r:
             return r.status == 200
     except Exception:
         return False
 
-def _ai_ollama_models() -> list:
+def _ai_ollama_models(url: str | None = None) -> list:
+    url = url or _ai_cfg()["ollama_url"]
     try:
-        with _ai_req.urlopen(f"{OLLAMA_URL}/api/tags", timeout=2) as r:
+        with _ai_req.urlopen(f"{url}/api/tags", timeout=2) as r:
             data = json.loads(r.read())
             return [m.get("name", "") for m in data.get("models", [])]
     except Exception:
         return []
 
-def _ai_gemini_available() -> bool:
-    if not GEMINI_API_KEY:
-        return False
-    try:
-        with _ai_req.urlopen("https://generativelanguage.googleapis.com",
-                             timeout=2) as r:
-            return r.status < 500
-    except Exception:
-        return False
+def _ai_resolve_ollama_model(cfg: dict) -> str | None:
+    """Pick a usable Ollama model: configured one if installed, else first available."""
+    models = _ai_ollama_models(cfg["ollama_url"])
+    if not models:
+        return None
+    requested = cfg["ollama_model"]
+    if requested:
+        if requested in models:
+            return requested
+        # tolerate ":latest" suffix differences
+        for m in models:
+            if m == requested or m.split(":")[0] == requested.split(":")[0]:
+                return m
+    return models[0]
 
-def _ai_call_ollama(system: str, user: str, model: str | None = None) -> str:
-    model = model or OLLAMA_MODEL
+def _ai_call_ollama(system: str, user: str, cfg: dict) -> str:
+    model = _ai_resolve_ollama_model(cfg)
+    if not model:
+        raise RuntimeError("No Ollama models installed")
     body = json.dumps({
         "model": model,
         "prompt": f"{system}\n\n{user}",
         "stream": False,
-        "options": {"temperature": 0.2, "num_predict": 512},
+        "options": {"temperature": 0.2, "num_predict": 384, "num_ctx": 2048},
     }).encode()
-    req = _ai_req.Request(f"{OLLAMA_URL}/api/generate", data=body,
+    req = _ai_req.Request(f"{cfg['ollama_url']}/api/generate", data=body,
                           headers={"Content-Type": "application/json"})
-    with _ai_req.urlopen(req, timeout=60) as r:
+    with _ai_req.urlopen(req, timeout=300) as r:
         data = json.loads(r.read())
-        return (data.get("response") or "").strip()
+        return (data.get("response") or "").strip(), model
 
-def _ai_call_gemini(system: str, user: str) -> str:
-    if not GEMINI_API_KEY:
+def _ai_call_gemini(system: str, user: str, cfg: dict) -> str:
+    key = cfg["gemini_key"]
+    if not key:
         raise RuntimeError("GEMINI_API_KEY not set")
     body = json.dumps({
         "contents": [{"role": "user", "parts": [{"text": f"{system}\n\n{user}"}]}],
         "generationConfig": {"temperature": 0.2, "maxOutputTokens": 768},
     }).encode()
-    url = f"{GEMINI_ENDPOINT}?key={GEMINI_API_KEY}"
+    url = f"{_gemini_endpoint(cfg['gemini_model'])}?key={key}"
     req = _ai_req.Request(url, data=body,
                           headers={"Content-Type": "application/json"})
     with _ai_req.urlopen(req, timeout=30) as r:
@@ -4898,18 +4965,21 @@ def _ai_call_gemini(system: str, user: str) -> str:
 
 @app.get("/api/ai/status")
 async def ai_status():
-    ollama_ok = _ai_ollama_available()
+    cfg = _ai_cfg()
+    ollama_ok = _ai_ollama_available(cfg["ollama_url"])
+    models = _ai_ollama_models(cfg["ollama_url"]) if ollama_ok else []
+    active_model = _ai_resolve_ollama_model(cfg) if ollama_ok else None
     return {
         "ollama": {
             "available": ollama_ok,
-            "url":       OLLAMA_URL,
-            "model":     OLLAMA_MODEL,
-            "models":    _ai_ollama_models() if ollama_ok else [],
+            "url":       cfg["ollama_url"],
+            "model":     active_model or cfg["ollama_model"] or "",
+            "models":    models,
         },
         "gemini": {
-            "available": bool(GEMINI_API_KEY),
-            "model":     GEMINI_MODEL,
-            "has_key":   bool(GEMINI_API_KEY),
+            "available": bool(cfg["gemini_key"]),
+            "model":     cfg["gemini_model"],
+            "has_key":   bool(cfg["gemini_key"]),
         },
     }
 
@@ -4918,7 +4988,7 @@ async def ai_analyze(request: Request):
     """Dispatches an AI analysis request.
 
     Body:
-      module:   one of wired|security|roaming|wifits (selects system prompt)
+      module:   one of wired|security|roaming|wifits|network|quickcheck (system prompt)
       context:  JSON-serializable dict with module results
       strategy: local|external|auto   (default: auto)
       lang:     en|es                  (default: en)
@@ -4935,10 +5005,10 @@ async def ai_analyze(request: Request):
 
     system = (_AI_PROMPTS.get(module) or _AI_PROMPTS["wifits"])[lang]
 
-    ollama_ok = _ai_ollama_available()
-    gemini_ok = bool(GEMINI_API_KEY)
+    cfg = _ai_cfg()
+    ollama_ok = _ai_ollama_available(cfg["ollama_url"]) and bool(_ai_resolve_ollama_model(cfg))
+    gemini_ok = bool(cfg["gemini_key"])
 
-    # Resolve provider
     provider = None
     if strategy == "local":
         provider = "ollama" if ollama_ok else None
@@ -4953,12 +5023,11 @@ async def ai_analyze(request: Request):
     if provider is None:
         return JSONResponse({
             "ok": False,
-            "error": "No AI provider available",
+            "error": "No AI provider available. Start Ollama or set Gemini API key in Settings.",
             "ollama_available": ollama_ok,
             "gemini_available": gemini_ok,
         }, status_code=503)
 
-    # Build the user message
     if provider == "gemini":
         ctx_for_model = _ai_sanitize(context)
     else:
@@ -4968,19 +5037,55 @@ async def ai_analyze(request: Request):
 
     try:
         if provider == "ollama":
-            text = _ai_call_ollama(system, user_msg)
+            text, used_model = _ai_call_ollama(system, user_msg, cfg)
             return {"ok": True, "provider": "ollama",
-                    "model": OLLAMA_MODEL, "response": text,
+                    "model": used_model, "response": text,
                     "sanitized": False}
         else:
-            text = _ai_call_gemini(system, user_msg)
+            text = _ai_call_gemini(system, user_msg, cfg)
             return {"ok": True, "provider": "gemini",
-                    "model": GEMINI_MODEL, "response": text,
+                    "model": cfg["gemini_model"], "response": text,
                     "sanitized": True}
     except _ai_err.HTTPError as e:
+        try:    detail = e.read().decode("utf-8", "ignore")[:300]
+        except: detail = ""
         return JSONResponse({"ok": False, "provider": provider,
-                             "error": f"HTTP {e.code}: {e.reason}"},
+                             "error": f"HTTP {e.code}: {e.reason} {detail}"},
                             status_code=502)
     except Exception as e:
         return JSONResponse({"ok": False, "provider": provider,
                              "error": str(e)}, status_code=502)
+
+@app.get("/api/settings")
+async def settings_get():
+    s = _settings_load()
+    return {
+        "ollama_url":   s.get("ollama_url",   ""),
+        "ollama_model": s.get("ollama_model", ""),
+        "gemini_key":   "••••••••" if s.get("gemini_key") else "",
+        "gemini_model": s.get("gemini_model", "gemini-1.5-flash"),
+        "ui_lang":      s.get("ui_lang", "es"),
+        "client_name":  s.get("client_name", ""),
+        "engineer":     s.get("engineer", ""),
+    }
+
+@app.post("/api/settings")
+async def settings_set(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    cur = _settings_load()
+    for k in ("ollama_url", "ollama_model", "gemini_model",
+              "ui_lang", "client_name", "engineer"):
+        if k in body and body[k] is not None:
+            cur[k] = str(body[k]).strip()
+    # gemini_key only updated when caller sends a non-mask value
+    if "gemini_key" in body and body["gemini_key"] is not None:
+        v = str(body["gemini_key"]).strip()
+        if v and not v.startswith("•"):
+            cur["gemini_key"] = v
+        elif v == "":
+            cur.pop("gemini_key", None)
+    _settings_save(cur)
+    return {"ok": True}
