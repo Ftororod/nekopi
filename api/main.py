@@ -5107,6 +5107,152 @@ async def ai_analyze(request: Request):
         return JSONResponse({"ok": False, "provider": provider,
                              "error": str(e)}, status_code=502)
 
+# ═══════════════════════════════════════════════════════════════
+#  SENSOR MODE — pktvisor integration (on-demand only)
+# ═══════════════════════════════════════════════════════════════
+PKTVISOR_BIN = BASE_DIR / "bin" / "pktvisord"
+PKTVISOR_HOST = "127.0.0.1"
+PKTVISOR_PORT = 10853
+
+_PKT = {"proc": None, "iface": "", "started_at": 0}
+
+def _pktvisor_running() -> bool:
+    p = _PKT.get("proc")
+    return bool(p and p.poll() is None)
+
+@app.post("/api/sensor/start")
+async def sensor_start(iface: str = "auto"):
+    """Launches pktvisord against the given iface. The nekopi service has
+    CAP_NET_RAW + CAP_NET_ADMIN as ambient caps, so the child inherits them."""
+    if not PKTVISOR_BIN.exists():
+        return {"ok": False, "error": "pktvisord not installed at " + str(PKTVISOR_BIN)}
+    if _pktvisor_running():
+        return {"ok": True, "iface": _PKT["iface"], "running": True, "note": "already running"}
+
+    # Sanitize iface — avoid shell injection
+    if not re.match(r"^(auto|[a-zA-Z0-9_-]+)$", iface or ""):
+        return {"ok": False, "error": "invalid iface"}
+
+    cmd = [str(PKTVISOR_BIN), "-l", PKTVISOR_HOST, "-p", str(PKTVISOR_PORT),
+           "--no-track", iface]
+    try:
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            text=True,
+        )
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    # Give pktvisord ~1.2s to bind to the interface; if it dies, surface why.
+    time.sleep(1.2)
+    if proc.poll() is not None:
+        try:    err = (proc.stderr.read() or "")[-300:]
+        except: err = ""
+        return {"ok": False, "error": f"pktvisord exited (rc={proc.returncode}): {err.strip()}"}
+
+    _PKT["proc"] = proc
+    _PKT["iface"] = iface
+    _PKT["started_at"] = int(time.time())
+    return {"ok": True, "iface": iface, "running": True,
+            "url": f"http://{PKTVISOR_HOST}:{PKTVISOR_PORT}"}
+
+@app.post("/api/sensor/stop")
+async def sensor_stop():
+    p = _PKT.get("proc")
+    if p and p.poll() is None:
+        try: p.terminate()
+        except Exception: pass
+        try: p.wait(timeout=3)
+        except Exception:
+            try: p.kill()
+            except Exception: pass
+    _PKT["proc"] = None
+    _PKT["iface"] = ""
+    return {"ok": True, "running": False}
+
+@app.get("/api/sensor/status")
+async def sensor_status():
+    return {
+        "running":    _pktvisor_running(),
+        "iface":      _PKT.get("iface", ""),
+        "started_at": _PKT.get("started_at", 0),
+        "binary":     str(PKTVISOR_BIN),
+        "binary_present": PKTVISOR_BIN.exists(),
+    }
+
+@app.get("/api/sensor/metrics")
+async def sensor_metrics(window: int = 2):
+    """Proxies pktvisord and returns curated metrics: throughput, packet
+    counts, top talkers, top DNS queries, and protocol breakdown.
+
+    pktvisord only accepts window values of 2 or 5 (minutes)."""
+    if not _pktvisor_running():
+        return {"running": False, "error": "pktvisor is not running"}
+    if window not in (2, 5):
+        window = 2
+    try:
+        url = f"http://{PKTVISOR_HOST}:{PKTVISOR_PORT}/api/v1/metrics/window/{int(window)}"
+        with _ai_req.urlopen(url, timeout=4) as r:
+            raw = json.loads(r.read())
+    except Exception as e:
+        return {"running": True, "error": str(e)}
+
+    # pktvisor wraps the response under "<N>m" (e.g. "2m")
+    bucket = raw.get(f"{window}m") if isinstance(raw, dict) else None
+    if not isinstance(bucket, dict):
+        return {"running": True, "error": "unexpected pktvisor schema",
+                "raw_keys": list(raw.keys()) if isinstance(raw, dict) else []}
+
+    def _g(d, *keys):
+        cur = d
+        for k in keys:
+            if not isinstance(cur, dict): return None
+            cur = cur.get(k)
+        return cur
+
+    # pktvisor 4.x exposes the net handler under "packets" with flat counters.
+    pkts = bucket.get("packets") or bucket.get("net") or {}
+    dns  = bucket.get("dns") or {}
+
+    duration_s = _g(pkts, "period", "length") or _g(dns, "period", "length") or (window * 60)
+
+    rates_bytes = _g(pkts, "rates", "bytes_total", "live")
+    bps = (rates_bytes * 8 / 1e6) if rates_bytes is not None else None
+
+    return {
+        "running":     True,
+        "iface":       _PKT.get("iface", ""),
+        "window_min":  window,
+        "duration_s":  duration_s,
+        "packets":     {
+            "total": pkts.get("total", 0),
+            "in":    pkts.get("in", 0),
+            "out":   pkts.get("out", 0),
+            "tcp":   pkts.get("tcp", 0),
+            "udp":   pkts.get("udp", 0),
+            "other": pkts.get("other_l4", 0),
+            "ipv4":  pkts.get("ipv4", 0),
+            "ipv6":  pkts.get("ipv6", 0),
+        },
+        "rates":       {
+            "bps_live":  rates_bytes or 0,
+            "pps_live":  _g(pkts, "rates", "pps_total", "live") or 0,
+            "pps_in":    _g(pkts, "rates", "pps_in",    "live") or 0,
+            "pps_out":   _g(pkts, "rates", "pps_out",   "live") or 0,
+        },
+        "throughput_mbps": round(bps, 3) if bps is not None else None,
+        "dns":         {
+            "queries": dns.get("total") or _g(dns, "wire_packets", "total") or 0,
+            "top":     (dns.get("top_qname2") or [])[:10],
+            "top_qtype": (dns.get("top_qtype") or [])[:5],
+        },
+        "top_talkers": {
+            "ipv4": (pkts.get("top_ipv4") or [])[:10],
+            "ipv6": (pkts.get("top_ipv6") or [])[:5],
+        },
+        "handlers":    [k for k in bucket.keys() if k != "period"],
+    }
+
 @app.get("/api/wifi/interfaces")
 async def wifi_interfaces():
     """Lists wireless interfaces, marking which support monitor mode.

@@ -5623,7 +5623,31 @@ const pages = {
   security:   { title:'Security Audit',    sub:'Network · Wireless · Wired · Compliance', onload: function(){ autoSecTarget(); } },
   toolkit:    { title:'Rescue Toolkit',    sub:'DHCP · TFTP · MAC · ARP · Captive · Static IP · Syslog · WoL', onload: function(){ tkInit(); } },
   path:       { title:'Path Analyzer',     sub:'Traceroute continuo · dual interface · WiFi vs ETH' },
-  sensor:     { title:'Sensor Mode',       sub:'pktvisor · wiperf · InfluxDB · Grafana · Orb' },
+  sensor:     { title:'Sensor Mode',       sub:'pktvisor · wiperf · InfluxDB · Grafana · Orb', onload: function(){
+    // Auto-fill the iface dropdown with real interfaces
+    fetchAPI('/api/network/info').then(function(d){
+      if(!d || !d.interfaces) return;
+      var sel = document.getElementById('sensorIfaceSelect');
+      if(!sel) return;
+      sel.innerHTML = '<option value="auto">auto — most active iface</option>' +
+        d.interfaces.map(function(i){
+          return '<option value="'+i.name+'">'+i.name+' — '+(i.role||i.type||'iface')+(i.ip?' ('+i.ip+')':'')+'</option>';
+        }).join('');
+    });
+    // Sync state with backend (in case pktvisord is already running)
+    fetchAPI('/api/sensor/status').then(function(d){
+      if(d && d.running){
+        sensorRunning = true;
+        var btn = document.getElementById('sensorStartBtn');
+        var st  = document.getElementById('sensorMainStatus');
+        if(btn){ btn.textContent='\u25a0 Stop Sensor Mode'; btn.className='btn btn-danger'; }
+        if(st){  st.className='status-badge sb-run'; st.innerHTML='<span class="sb-dot"></span>Capturing on '+d.iface; }
+        clearInterval(sensorIntervalId);
+        sensorIntervalId = setInterval(runSensorCycle, 5000);
+        runSensorCycle();
+      }
+    });
+  } },
   scan:       { title:'Network Scan',      sub:'nmap · CVE lookup · AI inline' },
   roaming:    { title:'Roaming Analyzer',  sub:'802.11r/k/v · FT timing', onload: function(){
     // Populate WiFi interfaces — only those that support monitor mode
@@ -5764,6 +5788,17 @@ function goPage(id) {
   if (id !== 'console' && _conHealthIv) {
     clearInterval(_conHealthIv);
     _conHealthIv = null;
+  }
+  // Stop sensor capture when leaving sensor page (on-demand pktvisord only)
+  if (id !== 'sensor' && sensorRunning) {
+    clearInterval(sensorIntervalId);
+    sensorIntervalId = null;
+    sensorRunning = false;
+    if (!DEMO_MODE) fetch(API_BASE + '/api/sensor/stop', {method:'POST'});
+    var sBtn = document.getElementById('sensorStartBtn');
+    var sSt  = document.getElementById('sensorMainStatus');
+    if(sBtn){ sBtn.textContent='\u25b6 Start Sensor Mode'; sBtn.className='btn btn-primary'; }
+    if(sSt){  sSt.className='status-badge sb-idle'; sSt.innerHTML='<span class="sb-dot"></span>Stopped'; }
   }
   // Auto-stop iperf server when leaving wired page + reset wired wizard state
   if (id !== 'wired') {
@@ -7556,15 +7591,43 @@ function toggleSensor(){
   var st=document.getElementById('sensorMainStatus');
   if(sensorRunning){
     btn.textContent='\u25a0 Stop Sensor Mode'; btn.className='btn btn-danger';
-    if(st){st.className='status-badge sb-run';st.innerHTML='<span class="sb-dot"></span>Running';}
-    showToast('Sensor Mode started \u2014 pktvisor collecting data');
-    runSensorCycle();
+    if(st){st.className='status-badge sb-run';st.innerHTML='<span class="sb-dot"></span>Starting…';}
+    var iface = (document.getElementById('sensorIfaceSelect')||{}).value || 'auto';
+    if (iface === 'All interfaces') iface = 'auto';
+    if (DEMO_MODE) {
+      runSensorCycle();
+      if(st){st.className='status-badge sb-run';st.innerHTML='<span class="sb-dot"></span>Running';}
+      showToast('Sensor Mode (demo)');
+    } else {
+      // Spawn pktvisord on the chosen iface, then begin polling.
+      fetch(API_BASE + '/api/sensor/start?iface=' + encodeURIComponent(iface), {method:'POST'})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if(!d || !d.ok){
+            sensorRunning = false;
+            if(btn){ btn.textContent='\u25b6 Start Sensor Mode'; btn.className='btn btn-primary'; }
+            if(st){ st.className='status-badge sb-fail'; st.innerHTML='<span class="sb-dot"></span>Start failed'; }
+            showToast('pktvisor: ' + ((d && d.error) || 'failed'));
+            return;
+          }
+          if(st){ st.className='status-badge sb-run'; st.innerHTML='<span class="sb-dot"></span>Capturing on '+d.iface; }
+          showToast('pktvisor capturing on ' + d.iface);
+          runSensorCycle();
+        })
+        .catch(function(e){
+          sensorRunning = false;
+          if(btn){ btn.textContent='\u25b6 Start Sensor Mode'; btn.className='btn btn-primary'; }
+          if(st){ st.className='status-badge sb-fail'; st.innerHTML='<span class="sb-dot"></span>'+e.message; }
+        });
+    }
     var interval=parseInt((document.getElementById('sensorInterval')||{}).value||60)*1000;
-    sensorIntervalId=setInterval(runSensorCycle,interval);
+    clearInterval(sensorIntervalId);
+    sensorIntervalId=setInterval(runSensorCycle, Math.max(2000, interval));
   } else {
     btn.textContent='\u25b6 Start Sensor Mode'; btn.className='btn btn-primary';
     if(st){st.className='status-badge sb-idle';st.innerHTML='<span class="sb-dot"></span>Stopped';}
     clearInterval(sensorIntervalId);
+    if(!DEMO_MODE) fetch(API_BASE + '/api/sensor/stop', {method:'POST'});
     showToast('Sensor Mode stopped');
   }
 }
@@ -7646,9 +7709,53 @@ function runSensorCycle(){
     }));
   }
 
+  // pktvisor metrics — only if sensorRunning (capture is up)
+  if (sensorRunning) {
+    promises.push(fetchAPI('/api/sensor/metrics?window=2').then(function(d){
+      if(!d || !d.running) return;
+      // Throughput from pktvisor takes precedence over the iface counter sample
+      if (d.throughput_mbps != null) {
+        snap.mbps = d.throughput_mbps.toFixed(2);
+        setM('sMetricThroughput', snap.mbps, 'var(--blue-b)');
+      }
+      _renderSensorTopTalkers(d.top_talkers || {});
+      _renderSensorTopDns((d.dns && d.dns.top) || []);
+    }));
+  }
+
   Promise.all(promises).then(function(){
     addSensorHistoryRow(snap);
   });
+}
+
+function _renderSensorTopTalkers(t){
+  var box = document.getElementById('sTopTalkers');
+  if(!box) return;
+  var rows = (t.ipv4 || []).concat(t.ipv6 || []);
+  if(!rows.length){ box.innerHTML = '<div style="font-size:11px;color:var(--text2)">(waiting for traffic…)</div>'; return; }
+  var max = rows.reduce(function(a,b){return Math.max(a, b.estimate||0);}, 1);
+  box.innerHTML = rows.slice(0, 8).map(function(r){
+    var pct = Math.round(((r.estimate||0)/max)*100);
+    return '<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:11px">'+
+      '<span style="font-family:monospace;color:var(--white);min-width:130px">'+(r.name||'?')+'</span>'+
+      '<div style="flex:1;background:var(--bg3);border-radius:2px;height:10px;overflow:hidden">'+
+        '<div style="width:'+pct+'%;height:100%;background:var(--blue-b)"></div>'+
+      '</div>'+
+      '<span style="color:var(--text2);min-width:60px;text-align:right">'+(r.estimate||0)+' pkts</span>'+
+    '</div>';
+  }).join('');
+}
+
+function _renderSensorTopDns(top){
+  var box = document.getElementById('sTopDns');
+  if(!box) return;
+  if(!top.length){ box.innerHTML = '<div style="font-size:11px;color:var(--text2)">(no DNS yet)</div>'; return; }
+  box.innerHTML = top.slice(0, 6).map(function(r){
+    return '<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">'+
+      '<span style="color:var(--white);font-family:monospace">'+(r.name||'?')+'</span>'+
+      '<span style="color:var(--cyan)">'+(r.estimate||0)+'</span>'+
+    '</div>';
+  }).join('');
 }
 
 

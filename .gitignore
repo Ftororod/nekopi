@@ -3,3 +3,8 @@
 *.pcapng
 __pycache__/
 *.pyc
+
+# pktvisor binaries — installed via build_installer or downloaded
+bin/pktvisord
+bin/pktvisor-cli
+bin/pktvisor-reader
