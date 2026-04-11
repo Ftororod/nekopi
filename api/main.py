@@ -2600,6 +2600,121 @@ _RISKY_PORTS = {
     27017:{"name": "MongoDB", "severity": "critical", "desc": "Database likely exposed without auth"},
 }
 
+def _try_default_cred(host: str, port: int, user: str, password: str) -> tuple[bool, str]:
+    """Performs a REAL auth attempt against the host and returns (success, evidence).
+
+    Avoids the classic false-positive where a public landing page returning 200
+    was previously treated as 'login succeeded'. The HTTP/HTTPS path now does a
+    differential check: it first fetches the URL WITHOUT credentials to baseline
+    the unauth response, then fetches WITH credentials and only counts as a hit
+    if the response materially differs (different status, much larger body,
+    or contains authenticated-session markers like dashboard/logout/welcome).
+    SSH uses paramiko's transport layer for a real protocol-level auth.
+    """
+    try:
+        if port == 21:
+            import ftplib
+            ftp = ftplib.FTP()
+            ftp.connect(host, 21, timeout=4)
+            ftp.login(user, password)
+            ftp.quit()
+            return True, "ftp.login() succeeded"
+
+        if port == 22:
+            try:
+                import paramiko  # type: ignore
+            except ImportError:
+                return False, "paramiko not installed"
+            try:
+                t = paramiko.Transport((host, 22))
+                t.banner_timeout = 5
+                t.start_client(timeout=5)
+                t.auth_password(user, password)
+                authed = t.is_authenticated()
+                t.close()
+                return authed, "ssh transport auth ok" if authed else "ssh auth rejected"
+            except paramiko.ssh_exception.AuthenticationException:
+                return False, "ssh auth rejected"
+            except Exception as e:
+                return False, f"ssh error: {str(e)[:60]}"
+
+        if port == 23:
+            import socket as _sock, time as _t
+            s = _sock.create_connection((host, 23), timeout=3)
+            s.recv(512)
+            s.sendall((user + "\n").encode()); _t.sleep(0.4); s.recv(512)
+            s.sendall((password + "\n").encode()); _t.sleep(0.6)
+            resp = s.recv(1024).decode(errors="ignore")
+            s.close()
+            failed = ("incorrect","failed","denied","invalid","error","bad password",
+                      "authentication failed","login failed","try again")
+            stripped = resp.strip()
+            if not stripped:
+                return False, "no response after credentials"
+            if any(k in resp.lower() for k in failed):
+                return False, "failure marker in response"
+            # Look for shell prompts as proof of authenticated session
+            shell_markers = ("#", ">", "$", "}")
+            last_line = stripped.splitlines()[-1] if stripped.splitlines() else ""
+            if any(m in last_line for m in shell_markers):
+                return True, f"shell prompt: {last_line[-30:]!r}"
+            return False, "no shell prompt"
+
+        if port in (80, 443, 8080, 8291, 8443):
+            scheme = "https" if port in (443, 8443) else "http"
+            url = f"{scheme}://{host}:{port}/"
+            # Step 1 — unauth baseline
+            base = subprocess.run(
+                ["curl", "-sk", "--max-time", "4", "--connect-timeout", "2",
+                 "-o", "/tmp/.nekopi-cred-base", "-w", "%{http_code}|%{size_download}", url],
+                capture_output=True, text=True, timeout=6)
+            try:
+                base_code, base_size = (base.stdout or "0|0").split("|", 1)
+                base_code = int(base_code or 0)
+                base_size = int(base_size or 0)
+            except (ValueError, AttributeError):
+                base_code, base_size = 0, 0
+            # Step 2 — auth attempt
+            auth = subprocess.run(
+                ["curl", "-sk", "--max-time", "4", "--connect-timeout", "2",
+                 "-u", f"{user}:{password}",
+                 "-o", "/tmp/.nekopi-cred-auth", "-w", "%{http_code}|%{size_download}", url],
+                capture_output=True, text=True, timeout=6)
+            try:
+                auth_code, auth_size = (auth.stdout or "0|0").split("|", 1)
+                auth_code = int(auth_code or 0)
+                auth_size = int(auth_size or 0)
+            except (ValueError, AttributeError):
+                auth_code, auth_size = 0, 0
+            try:
+                auth_body = Path("/tmp/.nekopi-cred-auth").read_text("utf-8", errors="ignore")[:8000].lower()
+            except Exception:
+                auth_body = ""
+            # Decision matrix:
+            # 1) unauth was 401/403 and auth is 2xx/3xx → real login
+            # 2) unauth was 200 and auth is also 200 BUT body differs by >20%
+            #    AND auth body contains a session marker → real login
+            # 3) Otherwise: NOT a hit (probably a public page that returns 200 to anyone)
+            if base_code in (401, 403, 407) and auth_code in (200, 301, 302):
+                return True, f"unauth {base_code} → auth {auth_code}"
+            session_markers = ("logout", "sign out", "dashboard", "welcome",
+                               "signed in", "authenticated", "session id",
+                               "configure", "running-config")
+            if base_code == 200 and auth_code == 200:
+                size_delta = abs(auth_size - base_size)
+                if size_delta < max(64, base_size // 5):
+                    return False, f"baseline matches auth ({base_size}B vs {auth_size}B) — public page"
+                if any(m in auth_body for m in session_markers):
+                    return True, f"session marker found, body delta {size_delta}B"
+                return False, f"no session marker (delta {size_delta}B)"
+            if auth_code in (200, 301, 302) and base_code not in (200, 301, 302):
+                return True, f"unauth {base_code} → auth {auth_code}"
+            return False, f"baseline {base_code} → auth {auth_code}"
+    except Exception as e:
+        return False, f"exception: {str(e)[:60]}"
+    return False, "unsupported port"
+
+
 def _sec_add_finding(severity, title, host, detail, recommendation, cve=None):
     _SEC_FINDINGS.append({
         "severity":       severity,
@@ -2989,42 +3104,29 @@ def _run_security_audit(subnet, wifi_iface, ssid_filter: str = "", vendor_overri
                               if c["vendor"].startswith("Generic")
                               and any(p in open_port_set for p in c["ports"])]
 
+            # SSH (22) is also a valid credential target
+            if 22 in open_port_set and detected_vendor:
+                ssh_creds = [c for c in _DEFAULT_CREDS
+                             if detected_vendor.lower() in c["vendor"].lower()]
+                for c in ssh_creds[:3]:
+                    if 22 not in c.get("ports", []):
+                        continue
+                    candidates.append({**c, "ports": [22]})
+
             cred_tested = 0
             cred_hit    = False
-            for cred in candidates[:6]:
+            for cred in candidates[:8]:
                 port = next((p for p in cred["ports"] if p in open_port_set), None)
                 if not port: continue
-                hit = False
                 cred_tested += 1
-                try:
-                    if port == 21:
-                        import ftplib
-                        ftp = ftplib.FTP(); ftp.connect(host, 21, timeout=4)
-                        ftp.login(cred["user"], cred["pass"]); ftp.quit(); hit = True
-                    elif port == 23:
-                        import socket as _sock, time as _t
-                        s = _sock.create_connection((host, 23), timeout=3)
-                        s.recv(512)
-                        s.sendall((cred["user"] + "\n").encode()); _t.sleep(0.4); s.recv(512)
-                        s.sendall((cred["pass"] + "\n").encode()); _t.sleep(0.5)
-                        resp = s.recv(512).decode(errors="ignore"); s.close()
-                        failed = ("incorrect","failed","denied","invalid","error","bad")
-                        hit = bool(resp.strip()) and not any(k in resp.lower() for k in failed)
-                    elif port in (80, 443, 8080, 8291, 8443):
-                        scheme = "https" if port in (443, 8443) else "http"
-                        resp = run_cmd(["curl", "-sk", "--max-time", "4", "--connect-timeout", "2",
-                            "-u", f"{cred['user']}:{cred['pass']}",
-                            "-o", "/dev/null", "-w", "%{http_code}",
-                            f"{scheme}://{host}:{port}/"], timeout=6)
-                        hit = resp.strip() in ("200", "302", "301")
-                except Exception:
-                    pass
+                hit, evidence = _try_default_cred(host, port, cred["user"], cred["pass"])
                 if hit:
                     vendor_label = detected_vendor or cred["vendor"]
                     _sec_add_finding("critical",
                         f"Default credentials active on {data['name'] or host}", host,
-                        f"{vendor_label} — login succeeded with {cred['user']} / "
-                        f"{'(blank)' if not cred['pass'] else cred['pass']} on port {port}",
+                        f"{vendor_label} — REAL auth confirmed with {cred['user']} / "
+                        f"{'(blank)' if not cred['pass'] else cred['pass']} on port {port} "
+                        f"({evidence})",
                         f"Change default credentials on {vendor_label} immediately")
                     _sec_score_deduct("critical")
                     cred_hit = True
