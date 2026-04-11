@@ -1370,48 +1370,6 @@ async def path_status():
     }
 
 
-async def path_ping_hops(ips: str = Query(...), iface: str = Query("")):
-    """Ping each hop IP in parallel — returns fresh RTT for each.
-    Used by Path Analyzer to update RTTs each cycle without re-running traceroute."""
-    import asyncio as _aio
-    import subprocess as _sp
-
-    ip_list = [ip.strip() for ip in ips.split(",") if ip.strip() and ip.strip() != "???"]
-
-    async def _ping_one(ip: str):
-        cmd = ["ping", "-c", "1", "-W", "1", "-n"]
-        if iface:
-            cmd += ["-I", iface]
-        cmd.append(ip)
-        try:
-            proc = await _aio.create_subprocess_exec(
-                *cmd,
-                stdout=_aio.subprocess.PIPE,
-                stderr=_aio.subprocess.DEVNULL
-            )
-            stdout, _ = await _aio.wait_for(proc.communicate(), timeout=2.0)
-            out = stdout.decode(errors="replace")
-            # Extract RTT: "rtt min/avg/max/mdev = 1.234/1.234/1.234/0.000 ms"
-            m = re.search(r"rtt.*?=\s*([\d.]+)/([\d.]+)/([\d.]+)", out)
-            if m:
-                return ip, float(m.group(2))  # avg
-            # Fallback: "time=X.X ms"
-            m2 = re.search(r"time=([\d.]+)\s*ms", out)
-            if m2:
-                return ip, float(m2.group(1))
-            return ip, None  # no reply = timeout
-        except Exception:
-            return ip, None
-
-    loop = _aio.get_event_loop()
-    tasks = [_ping_one(ip) for ip in ip_list]
-    results = await _aio.gather(*tasks)
-
-    return {
-        "rtts": {ip: rtt for ip, rtt in results},
-        "iface": iface or "default"
-    }
-
 # ── NETWORK SCAN ─────────────────────────────────────────────
 @app.get("/api/scan/network")
 async def scan_network(target: str = "192.168.1.0/24"):
