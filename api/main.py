@@ -5060,6 +5060,15 @@ async def ai_analyze(request: Request):
         return JSONResponse({"ok": False, "provider": provider,
                              "error": str(e)}, status_code=502)
 
+@app.get("/api/system/logs")
+async def system_logs(unit: str = "nekopi", lines: int = 200):
+    """Returns the last N journalctl lines, optionally filtered to a unit."""
+    cmd = ["journalctl", "-n", str(max(10, min(lines, 1000))), "--no-pager"]
+    if unit:
+        cmd += ["-u", unit]
+    out = run_cmd(cmd, timeout=8)
+    return {"unit": unit or "system", "lines": out.splitlines() if out else []}
+
 @app.get("/api/settings")
 async def settings_get():
     s = _settings_load()

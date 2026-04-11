@@ -2437,14 +2437,14 @@ input,select,textarea { font-family:inherit; }
             <div style="background:rgba(255,109,0,.06);border:1px solid rgba(255,109,0,.2);border-radius:var(--radius);padding:10px;font-size:11px;color:var(--text2);margin-bottom:12px;line-height:1.7">
               <strong style="color:var(--orange-b)">How it works:</strong>
               pktvisor always runs locally. If an Orb token is configured, metrics also sync to
-              <strong style="color:var(--white)">orb.live</strong> via MQTT TLS &mdash;
+              <strong style="color:var(--white)">orb.net</strong> via MQTT TLS &mdash;
               giving you historical data, fleet management, and remote dashboard access.<br>
               <span style="color:var(--text2)">&#128161; Local mode always works without internet or Orb account.</span>
             </div>
             <div class="form-group">
               <label class="form-label">Orb Agent Token</label>
-              <input class="form-input" id="orbToken" placeholder="Paste token from orb.live/agents">
-              <div class="field-note">Get a free token at <a href="https://orb.live" target="_blank" style="color:var(--blue-b)">orb.live</a></div>
+              <input class="form-input" id="orbToken" placeholder="Paste token from orb.net/agents">
+              <div class="field-note">Get a free token at <a href="https://orb.net" target="_blank" style="color:var(--blue-b)">orb.net</a></div>
             </div>
             <div class="form-group">
               <label class="form-label">Agent Name (optional)</label>
@@ -3792,14 +3792,62 @@ input,select,textarea { font-family:inherit; }
   ═══════════════════════════════ -->
   <div class="page" id="page-console">
     <div class="section-title">🖥️ System Console</div>
-    <div class="section-sub">Full bash terminal · ttyd · nekopi:nekopi2024</div>
+    <div class="section-sub">RPi5 health · system logs · local bash · SSH to network gear</div>
 
-    <!-- Status bar -->
+    <!-- HEALTH OVERVIEW -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header"><div class="card-title">📊 RPi5 Health</div>
+        <span style="font-size:11px;color:var(--text2)" id="consoleHealthUpdated">—</span>
+      </div>
+      <div class="card-body">
+        <div class="metrics-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+          <div class="metric-card mc-green" style="padding:10px"><div class="metric-lbl">CPU</div><div class="metric-val" id="conCpu">—<small>%</small></div><div class="metric-sub" id="conCpuTemp">—°C</div></div>
+          <div class="metric-card mc-blue"  style="padding:10px"><div class="metric-lbl">RAM</div><div class="metric-val" id="conRam">—<small>%</small></div><div class="metric-sub" id="conRamSub">— / —GB</div></div>
+          <div class="metric-card mc-cyan"  style="padding:10px"><div class="metric-lbl">Disk /</div><div class="metric-val" id="conDisk">—<small>%</small></div><div class="metric-sub" id="conDiskSub">— / —GB</div></div>
+          <div class="metric-card mc-amber" style="padding:10px"><div class="metric-lbl">Uptime</div><div class="metric-val" id="conUp" style="font-size:18px">—</div><div class="metric-sub">since boot</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SYSTEM LOGS -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header"><div class="card-title">📜 System Logs · live tail</div>
+        <div style="display:flex;gap:6px">
+          <select class="form-input form-select" id="conLogUnit" style="width:160px;font-size:11px;padding:3px 6px">
+            <option value="nekopi">nekopi</option>
+            <option value="ollama">ollama</option>
+            <option value="ttyd">ttyd</option>
+            <option value="kismet">kismet</option>
+            <option value="ssh">ssh</option>
+            <option value="">— full system —</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="conLogsRefresh()">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0">
+        <pre id="conLogsBox" style="margin:0;padding:10px 14px;background:#000;color:#9aa;font-size:11px;max-height:260px;overflow:auto;font-family:monospace;border-radius:0 0 var(--radius) var(--radius)">Click Refresh to load logs…</pre>
+      </div>
+    </div>
+
+    <!-- SSH TO NETWORK GEAR -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header"><div class="card-title">🔐 SSH to network gear</div></div>
+      <div class="card-body">
+        <div class="form-row" style="margin-bottom:8px">
+          <div class="form-group"><label class="form-label">Host</label><input class="form-input" id="conSshHost" placeholder="192.168.1.1"></div>
+          <div class="form-group"><label class="form-label">User</label><input class="form-input" id="conSshUser" placeholder="admin"></div>
+          <div class="form-group" style="max-width:120px"><label class="form-label">Port</label><input class="form-input" id="conSshPort" value="22" type="number"></div>
+        </div>
+        <div style="display:flex;gap:8px"><button class="btn btn-primary btn-sm" onclick="conOpenSSH()">Open WebSSH →</button><span style="font-size:11px;color:var(--text2);align-self:center">Uses the WebSSH proxy on this device</span></div>
+      </div>
+    </div>
+
+    <!-- LOCAL BASH (ttyd) -->
     <div class="card" style="margin-bottom:14px">
       <div class="card-body" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
         <div style="display:flex;align-items:center;gap:12px">
-          <span id="console-status-badge" class="status-badge sb-idle"><span class="sb-dot"></span>Not connected</span>
-          <span style="font-size:11px;color:var(--text2)" id="console-url-label">http://nekopi.local:7681/console</span>
+          <span id="console-status-badge" class="status-badge sb-idle"><span class="sb-dot"></span>Local bash</span>
+          <span style="font-size:11px;color:var(--text2)" id="console-url-label">ttyd · :7681/console</span>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-primary btn-sm" onclick="openConsoleFrame()">🖥️ Open Console</button>
@@ -4456,9 +4504,9 @@ input,select,textarea { font-family:inherit; }
               <td><span class="status-badge sb-ok"><span class="sb-dot"></span>OK</span></td>
             </tr>
             <tr>
-              <td style="color:var(--white);font-weight:600">18650 Battery Pack</td>
-              <td style="color:var(--text2);font-size:10px">3000mAh × 2 · ~4h runtime</td>
-              <td><span class="status-badge sb-ok"><span class="sb-dot"></span>OK</span></td>
+              <td style="color:var(--white);font-weight:600">External Powerbank</td>
+              <td style="color:var(--text2);font-size:10px">USB-C PD · field-swappable</td>
+              <td><span class="status-badge sb-ok"><span class="sb-dot"></span>External</span></td>
             </tr>
             <tr>
               <td style="color:var(--white);font-weight:600">3D Printed Case</td>
@@ -4567,7 +4615,7 @@ input,select,textarea { font-family:inherit; }
               </div>
               <div class="form-group">
                 <label class="form-label">User</label>
-                <input class="form-input" id="cliUser" value="pi">
+                <input class="form-input" id="cliUser" value="nekopi">
               </div>
             </div>
             <div class="form-group" id="cliAuthGroup">
@@ -4657,6 +4705,20 @@ input,select,textarea { font-family:inherit; }
           <span>UTF-8</span>
           <span style="margin-left:auto" id="cliTimeEl">--:--:--</span>
         </div>
+      </div>
+    </div>
+
+    <!-- WebSSH iframe — embedded GUI, not a new tab -->
+    <div class="card" id="cliWebsshCard" style="display:none;margin-top:14px">
+      <div class="card-header">
+        <div class="card-title">🖥️ WebSSH Session</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span class="status-badge sb-ok" id="cliFrameStatus" style="font-size:11px"><span class="sb-dot"></span>connecting…</span>
+          <button class="btn btn-ghost btn-sm" onclick="cliDisconnect()">✕ Close</button>
+        </div>
+      </div>
+      <div style="background:#000;border-radius:0 0 var(--radius) var(--radius);overflow:hidden">
+        <iframe id="cliWebsshFrame" src="" style="width:100%;height:520px;border:none;display:block" allow="clipboard-read; clipboard-write"></iframe>
       </div>
     </div>
 
@@ -5554,8 +5616,14 @@ const pages = {
   reports:    { title:'Reports',           sub:'PDF · QR · EN/ES' },
   tools:      { title:'Tools',             sub:'Subnet · VLSM · IP Converter · Reference' },
   cli:        { title:'Terminal',          sub:'SSH · Telnet · xterm.js · WebSocket' },
+  console:    { title:'System Console',    sub:'RPi5 health · system logs · SSH · local bash', onload: function(){
+    try {
+      consoleHealthRefresh(); conLogsRefresh();
+      if (_conHealthIv) clearInterval(_conHealthIv);
+      _conHealthIv = setInterval(consoleHealthRefresh, 4000);
+    } catch(e) {}
+  } },
   settings:   { title:'Settings',          sub:'NekoPi Field Unit v1.0', onload: function(){ try{ initProbeConfigUI(); initWifiScanIntervalUI(); loadAISettings(); }catch(e){} } },
-  about:      { title:'About',             sub:'NekoPi Field Unit v1.0.0 · hardware · credits' },
   about:      { title:'About',             sub:'NekoPi Field Unit v1.0.0 · hardware · software · credits' },
 };
 
@@ -5613,6 +5681,11 @@ function goPage(id) {
     pathRunning = false;
   }
 
+  // Stop console health polling when leaving console page
+  if (id !== 'console' && _conHealthIv) {
+    clearInterval(_conHealthIv);
+    _conHealthIv = null;
+  }
   // Auto-stop iperf server when leaving wired page + reset wired wizard state
   if (id !== 'wired') {
     if (_iperfServerRunning) {
@@ -7444,7 +7517,7 @@ function connectOrb(){
   if(!token){ showToast('Enter Orb agent token first'); return; }
   orbConnected=true;
   var st=document.getElementById('orbStatus');
-  if(st){st.className='status-badge sb-ok';st.innerHTML='<span class="sb-dot"></span>Connected to orb.live';}
+  if(st){st.className='status-badge sb-ok';st.innerHTML='<span class="sb-dot"></span>Connected to orb.net';}
   showToast('Connected to Orb Cloud \u2014 metrics will sync every cycle');
 }
 
@@ -7457,7 +7530,7 @@ function disconnectOrb(){
 
 function openOrbDashboard(){
   if(!orbConnected){ showToast('Connect to Orb Cloud first'); return; }
-  window.open('https://orb.live','_blank');
+  window.open('https://orb.net','_blank');
 }
 
 function exportSensorCSV(){
@@ -7681,21 +7754,87 @@ function closeConsoleFrame() {
   var badge  = document.getElementById('console-status-badge');
   if (iframe) iframe.src = '';
   if (card)   card.style.display = 'none';
-  if (badge)  { badge.innerHTML = '<span class="sb-dot"></span>Not connected'; badge.className = 'status-badge sb-idle'; }
+  if (badge)  { badge.innerHTML = '<span class="sb-dot"></span>Local bash'; badge.className = 'status-badge sb-idle'; }
+}
+
+// ── Console module: RPi5 health + system logs + SSH launcher ──
+var _conHealthIv = null;
+function consoleHealthRefresh(){
+  fetchAPI('/api/system/metrics').then(function(d){
+    if(!d) return;
+    var fmt = function(id, html){ var el = document.getElementById(id); if(el) el.innerHTML = html; };
+    if(d.cpu_pct != null) fmt('conCpu', d.cpu_pct.toFixed(0)+'<small>%</small>');
+    if(d.cpu_temp != null) { var c = document.getElementById('conCpuTemp'); if(c) c.textContent = d.cpu_temp + '°C'; }
+    if(d.ram){
+      fmt('conRam', d.ram.pct.toFixed(0)+'<small>%</small>');
+      var u=(d.ram.used_mb/1024).toFixed(1), t=(d.ram.total_mb/1024).toFixed(1);
+      var rs = document.getElementById('conRamSub'); if(rs) rs.textContent = u+' / '+t+'GB';
+    }
+    if(d.disk){
+      fmt('conDisk', d.disk.pct.toFixed(0)+'<small>%</small>');
+      var ds = document.getElementById('conDiskSub'); if(ds) ds.textContent = d.disk.used_gb+' / '+d.disk.total_gb+'GB';
+    }
+    if(d.uptime_s != null){
+      var s = d.uptime_s;
+      var days = Math.floor(s/86400), hrs = Math.floor((s%86400)/3600), mins = Math.floor((s%3600)/60);
+      var txt = days>0 ? (days+'d '+hrs+'h') : (hrs+'h '+mins+'m');
+      var up = document.getElementById('conUp'); if(up) up.textContent = txt;
+    }
+    var upd = document.getElementById('consoleHealthUpdated');
+    if(upd) upd.textContent = 'Updated ' + new Date().toTimeString().slice(0,8);
+  });
+}
+
+function conLogsRefresh(){
+  var unit = (document.getElementById('conLogUnit')||{}).value || '';
+  var box  = document.getElementById('conLogsBox');
+  if(box) box.textContent = 'Loading…';
+  fetchAPI('/api/system/logs?unit='+encodeURIComponent(unit)+'&lines=200').then(function(d){
+    if(!box) return;
+    if(!d || !d.lines || !d.lines.length){ box.textContent = '(no log entries)'; return; }
+    box.textContent = d.lines.join('\n');
+    box.scrollTop = box.scrollHeight;
+  }).catch(function(){ if(box) box.textContent = '(error fetching logs)'; });
+}
+
+function conOpenSSH(){
+  var host = (document.getElementById('conSshHost')||{}).value || '';
+  var user = (document.getElementById('conSshUser')||{}).value || '';
+  var port = (document.getElementById('conSshPort')||{}).value || '22';
+  if(!host){ showToast('Enter the host IP first'); return; }
+  // WebSSH proxy is at port 8888 — open in same window with iframe wrapper
+  var url = (window.location.protocol+'//'+window.location.hostname+':8888/?hostname='+encodeURIComponent(host)+'&port='+port+'&username='+encodeURIComponent(user));
+  window.open(url, '_blank');
 }
 
 // ── CLI remoto — webssh iframe ────────────────────────────────
+var _cliConnectTimer = null;
+
+function _cliSetStatus(state, msg) {
+  var st  = document.getElementById('cliStatus');
+  var fst = document.getElementById('cliFrameStatus');
+  var cls = state === 'ok'    ? 'status-badge sb-ok'
+          : state === 'error' ? 'status-badge sb-fail'
+          : state === 'wait'  ? 'status-badge sb-warn'
+          :                     'status-badge sb-idle';
+  var html = '<span class="sb-dot"></span>' + msg;
+  if (st)  { st.className  = cls; st.innerHTML  = html; }
+  if (fst) { fst.className = cls; fst.innerHTML = html; }
+}
+
 function cliConnect() {
   var host = (document.getElementById('cliHost')||{}).value || '';
-  var user = (document.getElementById('cliUser')||{}).value || 'admin';
+  var user = (document.getElementById('cliUser')||{}).value || 'nekopi';
   var port = (document.getElementById('cliPort')||{}).value || (cliProto === 'ssh' ? '22' : '23');
 
   if (!host) { cliPrint('⚠ Ingresa la IP del dispositivo remoto', 'var(--red)'); return; }
 
+  // Reset previous timeout if any
+  if (_cliConnectTimer) { clearTimeout(_cliConnectTimer); _cliConnectTimer = null; }
   cliPrint('Connecting to ' + host + ':' + port + ' via ' + cliProto.toUpperCase() + '...', '#42a5f5');
+  _cliSetStatus('wait', 'connecting…');
 
   if (!DEMO_MODE && activeServices.webssh) {
-    // LIVE: abrir webssh en iframe con parámetros
     var params = new URLSearchParams({
       hostname: host,
       port:     port,
@@ -7703,26 +7842,46 @@ function cliConnect() {
     });
     var wsUrl = websshUrl + '/ssh?' + params.toString();
 
-    // Mostrar el frame de webssh
     var frame = document.getElementById('cliWebsshFrame');
     var frameCard = document.getElementById('cliWebsshCard');
-    if (frame && frameCard) {
-      frame.src = wsUrl;
-      frameCard.style.display = '';
-      frameCard.scrollIntoView({behavior: 'smooth', block: 'start'});
-    } else {
-      // Si no hay iframe en el HTML, abrir en nueva pestaña
+    if (!frame || !frameCard) {
       window.open(wsUrl, '_blank');
+      _cliSetStatus('ok', 'Opened in new tab');
+      return;
     }
-    cliConnected = true;
-    var st = document.getElementById('cliStatus');
-    if (st) { st.className='status-badge sb-ok'; st.innerHTML='<span class="sb-dot"></span>Conectado via WebSSH'; }
+
+    // Show the embedded iframe
+    frame.onload = function(){
+      if (_cliConnectTimer) { clearTimeout(_cliConnectTimer); _cliConnectTimer = null; }
+      _cliSetStatus('ok', 'Connected via WebSSH');
+      cliConnected = true;
+    };
+    frame.onerror = function(){
+      if (_cliConnectTimer) { clearTimeout(_cliConnectTimer); _cliConnectTimer = null; }
+      _cliSetStatus('error', 'Connection failed');
+      cliPrint('✗ WebSSH frame failed to load', 'var(--red)');
+    };
+    frame.src = wsUrl;
+    frameCard.style.display = '';
+    frameCard.scrollIntoView({behavior: 'smooth', block: 'start'});
+
+    // Timeout: si no hay onload en 12s, marcar error y permitir reintentar
+    _cliConnectTimer = setTimeout(function(){
+      if (!cliConnected) {
+        _cliSetStatus('error', 'Timeout — reachable?');
+        cliPrint('✗ Timeout connecting to ' + host + ':' + port + ' — check host & WebSSH service', 'var(--red)');
+        var cb = document.getElementById('cliConnBtn'), db = document.getElementById('cliDiscBtn');
+        if (cb) cb.style.display = ''; if (db) db.style.display = 'none';
+      }
+      _cliConnectTimer = null;
+    }, 12000);
+
+    cliConnected = false; // becomes true on iframe onload
     var cb = document.getElementById('cliConnBtn'), db = document.getElementById('cliDiscBtn');
     if (cb) cb.style.display = 'none'; if (db) db.style.display = '';
     var ci = document.getElementById('cliConnInfo');
     if (ci) ci.textContent = cliProto.toUpperCase() + ' ' + user + '@' + host + ':' + port;
-    cliPrint('Abierto en WebSSH — ' + wsUrl, '#00e676');
-    cliPrint('(si no aparece abajo, se abrió en nueva pestaña)', 'var(--text2)');
+    cliPrint('WebSSH session opening — ' + wsUrl, '#00e676');
     return;
   }
 
