@@ -1506,7 +1506,7 @@ input,select,textarea { font-family:inherit; }
               <div class="divider"></div>
               <div style="display:flex;gap:8px;flex-wrap:wrap">
                 <button class="btn btn-primary btn-sm" onclick="runWifiAI()">&#129504; AI Analysis</button>
-                <button class="btn btn-ghost btn-sm">📄 Export</button>
+                <button class="btn btn-ghost btn-sm" onclick="exportWifiAI()">📄 Export</button>
               </div>
             </div>
           </div>
@@ -3547,7 +3547,8 @@ input,select,textarea { font-family:inherit; }
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-primary btn-full" onclick="runAI()">🧠 Analyze</button>
-            <button class="btn btn-ghost btn-sm">📎 Upload .pcap</button>
+            <input type="file" id="aiPcapInput" accept=".pcap,.pcapng,.cap" style="display:none" onchange="aiUploadPcap(this)">
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('aiPcapInput').click()">📎 Upload .pcap</button>
           </div>
         </div>
       </div>
@@ -3564,7 +3565,7 @@ input,select,textarea { font-family:inherit; }
           <div class="divider"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-ghost btn-sm" onclick='goPage("reports")'>📄 Include in Report</button>
-            <button class="btn btn-ghost btn-sm">📋 Copy response</button>
+            <button class="btn btn-ghost btn-sm" onclick="copyAIResponse()">📋 Copy response</button>
           </div>
         </div>
       </div>
@@ -7869,6 +7870,101 @@ function runAI(){
 }
 
 function clearAI(){ var out=document.getElementById('aiOutput'); if(out) out.innerHTML='<div class="ai-thinking">Waiting for input... \u00b7 llama3 ready</div>'; }
+
+function copyAIResponse(){
+  var out = document.getElementById('aiOutput');
+  if(!out){ showToast('Nothing to copy'); return; }
+  var text = (out.innerText || out.textContent || '').trim();
+  if(!text){ showToast('Nothing to copy'); return; }
+  var doLegacy = function(){
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position='fixed'; ta.style.top='-1000px';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast('✓ Copied to clipboard');
+    } catch(e){ showToast('Copy failed: '+e.message); }
+  };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text)
+      .then(function(){ showToast('✓ Copied to clipboard'); })
+      .catch(doLegacy);
+  } else {
+    doLegacy();
+  }
+}
+
+function aiUploadPcap(input){
+  var file = input.files && input.files[0];
+  if(!file){ return; }
+  var out = document.getElementById('aiOutput');
+  var sel = document.getElementById('aiType');
+  if(sel) sel.value = 'pcap';
+  if(out){
+    out.innerHTML = '<div class="ai-thinking">▶ Reading '+file.name+' ('+(file.size/1024).toFixed(1)+' KB)…</div>';
+  }
+  // Client-side sanity check: PCAP magic bytes
+  var reader = new FileReader();
+  reader.onload = function(e){
+    var buf = new Uint8Array(e.target.result);
+    var magic = (buf[0]<<24 | buf[1]<<16 | buf[2]<<8 | buf[3]) >>> 0;
+    var PCAP_MAGICS = {0xa1b2c3d4:'PCAP LE',0xd4c3b2a1:'PCAP BE',0xa1b23c4d:'PCAP nanos LE',0x4d3cb2a1:'PCAP nanos BE',0x0a0d0d0a:'PCAPNG'};
+    var kind = PCAP_MAGICS[magic] || null;
+    window._aiPcapFile = file;
+    if(!kind){
+      if(out) out.innerHTML = '<div style="color:var(--amber);padding:8px">⚠ '+file.name+' does not look like a valid PCAP/PCAPNG file (magic 0x'+magic.toString(16)+')</div>';
+      return;
+    }
+    if(out){
+      out.innerHTML =
+        '<div style="padding:8px;background:var(--bg3);border-radius:4px;border-left:3px solid var(--green);margin-bottom:8px">'
+        + '<div style="font-weight:700;color:var(--green)">✓ '+file.name+'</div>'
+        + '<div style="font-size:11px;color:var(--text2);margin-top:2px">'+kind+' · '+(file.size/1024).toFixed(1)+' KB · loaded in memory</div>'
+        + '<div style="font-size:11px;color:var(--text2);margin-top:6px">Click <strong>Analyze</strong> (type: pcap) to run AI analysis on this capture.</div>'
+        + '</div>';
+    }
+    showToast('✓ Loaded '+file.name);
+  };
+  reader.onerror = function(){
+    if(out) out.innerHTML = '<div style="color:var(--red);padding:8px">✗ Failed to read file</div>';
+  };
+  // Only read the first 64 bytes for the magic check — keep the File ref for later upload
+  reader.readAsArrayBuffer(file.slice(0, 64));
+  input.value = '';
+}
+
+function exportWifiAI(){
+  var out  = document.getElementById('wifiAiOutput');
+  var rows = document.querySelectorAll('#apTableBody tr');
+  var lines = ['NekoPi — WiFi Scan + AI Analysis', '='.repeat(50), '',
+               'Date: '+new Date().toISOString(), ''];
+  if(rows && rows.length){
+    lines.push('NEARBY APs:');
+    rows.forEach(function(tr){
+      var tds = tr.querySelectorAll('td');
+      if(!tds.length) return;
+      var row = Array.prototype.map.call(tds, function(td){ return (td.innerText||td.textContent||'').trim(); }).join(' | ');
+      lines.push('  '+row);
+    });
+    lines.push('');
+  }
+  if(out){
+    var text = (out.innerText||out.textContent||'').trim();
+    if(text && text.indexOf('Click AI Analysis') < 0){
+      lines.push('AI ANALYSIS:');
+      text.split('\n').forEach(function(l){ lines.push('  '+l); });
+      lines.push('');
+    }
+  }
+  var blob = new Blob([lines.join('\n')], {type:'text/plain;charset=utf-8'});
+  var url  = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = 'nekopi-wifi-scan-'+new Date().toISOString().slice(0,10)+'.txt';
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+  showToast('✓ Exported WiFi scan + AI');
+}
 
 
 // ── Probe Config (Settings) ──────────────────────────────────
