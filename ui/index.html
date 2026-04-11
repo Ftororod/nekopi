@@ -2511,11 +2511,25 @@ input,select,textarea { font-family:inherit; }
           <button class="btn btn-ghost btn-sm" onclick="clearSensorHistory()">&#128465; Clear</button>
         </div>
       </div>
-      <div class="card-body" style="padding:0">
-        <table class="data-table" style="font-size:11px">
-          <thead><tr><th>Time</th><th>Interface</th><th>Ping GW</th><th>DNS</th><th>Throughput</th><th>Loss%</th><th>Jitter</th><th>MOS</th><th>Status</th></tr></thead>
+      <div class="card-body" style="padding:0;overflow-x:auto">
+        <table class="data-table" style="font-size:11px;min-width:1100px">
+          <thead><tr>
+            <th>Time</th>
+            <th>Iface</th>
+            <th>SSID</th>
+            <th>GW IP</th>
+            <th>DNS IP</th>
+            <th>Ping GW</th>
+            <th>DNS</th>
+            <th>Throughput</th>
+            <th>Loss%</th>
+            <th>Jitter</th>
+            <th>MOS</th>
+            <th>Trend <span style="color:var(--text2);font-weight:400;font-size:9px">(min/avg/max ping · 10x)</span></th>
+            <th>Status</th>
+          </tr></thead>
           <tbody id="sensorHistoryBody">
-            <tr><td colspan="9" style="text-align:center;color:var(--text2);padding:20px">Start Sensor Mode to collect data</td></tr>
+            <tr><td colspan="13" style="text-align:center;color:var(--text2);padding:20px">Start Sensor Mode to collect data</td></tr>
           </tbody>
         </table>
       </div>
@@ -7778,7 +7792,30 @@ function runSensorCycle(){
 
   // LIVE: gather data from real backend endpoints, honoring per-test toggles
   var promises = [];
-  var snap = {time:new Date().toTimeString().slice(0,8),iface:'',ping:'—',dns:'—',mbps:'—',loss:'—',jitter:'—',mos:'—'};
+  var snap = {
+    time:   new Date().toTimeString().slice(0,8),
+    iface:  '',
+    ssid:   '',
+    gw_ip:  '—',
+    dns_ip: '—',
+    ping:   '—', dns: '—', mbps: '—',
+    loss:   '—', jitter: '—', mos: '—',
+  };
+
+  // Pull the current gateway + DNS server IPs + iface/SSID context from
+  // /api/network/info so the history row has a meaningful site fingerprint.
+  // Non-blocking: if it fails we still render the row.
+  promises.push(fetchAPI('/api/network/info').then(function(n){
+    if(!n) return;
+    snap.gw_ip  = n.gateway || '—';
+    snap.dns_ip = (n.dns && n.dns[0]) || '—';
+    // Grab the SSID from the active WiFi iface if any
+    var wifi = (n.interfaces || []).find(function(i){ return i.type === 'wifi' && i.ssid; });
+    if (wifi) {
+      snap.ssid = wifi.ssid;
+      window._currentSsid = wifi.ssid;
+    }
+  }));
 
   if (isOn('senTestPing')) {
     promises.push(fetchAPI('/api/qc/gateway').then(function(gw){
@@ -7787,6 +7824,7 @@ function runSensorCycle(){
       snap.ping = p;
       snap.loss = (gw.loss_pct != null) ? gw.loss_pct.toFixed(2) : '—';
       snap.jitter = (gw.jitter_ms != null) ? gw.jitter_ms.toFixed(2) : '—';
+      if (gw.gateway) snap.gw_ip = gw.gateway;
       setM('sMetricPing', p, p!=='—' && parseFloat(p)<5?'var(--green)':parseFloat(p)<20?'var(--amber)':'var(--red)');
       setM('sMetricLoss', snap.loss, parseFloat(snap.loss)<0.1?'var(--green)':'var(--amber)');
       setM('sMetricJitter', snap.jitter, parseFloat(snap.jitter)<1?'var(--green)':'var(--amber)');
@@ -7811,6 +7849,7 @@ function runSensorCycle(){
       var ms = d.ms != null ? d.ms : (d.rtt_ms != null ? d.rtt_ms : null);
       if (ms == null) return;
       snap.dns = ms.toFixed ? ms.toFixed(1) : ms;
+      if (d.server || d.dns || d.resolver) snap.dns_ip = d.server || d.dns || d.resolver;
       setM('sMetricDns', snap.dns, parseFloat(snap.dns)<10?'var(--cyan)':'var(--amber)');
     }));
   }
@@ -7905,25 +7944,66 @@ function _renderSensorTopDns(top){
 
 
 
+// Keep the last N rows so we can compute min/avg/max ping trend.
+var _sensorTrendBuf = [];
+
+function _sensorStatus(r){
+  // Refined matrix per spec:
+  //   GOOD    ← loss 0% AND ping <10ms AND dns <50ms
+  //   WARNING ← ping 10-50ms OR  dns 50-200ms
+  //   POOR    ← loss >0%  OR  ping >50ms OR  dns >200ms
+  //   MOS is advisory only — NOT part of the classification when jitter
+  //   is null/missing (we can't trust an estimate without jitter samples).
+  var lossN = parseFloat(r.loss);
+  var pingN = parseFloat(r.ping);
+  var dnsN  = parseFloat(r.dns);
+  var hasLoss = !isNaN(lossN);
+  var hasPing = !isNaN(pingN);
+  var hasDns  = !isNaN(dnsN);
+  if ((hasLoss && lossN > 0) || (hasPing && pingN > 50) || (hasDns && dnsN > 200)) {
+    return {label: 'POOR', cls: 'sb-fail'};
+  }
+  if ((hasPing && pingN >= 10) || (hasDns && dnsN >= 50)) {
+    return {label: 'WARNING', cls: 'sb-warn'};
+  }
+  if (hasLoss && hasPing && hasDns) {
+    return {label: 'GOOD', cls: 'sb-ok'};
+  }
+  return {label: 'IDLE', cls: 'sb-idle'};
+}
+
+function _sensorTrendHTML(){
+  // Min / avg / max of the last 10 ping samples — gives the engineer a
+  // quick visual of whether the link is stable or jittery.
+  if (!_sensorTrendBuf.length) return '<span style="color:var(--text2)">—</span>';
+  var nums = _sensorTrendBuf.map(function(v){ return parseFloat(v); }).filter(function(n){ return !isNaN(n); });
+  if (!nums.length) return '<span style="color:var(--text2)">—</span>';
+  var min = Math.min.apply(null, nums);
+  var max = Math.max.apply(null, nums);
+  var avg = nums.reduce(function(a,b){return a+b;}, 0) / nums.length;
+  var color = max < 10 ? 'var(--green)' : max < 50 ? 'var(--amber)' : 'var(--red)';
+  return '<span style="font-family:monospace;color:'+color+';font-size:10px">'
+    + min.toFixed(1) + ' / ' + avg.toFixed(1) + ' / ' + max.toFixed(1) + 'ms</span>';
+}
+
 function addSensorHistoryRow(r){
   var tbody=document.getElementById('sensorHistoryBody'); if(!tbody) return;
   if(tbody.querySelector('td[colspan]')) tbody.innerHTML='';
-  // MOS-independent status. POOR criteria: loss > 1%  OR  ping > 100 ms  OR
-  // throughput < 1 Mbps WHILE there's actual traffic. Jitter/MOS are
-  // advisory only — if we don't have enough samples for them we show "—"
-  // instead of falsely flagging POOR.
-  var lossN = parseFloat(r.loss);
+
+  // Trend buffer — keep last 10 ping readings for min/avg/max
   var pingN = parseFloat(r.ping);
-  var mbpsN = parseFloat(r.mbps);
-  var hasLoss = !isNaN(lossN);
-  var hasPing = !isNaN(pingN);
-  var status = 'GOOD';
-  var statusCls = 'sb-ok';
-  if ((hasLoss && lossN > 1) || (hasPing && pingN > 100)) {
-    status = 'POOR'; statusCls = 'sb-fail';
-  } else if ((hasLoss && lossN > 0.1) || (hasPing && pingN > 50)) {
-    status = 'FAIR'; statusCls = 'sb-warn';
+  if (!isNaN(pingN)){
+    _sensorTrendBuf.push(pingN);
+    if (_sensorTrendBuf.length > 10) _sensorTrendBuf.shift();
   }
+  // Keep full history for CSV export (pre-existing bug: array was never pushed)
+  sensorHistory.push(r);
+  if (sensorHistory.length > 200) sensorHistory.shift();
+
+  var lossN = parseFloat(r.loss);
+  var hasLoss = !isNaN(lossN);
+  var st = _sensorStatus(r);
+
   var mosDisplay = (r.mos == null || r.mos === '—' || isNaN(parseFloat(r.mos)))
     ? '<span style="color:var(--text2)">—</span>'
     : '<span style="color:'
@@ -7933,17 +8013,22 @@ function addSensorHistoryRow(r){
   var jitterDisplay = (r.jitter == null || r.jitter === '—' || isNaN(parseFloat(r.jitter)))
     ? '<span style="color:var(--text2)">—</span>'
     : '<span style="color:var(--text2)">' + r.jitter + 'ms</span>';
+
   var tr=document.createElement('tr');
   tr.innerHTML =
     '<td style="color:var(--text2);font-size:10px">'+r.time+'</td>'
-    +'<td style="color:var(--text2)">'+r.iface+'</td>'
+    +'<td style="color:var(--text2)">'+(r.iface||'—')+'</td>'
+    +'<td style="color:var(--cyan);font-size:10px">'+(r.ssid||'—')+'</td>'
+    +'<td style="color:var(--text2);font-family:monospace;font-size:10px">'+(r.gw_ip||'—')+'</td>'
+    +'<td style="color:var(--text2);font-family:monospace;font-size:10px">'+(r.dns_ip||'—')+'</td>'
     +'<td style="color:var(--green)">'+r.ping+'ms</td>'
     +'<td style="color:var(--cyan)">'+r.dns+'ms</td>'
     +'<td style="color:var(--blue-b)">'+r.mbps+' Mb/s</td>'
     +'<td style="color:'+(hasLoss && lossN<0.1?'var(--green)':'var(--red)')+'">'+r.loss+'%</td>'
     +'<td>'+jitterDisplay+'</td>'
     +'<td>'+mosDisplay+'</td>'
-    +'<td><span class="status-badge '+statusCls+'"><span class="sb-dot"></span>'+status+'</span></td>';
+    +'<td>'+_sensorTrendHTML()+'</td>'
+    +'<td><span class="status-badge '+st.cls+'"><span class="sb-dot"></span>'+st.label+'</span></td>';
   tbody.insertBefore(tr,tbody.firstChild);
   if(tbody.children.length>50) tbody.removeChild(tbody.lastChild);
 }
@@ -8076,16 +8161,20 @@ document.addEventListener('change', function(e){
 
 function exportSensorCSV(){
   if(!sensorHistory.length){showToast('No data yet');return;}
-  var h='Time,Interface,Ping(ms),DNS(ms),Throughput(Mbps),Loss%,Jitter(ms),MOS\n';
-  var rows=sensorHistory.map(function(r){return[r.time,r.iface,r.ping,r.dns,r.mbps,r.loss,r.jitter,r.mos].join(',');}).join('\n');
+  var h='Time,Interface,SSID,Gateway,DNS_Server,Ping(ms),DNS(ms),Throughput(Mbps),Loss%,Jitter(ms),MOS\n';
+  var rows=sensorHistory.map(function(r){
+    return [r.time,r.iface,r.ssid||'',r.gw_ip||'',r.dns_ip||'',
+            r.ping,r.dns,r.mbps,r.loss,r.jitter,r.mos].join(',');
+  }).join('\n');
   var a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([h+rows],{type:'text/csv'})); a.download='nekopi-sensor-'+new Date().toISOString().slice(0,10)+'.csv'; a.click();
   showToast('Exported '+sensorHistory.length+' cycles');
 }
 
 function clearSensorHistory(){
   sensorHistory=[]; sensorCycle=0;
+  _sensorTrendBuf = [];
   var tbody=document.getElementById('sensorHistoryBody');
-  if(tbody) tbody.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--text2);padding:20px">Start Sensor Mode to collect data</td></tr>';
+  if(tbody) tbody.innerHTML='<tr><td colspan="13" style="text-align:center;color:var(--text2);padding:20px">Start Sensor Mode to collect data</td></tr>';
 }
 
 // Resolve the host as seen by the user's browser, NOT "localhost" — the
