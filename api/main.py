@@ -4063,10 +4063,83 @@ async def netpush_clear():
 #  WIFI TROUBLESHOOTER — Diagnóstico asistido
 # ═══════════════════════════════════════════════════════════════
 
+def _wifi_phy_from_caps(block: str) -> str:
+    """Detects the best PHY mode advertised in an iw BSS block.
+    Returns one of WiFi4/5/6/7 or 'legacy' if none found."""
+    if re.search(r"EHT Capabilities|Extremely High Throughput", block, re.IGNORECASE):
+        return "WiFi7"
+    if re.search(r"HE Capabilities|High Efficiency", block, re.IGNORECASE):
+        return "WiFi6"
+    if re.search(r"VHT Capabilities|Very High Throughput", block, re.IGNORECASE):
+        return "WiFi5"
+    if re.search(r"HT Capabilities|High Throughput", block, re.IGNORECASE):
+        return "WiFi4"
+    return "legacy"
+
+def _wifi_bw_from_caps(block: str) -> int | None:
+    """Guesses channel width (MHz) from iw scan block capabilities."""
+    if re.search(r"EHT.*320MHz|320 MHz", block):
+        return 320
+    if re.search(r"VHT.*160MHz|HE.*160MHz|160 MHz", block):
+        return 160
+    if re.search(r"VHT.*80MHz|HE.*80MHz|80 MHz", block):
+        return 80
+    if re.search(r"HT40|40 MHz|secondary channel offset", block, re.IGNORECASE):
+        return 40
+    if re.search(r"HT20|20 MHz", block):
+        return 20
+    return None
+
+def _wifi_iface_noise_floor(iface: str) -> float | None:
+    """Reads noise floor from `iw dev <iface> survey dump` for the in-use channel."""
+    try:
+        out = run_cmd(["iw", "dev", iface, "survey", "dump"], timeout=5)
+    except Exception:
+        return None
+    blocks = re.split(r"Survey data from", out)
+    for b in blocks:
+        if "in use" not in b:
+            continue
+        m = re.search(r"noise:\s*(-?\d+)", b)
+        if m:
+            try:
+                return float(m.group(1))
+            except Exception:
+                return None
+    return None
+
+def _wifi_station_stats(iface: str) -> dict:
+    """Parses `iw dev <iface> station dump` for retry/failed/rx/tx counters."""
+    out = run_cmd(["iw", "dev", iface, "station", "dump"], timeout=5)
+    if not out:
+        return {}
+    def _g(pat, cast=int):
+        m = re.search(pat, out)
+        if not m:
+            return None
+        try:
+            return cast(m.group(1))
+        except Exception:
+            return None
+    tx_pkts = _g(r"tx packets:\s*(\d+)")
+    tx_retries = _g(r"tx retries:\s*(\d+)")
+    tx_failed = _g(r"tx failed:\s*(\d+)")
+    retry_rate = None
+    if tx_pkts and tx_retries is not None and tx_pkts > 0:
+        retry_rate = round(100.0 * tx_retries / tx_pkts, 2)
+    return {
+        "tx_packets": tx_pkts,
+        "tx_retries": tx_retries,
+        "tx_failed":  tx_failed,
+        "retry_rate": retry_rate,
+        "rx_bitrate": _g(r"rx bitrate:\s*([\d.]+)", float),
+        "tx_bitrate": _g(r"tx bitrate:\s*([\d.]+)", float),
+    }
+
 @app.post("/api/wifits/scan")
 async def wifits_scan(iface: str = "wlan0"):
-    """Recopila datos reales del entorno WiFi para el diagnóstico"""
-    result = {}
+    """Recopila datos reales del entorno WiFi para el diagnóstico."""
+    result: dict = {}
 
     # 1. Signal / association
     try:
@@ -4088,17 +4161,39 @@ async def wifits_scan(iface: str = "wlan0"):
             result["freq"]   = int(freq_m.group(1))   if freq_m else None
             result["bssid"]  = bss_m.group(1)         if bss_m  else ""
             result["ssid"]   = ssid_m.group(1).strip() if ssid_m else ""
-            result["band"]   = "2.4GHz" if result["freq"] and result["freq"] < 5000 else "5GHz"
+            f = result.get("freq") or 0
+            result["band"] = "6GHz" if f >= 5925 else ("5GHz" if f >= 5000 else ("2.4GHz" if f else ""))
             result["channel"] = None
-            if result["freq"]:
-                f = result["freq"]
-                if f < 5000:
+            if f:
+                if f < 3000:
                     result["channel"] = int((f - 2407) / 5)
+                elif f >= 5925:
+                    result["channel"] = int((f - 5950) / 5)
                 else:
                     result["channel"] = int((f - 5000) / 5)
     except Exception as e:
         result["connected"] = False
         result["error_assoc"] = str(e)
+
+    # 1b. Station stats: retry rate, tx/rx bitrate, failed
+    try:
+        stats = _wifi_station_stats(iface)
+        result.update({
+            "retry_rate":  stats.get("retry_rate"),
+            "tx_retries":  stats.get("tx_retries"),
+            "tx_failed":   stats.get("tx_failed"),
+            "rx_bitrate":  stats.get("rx_bitrate"),
+        })
+    except Exception as e:
+        result["error_station"] = str(e)
+
+    # 1c. Noise floor + derived SNR
+    try:
+        nf = _wifi_iface_noise_floor(iface)
+        if nf is not None:
+            result["noise_floor"] = nf
+    except Exception as e:
+        result["error_survey"] = str(e)
 
     # 2. Ping gateway + internet
     gw_out = run_cmd(["ip", "route", "show", "default"])
@@ -4130,12 +4225,16 @@ async def wifits_scan(iface: str = "wlan0"):
     except:
         result["dns_ms"] = None
 
-    # 4. Neighbor APs on same channel (interference)
+    # 4. Neighbor APs on same channel (interference) + PHY mode / bandwidth
     result["neighbor_aps"] = []
     result["channel_load"] = None
+    result["phy_mode"]     = None
+    result["bandwidth"]    = None
+    result["beacon_int"]   = None
     try:
-        scan_out = run_cmd(["sudo", "iw", "dev", iface, "scan"], timeout=15)
-        current_ch = result.get("channel")
+        scan_out = run_cmd(["sudo", "iw", "dev", iface, "scan"], timeout=20)
+        current_ch    = result.get("channel")
+        current_bssid = (result.get("bssid") or "").lower()
         same_ch = 0
         total   = 0
         for block in scan_out.split("BSS "):
@@ -4145,23 +4244,40 @@ async def wifits_scan(iface: str = "wlan0"):
             sig_m = re.search(r"signal:\s*([-\d.]+)", block)
             ssid_m= re.search(r"SSID:\s*(.+)", block)
             bss_m = re.search(r"^([\w:]{17})", block.strip())
+            beacon_m = re.search(r"beacon interval:\s*(\d+)", block, re.IGNORECASE)
+            phy = _wifi_phy_from_caps(block)
+            bw  = _wifi_bw_from_caps(block)
+            bssid = (bss_m.group(1).lower() if bss_m else "")
+            if current_bssid and bssid == current_bssid:
+                # Capabilities of the AP we are associated to
+                result["phy_mode"]   = phy
+                result["bandwidth"]  = bw
+                if beacon_m:
+                    try:
+                        result["beacon_int"] = int(beacon_m.group(1))
+                    except Exception:
+                        pass
             if ch_m and current_ch and int(ch_m.group(1)) == current_ch:
                 same_ch += 1
                 result["neighbor_aps"].append({
-                    "bssid": bss_m.group(1) if bss_m else "?",
-                    "ssid":  ssid_m.group(1).strip() if ssid_m else "",
-                    "signal": float(sig_m.group(1)) if sig_m else -99,
+                    "bssid":   bss_m.group(1) if bss_m else "?",
+                    "ssid":    ssid_m.group(1).strip() if ssid_m else "",
+                    "signal":  float(sig_m.group(1)) if sig_m else -99,
                     "channel": int(ch_m.group(1)),
+                    "phy":     phy,
+                    "bw":      bw,
                 })
         result["co_channel_aps"] = same_ch
         result["total_aps_seen"] = total
     except Exception as e:
         result["scan_error"] = str(e)
 
-    # 5. SNR estimate (RSSI vs noise floor)
-    if result.get("rssi"):
-        noise_floor = -95
-        result["snr"] = result["rssi"] - noise_floor
+    # 5. SNR (real noise floor if available, else -95 default)
+    if result.get("rssi") is not None:
+        nf = result.get("noise_floor")
+        if nf is None:
+            nf = -95
+        result["snr"] = round(result["rssi"] - nf, 1)
 
     return result
 

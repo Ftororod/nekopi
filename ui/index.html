@@ -2789,10 +2789,35 @@ input,select,textarea { font-family:inherit; }
                 <div class="wts-metric-val" id="wtsSnr">—</div>
                 <div class="wts-metric-unit">dB</div>
               </div>
+              <div class="wts-metric" id="wtsMetNoise">
+                <div class="wts-metric-label">Noise</div>
+                <div class="wts-metric-val" id="wtsNoise">—</div>
+                <div class="wts-metric-unit">dBm</div>
+              </div>
               <div class="wts-metric" id="wtsMetRate">
                 <div class="wts-metric-label">TX Rate</div>
                 <div class="wts-metric-val" id="wtsTxRate">—</div>
                 <div class="wts-metric-unit">Mbps</div>
+              </div>
+              <div class="wts-metric" id="wtsMetRetry">
+                <div class="wts-metric-label">Retry</div>
+                <div class="wts-metric-val" id="wtsRetry">—</div>
+                <div class="wts-metric-unit">%</div>
+              </div>
+              <div class="wts-metric" id="wtsMetPhy">
+                <div class="wts-metric-label">PHY</div>
+                <div class="wts-metric-val" id="wtsPhy">—</div>
+                <div class="wts-metric-unit">mode</div>
+              </div>
+              <div class="wts-metric" id="wtsMetBw">
+                <div class="wts-metric-label">BW</div>
+                <div class="wts-metric-val" id="wtsBw">—</div>
+                <div class="wts-metric-unit">MHz</div>
+              </div>
+              <div class="wts-metric" id="wtsMetBeacon">
+                <div class="wts-metric-label">Beacon</div>
+                <div class="wts-metric-val" id="wtsBeacon">—</div>
+                <div class="wts-metric-unit">TU</div>
               </div>
               <div class="wts-metric" id="wtsMetPingGw">
                 <div class="wts-metric-label">Ping GW</div>
@@ -2820,6 +2845,12 @@ input,select,textarea { font-family:inherit; }
                 <span><span style="color:var(--text2)">CH</span> <span id="wtsChannel" style="color:var(--white)">—</span></span>
                 <span><span style="color:var(--text2)">GW</span> <span id="wtsGateway" style="font-family:monospace;color:var(--white)">—</span></span>
               </div>
+            </div>
+
+            <!-- Neighbor APs table (same channel — interference view) -->
+            <div id="wtsNeighborsWrap" style="display:none;margin-top:10px">
+              <div style="font-size:10px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Co-channel neighbors</div>
+              <div id="wtsNeighbors" style="max-height:160px;overflow:auto;background:var(--bg3);border-radius:var(--radius);padding:6px"></div>
             </div>
           </div>
         </div>
@@ -9454,23 +9485,32 @@ function _wtsSimulateScan(){
 }
 
 function _wtsRenderMetrics(d){
-  function setM(id, val, unit, color){
+  function setM(id, val, color){
     var el = document.getElementById(id);
     if(!el) return;
-    el.textContent = val !== null && val !== undefined ? val : '—';
-    if(color) el.style.color = color;
+    el.textContent = (val !== null && val !== undefined && val !== '') ? val : '—';
+    el.style.color = color || '';
   }
   function colorRssi(v){ return v>=-67?'var(--green)':v>=-70?'var(--cyan)':v>=-80?'var(--amber)':'var(--red)'; }
   function colorSnr(v) { return v>=25?'var(--green)':v>=15?'var(--amber)':'var(--red)'; }
   function colorMs(v)  { return v<=20?'var(--green)':v<=100?'var(--amber)':'var(--red)'; }
+  function colorRetry(v){ return v<=5?'var(--green)':v<=15?'var(--amber)':'var(--red)'; }
+  function colorNoise(v){ return v<=-90?'var(--green)':v<=-80?'var(--amber)':'var(--red)'; }
+  function colorPhy(p){ return (p==='WiFi7'||p==='WiFi6')?'var(--green)':(p==='WiFi5')?'var(--cyan)':(p==='WiFi4')?'var(--amber)':'var(--red)'; }
 
-  setM('wtsRssi',   d.rssi    !== null ? d.rssi+'dBm'  : '—', '', d.rssi   ? colorRssi(d.rssi)   : '');
-  setM('wtsSnr',    d.snr     !== null ? d.snr+'dB'    : '—', '', d.snr    ? colorSnr(d.snr)      : '');
-  setM('wtsTxRate', d.txrate  !== null ? d.txrate+''   : '—', '', d.txrate && d.txrate>=54 ? 'var(--green)' : d.txrate ? 'var(--amber)' : '');
-  setM('wtsPingGw', d.ping_gw && d.ping_gw.avg_ms ? d.ping_gw.avg_ms.toFixed(0) : '—', '', d.ping_gw&&d.ping_gw.avg_ms ? colorMs(d.ping_gw.avg_ms) : '');
-  setM('wtsDns',    d.dns_ms  !== null ? d.dns_ms+''   : '—', '', d.dns_ms ? colorMs(d.dns_ms)    : '');
-  setM('wtsCoCh',   d.co_channel_aps !== undefined ? d.co_channel_aps+'' : '—', '',
-    d.co_channel_aps > 3 ? 'var(--red)' : d.co_channel_aps > 1 ? 'var(--amber)' : 'var(--green)');
+  setM('wtsRssi',   d.rssi    != null ? d.rssi    : null, d.rssi    != null ? colorRssi(d.rssi) : '');
+  setM('wtsSnr',    d.snr     != null ? d.snr     : null, d.snr     != null ? colorSnr(d.snr)   : '');
+  setM('wtsNoise',  d.noise_floor != null ? d.noise_floor : null, d.noise_floor != null ? colorNoise(d.noise_floor) : '');
+  setM('wtsTxRate', d.txrate  != null ? d.txrate  : null, d.txrate  != null ? (d.txrate>=54?'var(--green)':'var(--amber)') : '');
+  setM('wtsRetry',  d.retry_rate != null ? d.retry_rate : null, d.retry_rate != null ? colorRetry(d.retry_rate) : '');
+  setM('wtsPhy',    d.phy_mode || null, d.phy_mode ? colorPhy(d.phy_mode) : '');
+  setM('wtsBw',     d.bandwidth != null ? d.bandwidth : null, '');
+  setM('wtsBeacon', d.beacon_int != null ? d.beacon_int : null, '');
+  setM('wtsPingGw', d.ping_gw && d.ping_gw.avg_ms != null ? d.ping_gw.avg_ms.toFixed(0) : null,
+                    d.ping_gw && d.ping_gw.avg_ms != null ? colorMs(d.ping_gw.avg_ms) : '');
+  setM('wtsDns',    d.dns_ms  != null ? d.dns_ms : null, d.dns_ms != null ? colorMs(d.dns_ms) : '');
+  setM('wtsCoCh',   d.co_channel_aps != null ? d.co_channel_aps : null,
+                    d.co_channel_aps > 3 ? 'var(--red)' : d.co_channel_aps > 1 ? 'var(--amber)' : 'var(--green)');
 
   // Connection bar
   if(d.connected){
@@ -9481,6 +9521,28 @@ function _wtsRenderMetrics(d){
       var val = k==='Ssid'?d.ssid:k==='Bssid'?d.bssid:k==='Band'?d.band:k==='Channel'?d.channel:d.gateway;
       if(el) el.textContent = val||'—';
     });
+  }
+
+  // Neighbor APs table
+  var nwrap = document.getElementById('wtsNeighborsWrap');
+  var nbody = document.getElementById('wtsNeighbors');
+  var neigh = d.neighbor_aps || [];
+  if(nwrap && nbody){
+    if(neigh.length){
+      nwrap.style.display='';
+      nbody.innerHTML = neigh.slice().sort(function(a,b){return (b.signal||-99)-(a.signal||-99);}).map(function(n){
+        var sCol = n.signal>=-67?'var(--green)':n.signal>=-80?'var(--amber)':'var(--red)';
+        return '<div style="display:flex;justify-content:space-between;gap:10px;font-size:10px;padding:3px 4px;border-bottom:1px solid var(--border)">'
+          +'<span style="font-family:monospace;color:var(--cyan);min-width:130px">'+(n.bssid||'?')+'</span>'
+          +'<span style="flex:1;color:var(--white);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(n.ssid||'(hidden)')+'</span>'
+          +'<span style="color:'+sCol+';min-width:55px;text-align:right">'+(n.signal||'?')+' dBm</span>'
+          +'<span style="color:var(--text2);min-width:50px;text-align:right">'+(n.phy||'—')+'</span>'
+          +'<span style="color:var(--text2);min-width:45px;text-align:right">'+(n.bw?n.bw+' MHz':'—')+'</span>'
+          +'</div>';
+      }).join('');
+    } else {
+      nwrap.style.display='none';
+    }
   }
 }
 
