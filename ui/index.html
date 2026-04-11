@@ -5600,8 +5600,8 @@ function updateSecNote() {
 function autoSecTarget() {
   fetchAPI('/api/qc/run?gateway=auto&dns=auto&target=1.1.1.1', 'GET')
   .catch(function(){});
-  // Use gateway from status
-  fetchAPI('/api/status').then(function(d){
+  // Use gateway from network info
+  fetchAPI('/api/network/info').then(function(d){
     var gw = d.gateway || '';
     if(gw) {
       var parts = gw.split('.');
