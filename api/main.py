@@ -1304,7 +1304,8 @@ def _path_parse_raw(proc):
     _PATH["running"] = False
 
 @app.post("/api/path/start")
-async def path_start(target: str = "", iface: str = "", max_hops: int = 15):
+async def path_start(target: str = "", iface: str = "", max_hops: int = 15,
+                     count: int = 0, interval: int = 1):
     global _PATH
     if _PATH["running"]:
         return {"ok": False, "error": "already running"}
@@ -1317,9 +1318,11 @@ async def path_start(target: str = "", iface: str = "", max_hops: int = 15):
     _PATH["iface"]  = iface
     _PATH["running"] = True
 
-    # mtr --raw streams results as they arrive — no waiting for full cycles
-    # -c 0 = infinite (we stop it manually), -n = no DNS, -i 0.5 = 0.5s interval
-    cmd = ["mtr", "--raw", "-n", f"-m{max_hops}", "-i", "1", target]
+    # mtr --raw streams results as they arrive.
+    # count <= 0  → continuous (-c 0); otherwise -c <count> stops after N probes.
+    iv = max(1, int(interval or 1))
+    cnt = max(0, int(count or 0))
+    cmd = ["mtr", "--raw", "-n", f"-m{max_hops}", "-i", str(iv), "-c", str(cnt), target]
     if iface:
         cmd += ["-I", iface]
 

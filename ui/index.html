@@ -2086,12 +2086,13 @@ input,select,textarea { font-family:inherit; }
               <input class="form-input" id="pathMaxHops" value="30" type="number" min="5" max="64">
             </div>
             <div class="form-group">
-              <label class="form-label">Packet Size</label>
-              <select class="form-input form-select">
-                <option value="64">64 bytes (default)</option>
-                <option value="512">512 bytes</option>
-                <option value="1400">1400 bytes (near MTU)</option>
-                <option value="1500">1500 bytes (full MTU)</option>
+              <label class="form-label">Probe Count</label>
+              <select class="form-input form-select" id="pathCount">
+                <option value="0">∞ Continuous</option>
+                <option value="20">20 probes</option>
+                <option value="50" selected>50 probes</option>
+                <option value="100">100 probes</option>
+                <option value="500">500 probes</option>
               </select>
             </div>
           </div>
@@ -2341,11 +2342,11 @@ input,select,textarea { font-family:inherit; }
           <div class="divider"></div>
           <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:8px">Tests per cycle</div>
           <div style="display:flex;flex-direction:column;gap:7px">
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">Ping latency (gateway + 8.8.8.8)</span></label>
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">DNS resolution time</span></label>
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">iperf3 throughput (TCP + UDP)</span></label>
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">MOS score (VoIP quality)</span></label>
-            <label class="toggle-wrap"><div class="toggle-track"></div><span class="toggle-lbl">WiFi channel utilization</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="senTestPing"   checked><span class="toggle-lbl">Ping latency (gateway + 8.8.8.8)</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="senTestDns"    checked><span class="toggle-lbl">DNS resolution time</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="senTestPub"    checked><span class="toggle-lbl">Public IP geolocation</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="senTestTraf"   checked><span class="toggle-lbl">Throughput (live RX/TX)</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="senTestWifiCh"        ><span class="toggle-lbl">WiFi channel utilization</span></label>
           </div>
 
           <div class="divider"></div>
@@ -7214,16 +7215,24 @@ function fetchAndRunPath() {
   var tgt   = (document.getElementById('pathTarget')      || {}).value || get_default_gw_cached();
   var iface = (document.getElementById('pathIfaceSelect') || {}).value || '';
   if(iface === 'auto') iface = '';
+  var maxHops    = parseInt((document.getElementById('pathMaxHops')||{}).value) || 30;
+  var probeCount = parseInt((document.getElementById('pathCount')  ||{}).value) || 0;
+  var probeIvMs  = parseInt((document.getElementById('pathInterval')||{}).value) || 2500;
+  var probeIvS   = Math.max(1, Math.round(probeIvMs/1000));
 
   var st = document.getElementById('pathStatus');
   if(st){ st.className='status-badge sb-run'; st.innerHTML='<span class="sb-dot"></span>Tracing…'; }
 
-  // Start streaming mtr on backend
-  fetchAPI('/api/path/start?target='+encodeURIComponent(tgt)+(iface?'&iface='+iface:''), {method:'POST'})
+  var qs = '/api/path/start?target='+encodeURIComponent(tgt)
+         + (iface?'&iface='+iface:'')
+         + '&max_hops='+maxHops
+         + '&count='+probeCount
+         + '&interval='+probeIvS;
+  fetchAPI(qs, {method:'POST'})
   .then(function(d){
     if(d && d.ok){
       _pathSeq = -1;
-      _pathPollIv = setInterval(_pathPoll, 800);  // poll every 800ms
+      _pathPollIv = setInterval(_pathPoll, 800);
     }
   });
 }
@@ -7338,10 +7347,28 @@ function _renderPathTable(hops, histories, tbodyId){
         '<td><div style="display:flex;gap:2px;align-items:flex-end;height:18px">' + bars + '</div></td>';
       tbody.appendChild(tr);
     });
+    // Compute aggregate stats from real data
     var s = function(id,v){var el=document.getElementById(id);if(el)el.textContent=v;};
+    var lossSum = 0, lossN = 0;
+    hops.forEach(function(h){
+      if (h.loss_pct != null && !h.icmp_filter) { lossSum += h.loss_pct; lossN++; }
+    });
+    var avgLoss = lossN ? (lossSum/lossN) : 0;
+    // End-to-end RTT = avg of last reachable hop
+    var lastReachable = null;
+    for (var i = hops.length - 1; i >= 0; i--) {
+      var h = hops[i];
+      var hist = histories[h.ip] || [];
+      if (hist.length) { lastReachable = hist; break; }
+    }
+    var totalRTT = '—';
+    if (lastReachable && lastReachable.length) {
+      var sum = lastReachable.reduce(function(a,b){return a+b;},0);
+      totalRTT = (sum / lastReachable.length).toFixed(1) + 'ms';
+    }
     s('pathHopCount', hops.length);
-    s('pathTotalRTT', maxRTT > 0 ? maxRTT.toFixed(1)+'ms' : '—');
-    s('pathLoss',     hops.some(function(h){return h.loss;}) ? '>0%' : '0%');
+    s('pathTotalRTT', totalRTT);
+    s('pathLoss',     avgLoss.toFixed(1) + '%');
     s('pathWorstHop', 'Hop ' + worstHop);
 
     // Update threshold labels
@@ -7433,9 +7460,9 @@ function runSensorCycle(){
     var el = document.getElementById(id);
     if (el) { el.textContent = val; if (color) el.style.color = color; }
   }
+  function isOn(id){ var el = document.getElementById(id); return !el || el.checked; }
 
   if (DEMO_MODE) {
-    // DEMO: valores simulados de pktvisor
     var ping   = +(1.5 + Math.random()*3).toFixed(1);
     var dns    = +(5   + Math.random()*8).toFixed(1);
     var mbps   = +(800 + Math.random()*400).toFixed(0);
@@ -7448,54 +7475,63 @@ function runSensorCycle(){
     setM('sMetricLoss',       loss,   loss<0.1?'var(--green)':'var(--red)');
     setM('sMetricJitter',     jitter, jitter<1?'var(--green)':'var(--amber)');
     setM('sMetricMos',        mos,    parseFloat(mos)>=4?'var(--amber)':'var(--red)');
+    addSensorHistoryRow({time:new Date().toTimeString().slice(0,8),iface:'demo',ping:ping,dns:dns,mbps:mbps,loss:loss,jitter:jitter,mos:mos});
     return;
   }
 
-  // LIVE: pktvisor API en :10853 si está activo
-  var pktvisorURL = 'http://localhost:10853/api/v1/metrics/window/60s';
-  fetch(pktvisorURL, {signal: AbortSignal.timeout ? AbortSignal.timeout(3000) : undefined})
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
-    // Parsear respuesta de pktvisor
-    var net = (data.net && data.net.period) || {};
-    var dns2 = (data.dns && data.dns.period) || {};
-    var mbps2 = net.throughput_mb_sec ? (net.throughput_mb_sec * 8).toFixed(0) : '—';
-    setM('sMetricThroughput', mbps2, 'var(--blue-b)');
-    // Complementar con ping real al gateway
-    fetchAPI('/api/qc/gateway').then(function(gw) {
-      if (gw && gw.rtt_avg != null) {
-        var p = gw.rtt_avg.toFixed(1);
-        setM('sMetricPing', p, parseFloat(p)<5?'var(--green)':parseFloat(p)<20?'var(--amber)':'var(--red)');
-      }
-    });
-  })
-  .catch(function() {
-    // pktvisor no disponible — usar API NekoPi
-    fetchAPI('/api/system/metrics').then(function(data) {
-      if (!data) return;
-      if (data.cpu_temp) { var te = document.getElementById('tempEl'); if (te) te.textContent = 'RPi5 · ' + data.cpu_temp + '°C'; }
-    });
-    fetchAPI('/api/qc/gateway').then(function(gw) {
+  // LIVE: gather data from real backend endpoints, honoring per-test toggles
+  var promises = [];
+  var snap = {time:new Date().toTimeString().slice(0,8),iface:'',ping:'—',dns:'—',mbps:'—',loss:'—',jitter:'—',mos:'—'};
+
+  if (isOn('senTestPing')) {
+    promises.push(fetchAPI('/api/qc/gateway').then(function(gw){
       if (!gw) return;
-      var p = gw.rtt_avg ? gw.rtt_avg.toFixed(1) : '—';
-      setM('sMetricPing', p, parseFloat(p)<5?'var(--green)':parseFloat(p)<20?'var(--amber)':'var(--red)');
-    });
+      var p = gw.rtt_avg != null ? gw.rtt_avg.toFixed(1) : '—';
+      snap.ping = p;
+      snap.loss = (gw.loss_pct != null) ? gw.loss_pct.toFixed(2) : '—';
+      snap.jitter = (gw.jitter_ms != null) ? gw.jitter_ms.toFixed(2) : '—';
+      setM('sMetricPing', p, p!=='—' && parseFloat(p)<5?'var(--green)':parseFloat(p)<20?'var(--amber)':'var(--red)');
+      setM('sMetricLoss', snap.loss, parseFloat(snap.loss)<0.1?'var(--green)':'var(--amber)');
+      setM('sMetricJitter', snap.jitter, parseFloat(snap.jitter)<1?'var(--green)':'var(--amber)');
+      // approximate MOS from loss + jitter
+      var mos = Math.max(1, Math.min(5, 4.5 - parseFloat(snap.loss||0)*2 - parseFloat(snap.jitter||0)*0.1)).toFixed(1);
+      snap.mos = mos;
+      setM('sMetricMos', mos, parseFloat(mos)>=4?'var(--green)':parseFloat(mos)>=3?'var(--amber)':'var(--red)');
+    }));
+  }
+  if (isOn('senTestDns')) {
+    promises.push(fetchAPI('/api/qc/dns?domain=google.com').then(function(d){
+      if (!d) return;
+      var ms = d.ms != null ? d.ms : (d.rtt_ms != null ? d.rtt_ms : null);
+      if (ms == null) return;
+      snap.dns = ms.toFixed ? ms.toFixed(1) : ms;
+      setM('sMetricDns', snap.dns, parseFloat(snap.dns)<10?'var(--cyan)':'var(--amber)');
+    }));
+  }
+  if (isOn('senTestTraf')) {
+    promises.push(fetchAPI('/api/network/traffic').then(function(d){
+      if (!d || !d.interfaces) return;
+      var test = d.interfaces.find(function(i){return i.name==='eth0'||i.role==='test';}) || d.interfaces[0];
+      if (!test) return;
+      var mbps = (test.rx_mbps + test.tx_mbps).toFixed(0);
+      snap.mbps = mbps;
+      snap.iface = test.name;
+      setM('sMetricThroughput', mbps, 'var(--blue-b)');
+    }));
+  }
+  if (isOn('senTestPub')) {
+    promises.push(fetchAPI('/api/network/public-ip').then(function(d){
+      if (!d) return;
+      var info = (d.city||'') + ' · ' + (d.country||'');
+      var el = document.getElementById('sMetricPubInfo');
+      if (el) el.textContent = info;
+    }));
+  }
+
+  Promise.all(promises).then(function(){
+    addSensorHistoryRow(snap);
   });
 }
-  // pktvisor top talkers (from /api/v1/metrics/window/60s net handler)
-  var topTalkers=[
-    {ip:'192.168.1.42',bytes:'45.2MB',pct:38},
-    {ip:'192.168.1.15',bytes:'12.1MB',pct:10},
-    {ip:'192.168.1.88',bytes:'8.9MB', pct:7},
-  ];
-  // pktvisor top DNS queries
-  var topDns=[
-    {query:'google.com',count:142},
-    {query:'microsoft.com',count:89},
-    {query:'netflix.com',count:67},
-  ];
-
-// top talkers y DNS se pueblan desde pktvisor o permanecen como demo
 
 
 
@@ -7560,8 +7596,11 @@ function clearSensorHistory(){
   if(tbody) tbody.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--text2);padding:20px">Start Sensor Mode to collect data</td></tr>';
 }
 
-function openGrafana(){ window.open('http://localhost:3000','_blank'); }
-function openInflux(){  window.open('http://localhost:8086','_blank'); }
+// Resolve the host as seen by the user's browser, NOT "localhost" — the
+// browser is on a different machine than the RPi5 most of the time.
+function _nekopiHost(){ return window.location.hostname || 'localhost'; }
+function openGrafana(){ window.open('http://'+_nekopiHost()+':3000','_blank'); }
+function openInflux(){  window.open('http://'+_nekopiHost()+':8086','_blank'); }
 
 function setInfluxModeSetting(mode){
   var isLocal=mode==='local';
