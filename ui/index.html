@@ -7374,21 +7374,64 @@ function setInfluxModeSetting(mode){
 //  REPORTS
 // ═══════════════════════════════════════
 var reportHistory = [];
+function _rptMeta(){
+  return {
+    client:   (document.getElementById('rptClient')||{}).value   || 'Client',
+    site:     (document.getElementById('rptSite')||{}).value     || 'Site',
+    engineer: (document.getElementById('rptEngineer')||{}).value || 'Engineer',
+    lang:     (document.getElementById('rptLang')||{}).value     || 'en',
+  };
+}
+function _rptDownloadBlob(blob, filename){
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
 function generateReport(){
-  var client=(document.getElementById('rptClient')||{}).value||'Client';
-  var site=(document.getElementById('rptSite')||{}).value||'Site';
-  var engineer=(document.getElementById('rptEngineer')||{}).value||'Engineer';
-  var lang=(document.getElementById('rptLang')||{}).value||'en';
-  var st=document.getElementById('rptStatus');
-  if(st){st.textContent='Generating...';st.style.color='var(--amber)';}
-  setTimeout(function(){
-    var report={date:new Date().toLocaleDateString(),client,site,engineer,lang,id:Date.now()};
+  var meta = _rptMeta();
+  var st   = document.getElementById('rptStatus');
+  if(st){ st.textContent='Generating...'; st.style.color='var(--amber)'; }
+
+  if(DEMO_MODE){
+    setTimeout(function(){
+      var report={date:new Date().toLocaleDateString(),client:meta.client,site:meta.site,engineer:meta.engineer,lang:meta.lang,id:Date.now()};
+      reportHistory.unshift(report);
+      addReportHistoryRow(report);
+      previewReport(report);
+      if(st){ st.textContent='Ready to download (demo)'; st.style.color='var(--green)'; }
+      showToast('Report generated — '+meta.client+' / '+meta.site);
+    }, 800);
+    return;
+  }
+
+  fetch(API_BASE + '/api/reports/generate', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(meta),
+  }).then(function(r){
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var fmt = r.headers.get('X-Nekopi-Report-Format') || 'pdf';
+    var id  = r.headers.get('X-Nekopi-Report-Id') || String(Date.now());
+    return r.blob().then(function(blob){ return {blob:blob, fmt:fmt, id:id}; });
+  }).then(function(out){
+    var ext = out.fmt === 'pdf' ? 'pdf' : 'html';
+    var fname = 'nekopi-report-'+(meta.client||'client').replace(/[^A-Za-z0-9._-]/g,'_')+'-'+new Date().toISOString().slice(0,10)+'.'+ext;
+    _rptDownloadBlob(out.blob, fname);
+    var report={date:new Date().toLocaleDateString(),client:meta.client,site:meta.site,engineer:meta.engineer,lang:meta.lang,id:out.id};
     reportHistory.unshift(report);
     addReportHistoryRow(report);
     previewReport(report);
-    if(st){st.textContent='Ready to download';st.style.color='var(--green)';}
-    showToast('Report generated \u2014 '+client+' / '+site);
-  },1200);
+    if(st){
+      if(out.fmt === 'pdf'){ st.textContent='PDF downloaded'; st.style.color='var(--green)'; }
+      else { st.textContent='HTML (install WeasyPrint for PDF)'; st.style.color='var(--amber)'; }
+    }
+    showToast((out.fmt==='pdf'?'PDF':'HTML')+' report downloaded — '+meta.client);
+  }).catch(function(e){
+    if(st){ st.textContent='Error: '+e.message; st.style.color='var(--red)'; }
+    showToast('Report error: '+e.message);
+  });
 }
 function previewReport(report){
   var body=document.getElementById('rptPreviewBody'); if(!body) return;
@@ -7402,9 +7445,32 @@ function addReportHistoryRow(r){
   tr.innerHTML='<td style="color:var(--text2);font-size:10px">'+r.date+'</td><td style="color:var(--white)">'+r.client+'</td><td style="color:var(--text2)">'+r.site+'</td><td style="color:var(--text2);font-size:10px">5 sections</td><td><span style="font-size:11px;padding:2px 6px;background:rgba(33,150,243,.1);color:var(--blue-b);border-radius:2px">'+r.lang.toUpperCase()+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="downloadReportPDF()">&#11015; PDF</button></td>';
   tbody.insertBefore(tr,tbody.firstChild);
 }
-function downloadReportPDF(){ showToast('PDF requires WeasyPrint on RPi5 \u2014 /api/reports/generate'); }
-function shareReport(){ showToast('Share: http://nekopi.local:8000/reports/latest'); }
-function exportReportJSON(){ showToast('JSON export \u2014 /api/reports/export'); }
+function downloadReportPDF(){ generateReport(); }
+function shareReport(){ showToast('Share requires hosted mode'); }
+function exportReportJSON(){
+  var meta = _rptMeta();
+  if(DEMO_MODE){
+    var demo = {meta:meta, snapshot:{demo:true, ts:new Date().toISOString()}};
+    _rptDownloadBlob(new Blob([JSON.stringify(demo,null,2)],{type:'application/json'}),
+      'nekopi-report-'+(meta.client||'client').replace(/[^A-Za-z0-9._-]/g,'_')+'-'+new Date().toISOString().slice(0,10)+'.json');
+    showToast('JSON exported (demo)');
+    return;
+  }
+  fetch(API_BASE + '/api/reports/export', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(meta),
+  }).then(function(r){
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.blob();
+  }).then(function(blob){
+    var fname = 'nekopi-report-'+(meta.client||'client').replace(/[^A-Za-z0-9._-]/g,'_')+'-'+new Date().toISOString().slice(0,10)+'.json';
+    _rptDownloadBlob(blob, fname);
+    showToast('JSON exported — '+meta.client);
+  }).catch(function(e){
+    showToast('Export error: '+e.message);
+  });
+}
 function clearReportHistory(){ reportHistory=[]; var tbody=document.getElementById('rptHistoryBody'); if(tbody) tbody.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px">No reports yet</td></tr>'; }
 
 // ═══════════════════════════════════════
