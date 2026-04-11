@@ -933,11 +933,50 @@ async def wifi_status():
 
 @app.post("/api/wifi/connect")
 async def wifi_connect(iface: str = "wlan1", ssid: str = "", password: str = "", bssid: str = ""):
-    """Conectar interfaz WiFi a un SSID via wpa_cli"""
+    """Conectar interfaz WiFi a un SSID via wpa_cli.
+    Si la interfaz quedó en modo monitor (roaming/sensor) o tiene un *mon
+    virtual, la regresamos a managed antes de hablar con wpa_supplicant."""
     if not ssid:
         return {"ok": False, "error": "SSID requerido"}
 
-    # Limpiar redes ANTES del reset de interfaz
+    # Refuse *mon virtual ifaces — they only support monitor mode.
+    if iface.endswith("mon"):
+        return {"ok": False, "error": f"{iface} es una interfaz monitor — usa wlan0"}
+
+    # Step 0: Force the interface back to managed mode if it's in monitor
+    # (a previous Roaming/Sensor session may have left it in monitor mode).
+    info = run_cmd(["iw", "dev", iface, "info"])
+    if "type monitor" in info:
+        run_cmd(["sudo", "ip", "link", "set", iface, "down"])
+        run_cmd(["sudo", "iw", "dev", iface, "set", "type", "managed"])
+        run_cmd(["sudo", "ip", "link", "set", iface, "up"])
+        await asyncio.sleep(0.5)
+
+    # Step 0b: Make sure a wpa_supplicant ctrl_interface socket exists for this
+    # iface — without it wpa_cli silently fails (which is exactly what the
+    # user reported as "no me deja conectar a las redes que ya probé").
+    sock = Path(f"/var/run/wpa_supplicant/{iface}")
+    if not sock.exists():
+        # Best effort: start the per-iface systemd unit if it exists.
+        # wpa_supplicant-wlan0.service is the one shipped on this device.
+        unit = f"wpa_supplicant-{iface}.service"
+        chk = run_cmd(["systemctl", "list-unit-files", unit])
+        if unit in chk:
+            run_cmd(["sudo", "systemctl", "restart", unit])
+            await asyncio.sleep(1.2)
+        else:
+            # Fall back to the generic template (needs /etc/wpa_supplicant/wpa_supplicant-<iface>.conf)
+            tmpl = f"wpa_supplicant@{iface}.service"
+            run_cmd(["sudo", "systemctl", "restart", tmpl])
+            await asyncio.sleep(1.2)
+        if not sock.exists():
+            return {"ok": False,
+                    "error": f"wpa_supplicant ctrl_interface no disponible en {iface}. "
+                             f"Revisa que /etc/wpa_supplicant/wpa_supplicant-{iface}.conf "
+                             f"exista y que el servicio esté habilitado."}
+
+    # Limpiar redes ANTES del reset de interfaz — dropea el perfil viejo
+    # con la clave incorrecta de un intento previo.
     nets_out = run_cmd(["sudo", "wpa_cli", "-i", iface, "list_networks"])
     for line in nets_out.splitlines():
         parts = line.strip().split("\t")

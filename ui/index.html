@@ -1325,9 +1325,8 @@ input,select,textarea { font-family:inherit; }
         <div class="card-header">
           <div class="card-title">🔗 Connect to AP</div>
           <div style="display:flex;gap:6px">
-            <select class="form-input form-select" id="wifiConnectIface" style="width:90px;font-size:11px">
-              <option value="wlan1">wlan1</option>
-              <option value="wlan0">wlan0</option>
+            <select class="form-input form-select" id="wifiConnectIface" style="width:140px;font-size:11px">
+              <option value="">— loading… —</option>
             </select>
             <button class="btn btn-ghost btn-sm" onclick="loadWifiNetworks()">&#8635; Scan</button>
           </div>
@@ -5617,7 +5616,10 @@ function safeScroll(el, block) {
 const pages = {
   dashboard:  { title:'System Overview',   sub:'NekoPi Field Unit · All modules · Hardware agnostic' },
   quickcheck: { title:'Quick Check',       sub:'30-second network baseline' },
-  wifi:       { title:'WiFi Analysis',     sub:'2.4 / 5 / 6GHz · WiFi4→7', onload: function(){ var b=document.getElementById('wifiStatusBody'); if(b && b.innerHTML.includes('Loading')) refreshWifiStatus(); } },
+  wifi:       { title:'WiFi Analysis',     sub:'2.4 / 5 / 6GHz · WiFi4→7', onload: function(){
+    var b=document.getElementById('wifiStatusBody'); if(b && b.innerHTML.includes('Loading')) refreshWifiStatus();
+    try { _wifiPopulateConnectIfaces(); } catch(e) {}
+  } },
   wired:      { title:'Wired / LAN',       sub:'LLDP · VLAN · iperf3 · 802.1X · VoIP · DHCP · DNS · Captive' },
   iot:        { title:'IoT & Sensors',     sub:'MQTT · LoRa · BLE · v1.1' },
   security:   { title:'Security Audit',    sub:'Network · Wireless · Wired · Compliance', onload: function(){ autoSecTarget(); } },
@@ -8639,15 +8641,61 @@ function loadWifiNetworks() {
   });
 }
 
+// Populate the connect-iface dropdowns with managed (non-monitor) interfaces.
+// Monitor-mode and *mon virtual ifaces (left over from roaming/sensor capture)
+// can't run a wpa_supplicant association — we hide them here.
+function _wifiPopulateConnectIfaces(){
+  fetchAPI('/api/wifi/interfaces').then(function(d){
+    var ifs = (d && d.interfaces || []).filter(function(i){
+      var t = (i.type || '').toLowerCase();
+      // Only true managed-mode station interfaces — drop monitor, P2P-device,
+      // mesh, IBSS, and any *mon virtuals left over from a capture session.
+      if (/mon$/i.test(i.name || '')) return false;
+      return t === 'managed' || t === 'station';
+    });
+    var html = ifs.length
+      ? ifs.map(function(i){
+          var lbl = i.name + (i.type ? ' — ' + i.type : '');
+          return '<option value="'+i.name+'">'+lbl+'</option>';
+        }).join('')
+      : '<option value="">⚠ no managed-mode WiFi interface</option>';
+    var sel1 = document.getElementById('wifiConnectIface');
+    var sel2 = document.getElementById('wifiModalIface');
+    if(sel1){ var prev = sel1.value; sel1.innerHTML = html; if(prev) sel1.value = prev; }
+    if(sel2){ var prev2 = sel2.value; sel2.innerHTML = html; if(prev2) sel2.value = prev2; }
+    // Default: pick the first interface that is currently up + has driver brcmfmac
+    // (the built-in wlan0 on RPi5) when nothing is selected.
+    if(sel1 && !sel1.value && ifs.length) sel1.value = ifs[0].name;
+    if(sel2 && !sel2.value && ifs.length) sel2.value = ifs[0].name;
+  });
+}
+
+function toggleWifiModalPw(){
+  var pw = document.getElementById('wifiModalPassword');
+  var btn = document.getElementById('wifiModalPwToggle');
+  if(!pw) return;
+  if(pw.type === 'password'){ pw.type = 'text'; if(btn) btn.textContent = '🙈'; }
+  else { pw.type = 'password'; if(btn) btn.textContent = '👁'; }
+}
+
 function openWifiModal(ssid, bssid, open) {
   _wifiConnectTarget = {ssid:ssid, bssid:bssid, open:open};
   var modal = document.getElementById('wifiConnectModal');
   var ssidEl = document.getElementById('wifiModalSsid');
   var pwEl = document.getElementById('wifiModalPassword');
+  var btn = document.getElementById('wifiModalPwToggle');
   var statusEl = document.getElementById('wifiConnectStatus');
   if (ssidEl) ssidEl.textContent = ssid;
-  if (pwEl) { pwEl.value = ''; pwEl.disabled = open; pwEl.placeholder = open ? 'Open network' : 'WiFi password'; }
+  if (pwEl) {
+    pwEl.value = '';
+    pwEl.type = 'password';
+    pwEl.disabled = open;
+    pwEl.placeholder = open ? 'Open network' : 'WiFi password';
+  }
+  if (btn) btn.textContent = '👁';
   if (statusEl) statusEl.textContent = '';
+  // Refresh iface list every time the modal opens (catches monitor → managed flips)
+  _wifiPopulateConnectIfaces();
   if (modal) modal.style.display = 'flex';
   if (pwEl && !open) setTimeout(function(){ pwEl.focus(); }, 100);
 }
@@ -8658,7 +8706,15 @@ function closeWifiModal() {
 }
 
 function doWifiConnect() {
-  var iface   = (document.getElementById('wifiConnectIface')||{}).value || 'wlan1';
+  // Modal dropdown takes precedence over the side-panel dropdown
+  var iface   = (document.getElementById('wifiModalIface')||{}).value
+             || (document.getElementById('wifiConnectIface')||{}).value
+             || '';
+  if (!iface) {
+    var s = document.getElementById('wifiConnectStatus');
+    if (s) s.innerHTML = '<span style="color:var(--red)">✗ No managed-mode WiFi interface available</span>';
+    return;
+  }
   var pw      = (document.getElementById('wifiModalPassword')||{}).value || '';
   var statusEl= document.getElementById('wifiConnectStatus');
   var btn     = document.getElementById('wifiConnectBtn');
@@ -11688,7 +11744,16 @@ document.addEventListener('DOMContentLoaded', function() { try { nkInit(); } cat
       <div class="card-body">
         <div class="form-group">
           <label class="form-label">Password</label>
-          <input class="form-input" id="wifiModalPassword" type="password" placeholder="WiFi password">
+          <div style="display:flex;gap:6px;align-items:stretch">
+            <input class="form-input" id="wifiModalPassword" type="password" placeholder="WiFi password" style="flex:1" onkeydown="if(event.key==='Enter')doWifiConnect()">
+            <button class="btn btn-ghost btn-sm" type="button" id="wifiModalPwToggle" onclick="toggleWifiModalPw()" title="Show/hide password" style="min-width:42px;padding:6px 10px;font-size:14px">👁</button>
+          </div>
+          <div class="field-note">Click the eye to verify what you typed.</div>
+        </div>
+        <div class="form-group" style="margin-top:8px">
+          <label class="form-label">Interface</label>
+          <select class="form-input form-select" id="wifiModalIface" style="font-size:12px"></select>
+          <div class="field-note" id="wifiModalIfaceNote" style="color:var(--text2)"></div>
         </div>
         <div id="wifiConnectStatus" style="font-size:12px;color:var(--text2);min-height:20px"></div>
       </div>
