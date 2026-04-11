@@ -2815,8 +2815,13 @@ def _run_security_audit(subnet, wifi_iface, ssid_filter: str = "", vendor_overri
             open_nets  = []
             weak_enc   = []
 
-            for block in wifi_out.split("BSS "):
-                bssid_m = _re.search(r"([0-9a-f:]{17})", block)
+            # Split into per-BSS blocks. iw uses BOTH "BSS aa:bb:.." (start of
+            # line) AND "BSS Load:" / "BSS Transition" (tab-indented IEs) so a
+            # naive split("BSS ") shatters each block and the RSN/WPA IEs fall
+            # into the wrong chunks — that misclassifies WPA2/WPA3 nets as WEP.
+            blocks = _re.split(r"(?m)^BSS\s+(?=[0-9a-f:]{17})", wifi_out)
+            for block in blocks:
+                bssid_m = _re.match(r"([0-9a-f:]{17})", block)
                 ssid_m  = _re.search(r"SSID:\s*(.+)", block)
                 if not bssid_m or not ssid_m: continue
                 bssid = bssid_m.group(1)
