@@ -1807,6 +1807,15 @@ input,select,textarea { font-family:inherit; }
           <div class="terminal" id="tkTftpLog" style="min-height:60px;max-height:90px;overflow-y:auto">
             <span class="term-line t-muted">Ready — TFTP listens on port 69</span>
           </div>
+          <!-- Upload from web UI directly into the TFTP root -->
+          <div style="margin-top:10px;padding:10px;background:var(--bg3);border-radius:var(--radius)">
+            <div style="font-size:10px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Upload to TFTP root</div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <input type="file" id="tkTftpUploadInput" style="flex:1;font-size:11px">
+              <button class="btn btn-primary btn-sm" onclick="tkTftpUpload()">⤓ Upload</button>
+            </div>
+            <div id="tkTftpUploadStatus" style="font-size:11px;color:var(--text2);margin-top:6px"></div>
+          </div>
           <div id="tkTftpFiles" style="margin-top:8px;display:none">
             <div style="font-size:9px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Files in TFTP root</div>
             <div id="tkTftpFileList" style="font-size:11px;color:var(--text2)"></div>
@@ -1910,6 +1919,16 @@ input,select,textarea { font-family:inherit; }
               <tbody id="tkCapBody"></tbody>
             </table>
           </div>
+          <details style="margin-top:10px">
+            <summary style="font-size:11px;color:var(--text2);cursor:pointer">ℹ HTTP code reference</summary>
+            <div style="font-size:11px;color:var(--text2);padding:8px 4px;line-height:1.7">
+              <strong style="color:var(--white)">204 No Content</strong> — clean internet, no portal.<br>
+              <strong style="color:var(--white)">200 OK</strong> on a probe URL that should return 204 — body inspected; if it contains an HTML form or location header, it's a captive portal.<br>
+              <strong style="color:var(--white)">301 / 302 / 307 Redirect</strong> — captive portal almost always uses these to push you to its login page.<br>
+              <strong style="color:var(--white)">511 Network Authentication Required</strong> — RFC 6585; some portals signal explicitly with this.<br>
+              <strong style="color:var(--amber)">000 ⚠</strong> — curl could not reach the URL at all (DNS hijack, blocked port, or no link). Applies to <em>any</em> probe URL, not portal-specific. Try another iface or run the gateway/DNS Quick Check first.
+            </div>
+          </details>
         </div>
       </div>
 
@@ -3621,15 +3640,13 @@ input,select,textarea { font-family:inherit; }
           <div class="divider"></div>
           <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:10px">Sections to include</div>
           <div style="display:flex;flex-direction:column;gap:8px">
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">Executive Summary</span></label>
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">Quick Check Results</span></label>
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">WiFi Analysis (APs + rogues)</span></label>
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">Network Inventory + CVEs</span></label>
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">Path Analyzer results</span></label>
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">Wired / LAN findings</span></label>
-            <label class="toggle-wrap"><div class="toggle-track"></div><span class="toggle-lbl">Sensor Mode graphs</span></label>
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">AI Recommendations</span></label>
-            <label class="toggle-wrap"><div class="toggle-track on"></div><span class="toggle-lbl">QR code (links to online version)</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="rptSecExec"     checked><span class="toggle-lbl">Executive Summary</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="rptSecQc"       checked><span class="toggle-lbl">Quick Check Results</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="rptSecWifi"     checked><span class="toggle-lbl">WiFi Analysis (APs + rogues)</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="rptSecSecurity" checked><span class="toggle-lbl">Network Inventory + CVEs</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="rptSecRoaming"  checked><span class="toggle-lbl">Roaming + Path Analyzer</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="rptSecWired"    checked><span class="toggle-lbl">Wired / LAN findings</span></label>
+            <label class="toggle-wrap"><input type="checkbox" id="rptSecAI"       checked><span class="toggle-lbl">AI Recommendations</span></label>
           </div>
           <div class="divider"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -7720,11 +7737,21 @@ function setInfluxModeSetting(mode){
 // ═══════════════════════════════════════
 var reportHistory = [];
 function _rptMeta(){
+  var sections = [];
+  var ck = function(id, key){ var el = document.getElementById(id); if(!el || el.checked) sections.push(key); };
+  ck('rptSecExec',     'exec');
+  ck('rptSecQc',       'qc');
+  ck('rptSecWifi',     'wifi');
+  ck('rptSecSecurity', 'security');
+  ck('rptSecRoaming',  'roaming');
+  ck('rptSecWired',    'wired');
+  ck('rptSecAI',       'ai');
   return {
     client:   (document.getElementById('rptClient')||{}).value   || 'Client',
     site:     (document.getElementById('rptSite')||{}).value     || 'Site',
     engineer: (document.getElementById('rptEngineer')||{}).value || 'Engineer',
     lang:     (document.getElementById('rptLang')||{}).value     || 'en',
+    sections: sections,
   };
 }
 function _rptDownloadBlob(blob, filename){
@@ -10975,6 +11002,30 @@ function tkTftpStop(){
     _tkBtnState('tkTftpStartBtn','tkTftpStopBtn',false);
     _tkSetStatus('tkTftpStatus',false,'Stopped');
   });
+}
+
+function tkTftpUpload(){
+  var input = document.getElementById('tkTftpUploadInput');
+  var status = document.getElementById('tkTftpUploadStatus');
+  if(!input || !input.files || !input.files[0]){
+    if(status) status.innerHTML = '<span style="color:var(--amber)">⚠ Pick a file first</span>';
+    return;
+  }
+  var f = input.files[0];
+  if(status) status.textContent = 'Uploading ' + f.name + ' (' + Math.round(f.size/1024) + ' KB)…';
+  var fd = new FormData(); fd.append('file', f, f.name);
+  fetch(API_BASE + '/api/toolkit/tftp/upload', { method:'POST', body: fd })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d && d.ok){
+        if(status) status.innerHTML = '<span style="color:var(--green)">✓ Uploaded ' + d.name + ' (' + d.size + ' bytes)</span>';
+        input.value = '';
+        if(typeof tkTftpPollFn === 'function') tkTftpPollFn();
+      } else {
+        if(status) status.innerHTML = '<span style="color:var(--red)">✗ ' + ((d && d.error) || 'upload failed') + '</span>';
+      }
+    })
+    .catch(function(e){ if(status) status.innerHTML = '<span style="color:var(--red)">✗ ' + e.message + '</span>'; });
 }
 function tkTftpPollFn(){
   fetchAPI('/api/toolkit/tftp/status').then(function(d){

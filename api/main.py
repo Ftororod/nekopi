@@ -3,7 +3,7 @@
 NekoPi Field Unit — FastAPI Backend v1.3
 Codename: Tomás
 """
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
@@ -3317,6 +3317,28 @@ async def toolkit_tftp_stop():
         _tk_log("tftp", "↺ System tftpd-hpa service restored")
     return {"ok": True}
 
+@app.post("/api/toolkit/tftp/upload")
+async def toolkit_tftp_upload(file: UploadFile = File(...)):
+    """Receives a file from the web UI and writes it into the active TFTP root."""
+    try:
+        directory = _TK["tftp"].get("dir") or "/opt/nekopi/tftp"
+        Path(directory).mkdir(parents=True, exist_ok=True)
+        # Sanitize filename — strip path components, refuse traversal
+        name = os.path.basename(file.filename or "upload.bin")
+        if not name or name in (".", "..") or "/" in name:
+            return {"ok": False, "error": "invalid filename"}
+        dest = Path(directory) / name
+        content = await file.read()
+        if len(content) > 200 * 1024 * 1024:  # 200 MB cap
+            return {"ok": False, "error": "file too large (max 200 MB)"}
+        dest.write_bytes(content)
+        try: dest.chmod(0o644)
+        except Exception: pass
+        _tk_log("tftp", f"⤓ uploaded {name} ({len(content)} bytes)")
+        return {"ok": True, "name": name, "size": len(content), "path": str(dest)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 @app.get("/api/toolkit/tftp/status")
 async def toolkit_tftp_status():
     # List files in TFTP directory
@@ -4520,6 +4542,8 @@ def _report_build_html(meta: dict, snap: dict) -> str:
 
     t = _REPORT_I18N.get(lang, _REPORT_I18N["en"])
     esc = _html_lib.escape
+    sections = meta.get("sections") or ["exec","qc","wifi","security","roaming","wired","ai"]
+    want = lambda key: key in sections
 
     sec = snap.get("security") or {}
     findings = sec.get("findings") or []
@@ -4644,10 +4668,10 @@ def _report_build_html(meta: dict, snap: dict) -> str:
     </div>
   </header>
 
-  {_section(t["exec_summary"], f'<div class="exec">{esc(exec_summary)}</div>')}
-  {_section(t["security"], sec_body)}
-  {_section(t["roaming"], roam_body)}
-  {_section(t["network"], net_body)}
+  {(_section(t["exec_summary"], f'<div class="exec">{esc(exec_summary)}</div>') if want("exec") else "")}
+  {(_section(t["security"], sec_body) if want("security") else "")}
+  {(_section(t["roaming"], roam_body) if want("roaming") else "")}
+  {(_section(t["network"], net_body) if (want("wired") or want("qc") or want("wifi")) else "")}
 </body>
 </html>
 """
@@ -4694,7 +4718,8 @@ async def reports_export(request: Request):
     if len(_REPORT_HISTORY) > 50:
         del _REPORT_HISTORY[50:]
 
-    fname = f'nekopi-report-{meta["client"].replace(" ","_")}-{meta["date"]}.json'
+    safe_client = re.sub(r"[^A-Za-z0-9._-]", "_", meta["client"])[:40] or "client"
+    fname = f'nekopi-report-{safe_client}-{meta["date"]}.json'
     return Response(
         content=json.dumps(payload, indent=2, default=str),
         media_type="application/json",
@@ -4710,11 +4735,12 @@ async def reports_generate(request: Request):
     except Exception:
         body = {}
     meta = {
-        "client":   body.get("client")   or "—",
-        "site":     body.get("site")     or "—",
-        "engineer": body.get("engineer") or "—",
+        "client":   body.get("client")   or "Client",
+        "site":     body.get("site")     or "Site",
+        "engineer": body.get("engineer") or "Engineer",
         "lang":     body.get("lang")     or "en",
         "date":     time.strftime("%Y-%m-%d"),
+        "sections": body.get("sections") or [],
     }
     snap = _report_snapshot()
     html = _report_build_html(meta, snap)
@@ -4763,7 +4789,7 @@ async def reports_generate(request: Request):
         headers={"Content-Disposition": f'attachment; filename="{fname}"',
                  "X-Nekopi-Report-Id": rid,
                  "X-Nekopi-Report-Format": "html",
-                 "X-Nekopi-Report-Note": "WeasyPrint not installed — served as HTML"},
+                 "X-Nekopi-Report-Note": "WeasyPrint not installed - served as HTML"},
     )
 
 @app.get("/api/reports/list")
