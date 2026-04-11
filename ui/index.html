@@ -1706,7 +1706,7 @@ input,select,textarea { font-family:inherit; }
         </div>
         <div class="wizard-footer">
           <button class="btn btn-ghost" onclick='wizReset("wired")'>← New Test</button>
-          <button class="btn btn-primary btn-sm" onclick='runWiredAI()'>🧠 AI Analysis</button>
+          <button class="btn btn-primary btn-sm" onclick='runWiredAI(event)'>🧠 AI Analysis</button>
         </div>
       </div>
     </div>
@@ -2877,7 +2877,7 @@ input,select,textarea { font-family:inherit; }
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn btn-ghost btn-sm" onclick="wtsExport()">📄 Exportar reporte</button>
               <button class="btn btn-ghost btn-sm" onclick="wtsReset()">↺ Nueva consulta</button>
-              <button class="btn btn-primary btn-sm" onclick="wtsAI()">🤖 Análisis AI</button>
+              <button class="btn btn-primary btn-sm" onclick="wtsAI(event)">🤖 Análisis AI</button>
             </div>
           </div>
         </div>
@@ -3213,7 +3213,7 @@ input,select,textarea { font-family:inherit; }
           <div style="display:flex;gap:8px">
             <button class="btn btn-primary" id="roamStartBtn" onclick="startRoaming()">▶ Start Capture</button>
             <button class="btn btn-ghost btn-sm" id="roamStopBtn" onclick="stopRoaming()" style="opacity:0.4;pointer-events:none">■ Stop</button>
-            <button class="btn btn-primary btn-sm" onclick="runRoamingAI()">&#129504; AI Analysis</button>
+            <button class="btn btn-primary btn-sm" onclick="runRoamingAI(event)">&#129504; AI Analysis</button>
           </div>
         </div>
       </div>
@@ -4356,10 +4356,13 @@ input,select,textarea { font-family:inherit; }
     <div class="card" style="margin-top:14px;display:none" id="secRecsCard">
       <div class="card-header">
         <div class="card-title">💡 Recommendations</div>
-        <button class="btn btn-primary btn-sm" onclick="runSecurityAI()">🧠 AI Analysis</button>
+        <button class="btn btn-primary btn-sm" onclick="runSecurityAI(event)">🧠 AI Analysis</button>
       </div>
       <div class="card-body" id="secRecsBody">
         <span style="color:var(--text2);font-size:11px">Complete scan to see recommendations</span>
+      </div>
+      <div class="card-body" id="secAiPanel" style="display:none;border-top:1px solid var(--border)">
+        <div class="ai-output" id="secAiOutput"><span class="t-muted">Click AI Analysis to start...</span></div>
       </div>
     </div>
 
@@ -6787,11 +6790,27 @@ function wiredFinish() {
 
 function closeWiredAI() { var p=document.getElementById('wiredAiPanel'); if(p) p.style.display='none'; }
 
-function runWiredAI() {
+function runWiredAI(ev) {
   var panel=document.getElementById('wiredAiPanel'), output=document.getElementById('wiredAiOutput');
   if(!panel||!output) return;
   panel.style.display='';
-  typewriterAI(output, wiredAiLines[selectedWiredTool] || [{text:'Analysis complete.',delay:400}]);
+  panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+  if(DEMO_MODE){
+    typewriterAI(output, wiredAiLines[selectedWiredTool] || [{text:'Analysis complete.',delay:400}]);
+    return;
+  }
+  var ctx = {
+    tool:        (typeof selectedWiredTool !== 'undefined' ? selectedWiredTool : null),
+    iface:       (document.getElementById('wiredIface')||{}).value || null,
+    link:        window._wiredLinkData      || null,
+    lldp:        window._wiredLldpData      || null,
+    iperf:       window._wiredIperfData     || null,
+    dot1x:       window._wiredDot1xData     || null,
+    dns_bench:   window._wiredDnsData       || null,
+    voip:        window._wiredVoipData      || null,
+    dhcp_stress: window._wiredDhcpData      || null,
+  };
+  callAI('wired', ctx, output, {button: (ev&&ev.currentTarget)||null});
 }
 
 // ═══════════════════════════════════════
@@ -7748,6 +7767,93 @@ function typewriterAI(outputEl, lines, onDone){
   nextLine();
 }
 
+// ═══════════════════════════════════════
+//  Unified backend AI caller
+// ═══════════════════════════════════════
+var _aiStatusCache = null;
+var _aiStatusCacheAt = 0;
+function aiStatus(force){
+  var now = Date.now();
+  if(!force && _aiStatusCache && (now - _aiStatusCacheAt) < 5000){
+    return Promise.resolve(_aiStatusCache);
+  }
+  return fetch(API_BASE + '/api/ai/status').then(function(r){ return r.json(); })
+    .then(function(d){ _aiStatusCache = d; _aiStatusCacheAt = Date.now(); return d; })
+    .catch(function(){ return {ollama:{available:false},gemini:{available:false}}; });
+}
+
+function _aiProviderBadge(provider, model){
+  if(provider==='ollama')
+    return '<span style="font-size:9px;letter-spacing:1.5px;padding:2px 6px;border-radius:2px;background:rgba(0,230,118,.15);color:var(--green);text-transform:uppercase">🔒 LOCAL · '+(model||'ollama')+'</span>';
+  if(provider==='gemini')
+    return '<span style="font-size:9px;letter-spacing:1.5px;padding:2px 6px;border-radius:2px;background:rgba(33,150,243,.15);color:var(--blue-b);text-transform:uppercase">☁ EXTERNAL · '+(model||'gemini')+' · sanitized</span>';
+  return '';
+}
+
+function _aiFormatResponse(text){
+  // Very small markdown-ish renderer: paragraphs, bold, inline code
+  if(!text) return '<span class="t-muted">Empty response</span>';
+  var safe = text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/`([^`]+)`/g,'<code style="background:var(--bg3);padding:1px 4px;border-radius:2px;font-family:monospace">$1</code>');
+  return safe.split(/\n{2,}/).map(function(p){
+    return '<p style="margin:0 0 10px;line-height:1.5">'+p.replace(/\n/g,'<br>')+'</p>';
+  }).join('');
+}
+
+/**
+ * callAI(module, context, outputEl, opts)
+ *   module: 'wired' | 'security' | 'roaming' | 'wifits'
+ *   context: plain object — serialized as JSON and sent to backend
+ *   outputEl: DOM element that will receive the response
+ *   opts: { strategy: 'auto'|'local'|'external', lang, button, onDone }
+ */
+function callAI(module, context, outputEl, opts){
+  opts = opts || {};
+  var lang     = opts.lang || aiSettings.lang || 'en';
+  var strategy = opts.strategy || 'auto';
+  var btn      = opts.button || null;
+  if(!outputEl) return;
+  if(btn){ btn.disabled = true; btn.dataset._label = btn.textContent; btn.textContent = '⌛ ' + (lang==='es'?'Analizando…':'Analyzing…'); }
+  outputEl.innerHTML = '<div class="ai-thinking">▶ '+(lang==='es'?'Conectando con el modelo…':'Connecting to model…')+'</div>';
+
+  aiStatus().then(function(st){
+    var hasLocal = st && st.ollama && st.ollama.available;
+    var hasExt   = st && st.gemini && st.gemini.available;
+    if(!hasLocal && !hasExt){
+      outputEl.innerHTML = '<div style="color:var(--amber);font-size:11px;padding:8px">⚠ '
+        +(lang==='es'?'No hay proveedor de AI disponible. Inicia Ollama (<code>systemctl start ollama</code>) o configura GEMINI_API_KEY en /etc/nekopi/env.':'No AI provider available. Start Ollama (<code>systemctl start ollama</code>) or set GEMINI_API_KEY in /etc/nekopi/env.')
+        +'</div>';
+      if(btn){ btn.disabled = false; btn.textContent = btn.dataset._label || btn.textContent; }
+      return;
+    }
+    return fetch(API_BASE + '/api/ai/analyze', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({module:module, context:context, strategy:strategy, lang:lang}),
+    }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+      .then(function(res){
+        if(!res.ok || !res.data || res.data.ok === false){
+          var msg = (res.data && res.data.error) || ('HTTP '+(res.ok?'ok':'error'));
+          outputEl.innerHTML = '<div style="color:var(--red);font-size:11px;padding:8px">✗ '+msg+'</div>';
+        } else {
+          var d = res.data;
+          outputEl.innerHTML =
+            '<div style="margin-bottom:8px">'+_aiProviderBadge(d.provider, d.model)+'</div>'
+            + _aiFormatResponse(d.response);
+        }
+      })
+      .catch(function(e){
+        outputEl.innerHTML = '<div style="color:var(--red);font-size:11px;padding:8px">✗ '+e.message+'</div>';
+      })
+      .finally(function(){
+        if(btn){ btn.disabled = false; btn.textContent = btn.dataset._label || btn.textContent; }
+        if(opts.onDone) opts.onDone();
+      });
+  });
+}
+
 function runAI(){
   var type=(document.getElementById('aiType')||{}).value||'manual';
   var out=document.getElementById('aiOutput'); if(!out) return;
@@ -8220,17 +8326,32 @@ function stopRoaming(){
   });
 }
 
-function runRoamingAI(){
+function runRoamingAI(ev){
   var panel=document.getElementById('roamAiPanel'),output=document.getElementById('roamAiOutput');
   if(!panel||!output) return;
   panel.style.display=''; panel.scrollIntoView({behavior:'smooth',block:'nearest'});
-  typewriterAI(output,[
-    {text:'Analyzing roaming events...',delay:400},
-    {text:'Client AA:BB:CC:DD:EE:01: FT (802.11r) in 48ms \u2014 excellent. Below 50ms VoIP threshold.',delay:500},
-    {text:'Client FF:EE:DD:CC:BB:01: Legacy roam took 320ms \u2014 call would drop.',cls:'high',delay:500},
-    {text:'802.11k neighbor reports active \u2014 proactive roam candidates sent to clients.',delay:400},
-    {text:'RECOMMENDATION: Enable 802.11r on ALL APs. 320ms roam time causes VoIP drops.',cls:'recommend',delay:500},
-  ]);
+  if(DEMO_MODE){
+    typewriterAI(output,[
+      {text:'Analyzing roaming events...',delay:400},
+      {text:'Client AA:BB:CC:DD:EE:01: FT (802.11r) in 48ms — excellent.',delay:500},
+      {text:'Client FF:EE:DD:CC:BB:01: Legacy roam took 320ms — call would drop.',cls:'high',delay:500},
+      {text:'RECOMMENDATION: Enable 802.11r on ALL APs.',cls:'recommend',delay:500},
+    ]);
+    return;
+  }
+  // Pull latest roaming state from backend and then analyze
+  fetchAPI('/api/roaming/events').then(function(d){
+    var ctx = {
+      iface:   (window._roamIface || 'wlan1'),
+      ssid:    (window._roamSsid  || null),
+      events:  (d && d.events)  || [],
+      clients: (d && d.clients) || {},
+      stats:   (d && d.stats)   || {},
+    };
+    callAI('roaming', ctx, output, {button:(ev&&ev.currentTarget)||null});
+  }).catch(function(){
+    callAI('roaming', {events:[]}, output, {button:(ev&&ev.currentTarget)||null});
+  });
 }
 
 // ═══════════════════════════════════════
@@ -8708,6 +8829,37 @@ function _secPoll(){
       // Auto-collapse config panel to show results
       setTimeout(_secCollapseConfig, 400);
     }
+  });
+}
+
+function runSecurityAI(ev){
+  var panel = document.getElementById('secAiPanel');
+  var out   = document.getElementById('secAiOutput');
+  if(!panel || !out) return;
+  panel.style.display = '';
+
+  if(DEMO_MODE){
+    typewriterAI(out, [
+      {text:'Analyzing findings...', delay:400},
+      {text:'2 CRITICAL: Telnet open + WEP detected — unencrypted channels.', cls:'critical', delay:500},
+      {text:'2 HIGH: HTTP Basic + ARP spoofing suspicion.', cls:'high', delay:500},
+      {text:'RECOMMENDATION: Disable Telnet, enforce WPA2/WPA3, enable DAI.', cls:'recommend', delay:500},
+    ]);
+    return;
+  }
+
+  // Pull the latest results snapshot from the backend
+  fetchAPI('/api/security/results').then(function(d){
+    var ctx = {
+      score:    (d && d.score)    != null ? d.score : null,
+      summary:  (d && d.summary)  || {},
+      findings: (d && d.findings) || [],
+      hosts:    ((d && d.hosts) || []).slice(0, 30),
+      running:  (d && d.running) || false,
+    };
+    callAI('security', ctx, out, {button:(ev&&ev.currentTarget)||null});
+  }).catch(function(){
+    callAI('security', {findings:[]}, out, {button:(ev&&ev.currentTarget)||null});
   });
 }
 
@@ -9740,8 +9892,11 @@ function wtsReset(){
   var st =document.getElementById('wtsScanStatus');if(st){st.className='status-badge sb-idle';st.innerHTML='<span class="sb-dot"></span>Idle';}
 }
 
-function wtsAI(){
-  if(!_wtsScanData) return;
+function wtsAI(ev){
+  if(!_wtsScanData){
+    showToast(aiSettings.lang==='es'?'Ejecuta el scan primero':'Run the scan first');
+    return;
+  }
   var ai = document.getElementById('wtsAiCard');
   var out= document.getElementById('wtsAiOutput');
   if(!ai||!out) return;
@@ -9752,16 +9907,12 @@ function wtsAI(){
   document.querySelectorAll('#wtsSymptoms input[type=checkbox]:checked').forEach(function(cb){
     symptoms.push(cb.value);
   });
-  var d = _wtsScanData;
-  var prompt = 'Eres un experto en redes WiFi enterprise. Analiza este diagnóstico:\n\n'
-    +'RSSI: '+d.rssi+' dBm | SNR: '+d.snr+' dB | TX Rate: '+d.txrate+' Mbps\n'
-    +'Banda: '+d.band+' | Canal: '+d.channel+' | APs co-canal: '+d.co_channel_aps+'\n'
-    +'Ping GW: '+(d.ping_gw&&d.ping_gw.avg_ms?d.ping_gw.avg_ms.toFixed(1)+'ms':' no responde')+' | Loss: '+(d.ping_gw&&d.ping_gw.loss_pct||0)+'%\n'
-    +'DNS: '+(d.dns_ms||'timeout')+'ms\n'
-    +'Síntomas: '+symptoms.join(', ')+'\n\n'
-    +'Da un diagnóstico en 3-4 párrafos: causa raíz probable, impacto, pasos concretos de solución, y qué verificar en el AP/infraestructura. Sé directo y técnico.';
 
-  callClaudeAPI(prompt, out);
+  var ctx = {
+    symptoms: symptoms,
+    scan:     _wtsScanData,
+  };
+  callAI('wifits', ctx, out, {button:(ev&&ev.currentTarget)||null});
 }
 
 // ═══════════════════════════════════════════

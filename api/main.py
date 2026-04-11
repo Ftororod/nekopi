@@ -4797,3 +4797,232 @@ async def reports_download(rid: str):
             return FileResponse(str(p), media_type=media,
                                 filename=f"nekopi-report-{rid}.{ext}")
     return JSONResponse({"error": "not found"}, status_code=404)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  AI — dual strategy (Ollama local + Gemini external)
+# ═══════════════════════════════════════════════════════════════
+import urllib.request as _ai_req
+import urllib.error   as _ai_err
+
+OLLAMA_URL      = os.environ.get("NEKOPI_OLLAMA_URL", "http://127.0.0.1:11434")
+OLLAMA_MODEL    = os.environ.get("NEKOPI_OLLAMA_MODEL", "llama3")
+GEMINI_API_KEY  = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL    = os.environ.get("NEKOPI_GEMINI_MODEL", "gemini-1.5-flash")
+GEMINI_ENDPOINT = ("https://generativelanguage.googleapis.com/v1beta/"
+                   f"models/{GEMINI_MODEL}:generateContent")
+
+_AI_PROMPTS = {
+    "wired": {
+        "en": ("You are a network engineer analyzing a NekoPi wired/LAN test result. "
+               "Focus on LLDP/CDP neighbors, link speed, duplex, 802.1X posture, "
+               "iPerf3 throughput and DNS benchmark. Give a 3-4 paragraph diagnosis "
+               "with root cause, impact, and concrete next steps. Be direct."),
+        "es": ("Eres un ingeniero de redes analizando un resultado de Wired/LAN de "
+               "NekoPi. Enfócate en vecinos LLDP/CDP, velocidad/dúplex del enlace, "
+               "postura 802.1X, throughput iPerf3 y benchmark DNS. Entrega un "
+               "diagnóstico de 3-4 párrafos con causa raíz, impacto y próximos pasos "
+               "concretos. Sé directo y técnico."),
+    },
+    "security": {
+        "en": ("You are a security auditor reviewing a NekoPi network audit. Summarize "
+               "the severity distribution, highlight the most dangerous findings, and "
+               "give prioritized remediation steps grouped by impact."),
+        "es": ("Eres un auditor de seguridad revisando una auditoría de red NekoPi. "
+               "Resume la distribución de severidad, destaca los hallazgos más "
+               "peligrosos y entrega pasos de remediación priorizados por impacto."),
+    },
+    "roaming": {
+        "en": ("You are a WiFi roaming specialist. Analyze these BSSID transitions and "
+               "RSSI deltas. Identify sticky-client behavior, 802.11r/k/v gaps, and "
+               "recommend AP configuration changes."),
+        "es": ("Eres un especialista en roaming WiFi. Analiza estas transiciones de "
+               "BSSID y deltas de RSSI. Identifica comportamiento sticky-client, "
+               "huecos de 802.11r/k/v, y recomienda cambios de configuración en APs."),
+    },
+    "wifits": {
+        "en": ("You are a WiFi troubleshooter. Given these RF, PHY and network metrics "
+               "plus the reported symptoms, produce a 3-4 paragraph diagnosis: likely "
+               "root cause, impact, concrete remediation, and what to verify in the "
+               "AP/controller."),
+        "es": ("Eres un experto en troubleshooting WiFi. Dadas estas métricas RF, PHY "
+               "y de red más los síntomas reportados, entrega un diagnóstico de 3-4 "
+               "párrafos: causa raíz probable, impacto, pasos concretos de solución, "
+               "y qué verificar en el AP/controlador."),
+    },
+}
+
+_PII_IP  = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
+_PII_MAC = re.compile(r"\b([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b")
+
+def _ai_sanitize(obj):
+    """Redacts IPs, MACs and SSIDs from an arbitrary JSON-serializable object
+    so that only abstract technical parameters leave the device."""
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            kl = str(k).lower()
+            if kl in ("ssid", "bssid", "mac", "ip", "hostname", "host",
+                      "client", "ap_name", "dns", "gateway"):
+                if v is None:
+                    out[k] = None
+                elif isinstance(v, (list, tuple)):
+                    out[k] = f"[redacted x{len(v)}]"
+                else:
+                    out[k] = "[redacted]"
+            else:
+                out[k] = _ai_sanitize(v)
+        return out
+    if isinstance(obj, list):
+        return [_ai_sanitize(x) for x in obj]
+    if isinstance(obj, str):
+        s = _PII_IP.sub("[ip]", obj)
+        s = _PII_MAC.sub("[mac]", s)
+        return s
+    return obj
+
+def _ai_ollama_available() -> bool:
+    try:
+        with _ai_req.urlopen(f"{OLLAMA_URL}/api/tags", timeout=1.5) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+def _ai_ollama_models() -> list:
+    try:
+        with _ai_req.urlopen(f"{OLLAMA_URL}/api/tags", timeout=2) as r:
+            data = json.loads(r.read())
+            return [m.get("name", "") for m in data.get("models", [])]
+    except Exception:
+        return []
+
+def _ai_gemini_available() -> bool:
+    if not GEMINI_API_KEY:
+        return False
+    try:
+        with _ai_req.urlopen("https://generativelanguage.googleapis.com",
+                             timeout=2) as r:
+            return r.status < 500
+    except Exception:
+        return False
+
+def _ai_call_ollama(system: str, user: str, model: str | None = None) -> str:
+    model = model or OLLAMA_MODEL
+    body = json.dumps({
+        "model": model,
+        "prompt": f"{system}\n\n{user}",
+        "stream": False,
+        "options": {"temperature": 0.2, "num_predict": 512},
+    }).encode()
+    req = _ai_req.Request(f"{OLLAMA_URL}/api/generate", data=body,
+                          headers={"Content-Type": "application/json"})
+    with _ai_req.urlopen(req, timeout=60) as r:
+        data = json.loads(r.read())
+        return (data.get("response") or "").strip()
+
+def _ai_call_gemini(system: str, user: str) -> str:
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY not set")
+    body = json.dumps({
+        "contents": [{"role": "user", "parts": [{"text": f"{system}\n\n{user}"}]}],
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 768},
+    }).encode()
+    url = f"{GEMINI_ENDPOINT}?key={GEMINI_API_KEY}"
+    req = _ai_req.Request(url, data=body,
+                          headers={"Content-Type": "application/json"})
+    with _ai_req.urlopen(req, timeout=30) as r:
+        data = json.loads(r.read())
+        cands = data.get("candidates") or []
+        if not cands:
+            return ""
+        parts = (cands[0].get("content") or {}).get("parts") or []
+        return "".join(p.get("text", "") for p in parts).strip()
+
+@app.get("/api/ai/status")
+async def ai_status():
+    ollama_ok = _ai_ollama_available()
+    return {
+        "ollama": {
+            "available": ollama_ok,
+            "url":       OLLAMA_URL,
+            "model":     OLLAMA_MODEL,
+            "models":    _ai_ollama_models() if ollama_ok else [],
+        },
+        "gemini": {
+            "available": bool(GEMINI_API_KEY),
+            "model":     GEMINI_MODEL,
+            "has_key":   bool(GEMINI_API_KEY),
+        },
+    }
+
+@app.post("/api/ai/analyze")
+async def ai_analyze(request: Request):
+    """Dispatches an AI analysis request.
+
+    Body:
+      module:   one of wired|security|roaming|wifits (selects system prompt)
+      context:  JSON-serializable dict with module results
+      strategy: local|external|auto   (default: auto)
+      lang:     en|es                  (default: en)
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    module   = (body.get("module") or "wifits").lower()
+    context  = body.get("context") or {}
+    strategy = (body.get("strategy") or "auto").lower()
+    lang     = (body.get("lang") or "en").lower()
+    if lang not in ("en", "es"): lang = "en"
+
+    system = (_AI_PROMPTS.get(module) or _AI_PROMPTS["wifits"])[lang]
+
+    ollama_ok = _ai_ollama_available()
+    gemini_ok = bool(GEMINI_API_KEY)
+
+    # Resolve provider
+    provider = None
+    if strategy == "local":
+        provider = "ollama" if ollama_ok else None
+    elif strategy == "external":
+        provider = "gemini" if gemini_ok else None
+    else:  # auto — prefer local for privacy, fall back to gemini
+        if ollama_ok:
+            provider = "ollama"
+        elif gemini_ok:
+            provider = "gemini"
+
+    if provider is None:
+        return JSONResponse({
+            "ok": False,
+            "error": "No AI provider available",
+            "ollama_available": ollama_ok,
+            "gemini_available": gemini_ok,
+        }, status_code=503)
+
+    # Build the user message
+    if provider == "gemini":
+        ctx_for_model = _ai_sanitize(context)
+    else:
+        ctx_for_model = context
+    user_msg = (f"Module: {module}\n"
+                f"Context (JSON):\n{json.dumps(ctx_for_model, indent=2, default=str)}")
+
+    try:
+        if provider == "ollama":
+            text = _ai_call_ollama(system, user_msg)
+            return {"ok": True, "provider": "ollama",
+                    "model": OLLAMA_MODEL, "response": text,
+                    "sanitized": False}
+        else:
+            text = _ai_call_gemini(system, user_msg)
+            return {"ok": True, "provider": "gemini",
+                    "model": GEMINI_MODEL, "response": text,
+                    "sanitized": True}
+    except _ai_err.HTTPError as e:
+        return JSONResponse({"ok": False, "provider": provider,
+                             "error": f"HTTP {e.code}: {e.reason}"},
+                            status_code=502)
+    except Exception as e:
+        return JSONResponse({"ok": False, "provider": provider,
+                             "error": str(e)}, status_code=502)
