@@ -3920,7 +3920,9 @@ input,select,textarea { font-family:inherit; }
         </div>
       </div>
       <div class="card">
-        <div class="card-header"><div class="card-title">&#129504; AI Settings</div></div>
+        <div class="card-header"><div class="card-title">&#129504; AI Settings</div>
+          <button class="btn btn-primary btn-sm" onclick="saveAISettings()">&#10003; Save</button>
+        </div>
         <div class="card-body">
           <div class="form-group">
             <label class="form-label">AI Response Language</label>
@@ -3932,15 +3934,27 @@ input,select,textarea { font-family:inherit; }
             <div class="field-note">Applies to all inline AI analysis across modules</div>
           </div>
           <div class="form-group">
-            <label class="form-label">AI Model (Ollama)</label>
-            <select class="form-input form-select" id="aiModel" onchange="setAIModel(this.value)">
-              <option value="llama3">llama3 &mdash; recommended (4GB)</option>
-              <option value="mistral">mistral &mdash; faster (4GB)</option>
-              <option value="phi3">phi3 &mdash; lightweight (2GB)</option>
-              <option value="llama3:70b">llama3:70b &mdash; best quality (40GB)</option>
-            </select>
-            <div class="field-note" id="aiModelNote">Current: llama3 &mdash; <span style="color:var(--green)">&#9679; loaded</span></div>
+            <label class="form-label">Ollama URL</label>
+            <input class="form-input" id="settingsOllamaUrl" placeholder="http://127.0.0.1:11434">
+            <div class="field-note">Local LLM endpoint. Default: <code>http://127.0.0.1:11434</code></div>
           </div>
+          <div class="form-group">
+            <label class="form-label">Ollama Model</label>
+            <select class="form-input form-select" id="settingsOllamaModel">
+              <option value="">— auto-detect first installed —</option>
+            </select>
+            <div class="field-note" id="settingsOllamaNote">Loading installed models…</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Gemini API Key (external AI)</label>
+            <input class="form-input" id="settingsGeminiKey" type="password" placeholder="AIza…">
+            <div class="field-note">Used as fallback when Ollama is unavailable. Stored locally on this device.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Gemini Model</label>
+            <input class="form-input" id="settingsGeminiModel" placeholder="gemini-1.5-flash">
+          </div>
+          <div id="settingsAISaveStatus" style="font-size:11px;color:var(--text2);margin-top:6px"></div>
         </div>
       </div>
     </div>
@@ -5540,7 +5554,7 @@ const pages = {
   reports:    { title:'Reports',           sub:'PDF · QR · EN/ES' },
   tools:      { title:'Tools',             sub:'Subnet · VLSM · IP Converter · Reference' },
   cli:        { title:'Terminal',          sub:'SSH · Telnet · xterm.js · WebSocket' },
-  settings:   { title:'Settings',          sub:'NekoPi Field Unit v1.0', onload: function(){ try{ initProbeConfigUI(); initWifiScanIntervalUI(); }catch(e){} } },
+  settings:   { title:'Settings',          sub:'NekoPi Field Unit v1.0', onload: function(){ try{ initProbeConfigUI(); initWifiScanIntervalUI(); loadAISettings(); }catch(e){} } },
   about:      { title:'About',             sub:'NekoPi Field Unit v1.0.0 · hardware · credits' },
   about:      { title:'About',             sub:'NekoPi Field Unit v1.0.0 · hardware · software · credits' },
 };
@@ -8313,6 +8327,61 @@ function setAIModel(val){
   var noteEl=document.getElementById('aiModelNote');
   if(noteEl) noteEl.innerHTML='Current: '+val+' \u2014 <span style="color:var(--amber)">loading...</span>';
   showToast('Model changed to '+val);
+}
+
+// ── Settings: AI persistence (Ollama URL/model + Gemini key) ─────────
+function loadAISettings(){
+  var noteEl = document.getElementById('settingsOllamaNote');
+  // Pull current settings + live status in parallel
+  Promise.all([
+    fetchAPI('/api/settings'),
+    fetchAPI('/api/ai/status')
+  ]).then(function(arr){
+    var s = arr[0] || {}, st = arr[1] || {};
+    var u = document.getElementById('settingsOllamaUrl');
+    if(u) u.value = s.ollama_url || (st.ollama && st.ollama.url) || 'http://127.0.0.1:11434';
+    var sel = document.getElementById('settingsOllamaModel');
+    if(sel){
+      var models = (st.ollama && st.ollama.models) || [];
+      var html = '<option value="">— auto-detect first installed —</option>';
+      models.forEach(function(m){ html += '<option value="'+m+'">'+m+'</option>'; });
+      sel.innerHTML = html;
+      sel.value = s.ollama_model || '';
+    }
+    if(noteEl){
+      var ok = st.ollama && st.ollama.available;
+      var active = (st.ollama && st.ollama.model) || '—';
+      noteEl.innerHTML = ok
+        ? 'Ollama: <span style="color:var(--green)">● online</span> · active: <code>'+active+'</code>'
+        : 'Ollama: <span style="color:var(--red)">● offline</span> — start ollama service first';
+    }
+    var gk = document.getElementById('settingsGeminiKey');
+    if(gk) gk.value = s.gemini_key || '';
+    var gm = document.getElementById('settingsGeminiModel');
+    if(gm) gm.value = s.gemini_model || 'gemini-1.5-flash';
+  }).catch(function(){ if(noteEl) noteEl.textContent = 'Could not load settings'; });
+}
+
+function saveAISettings(){
+  var body = {
+    ollama_url:   (document.getElementById('settingsOllamaUrl')||{}).value || '',
+    ollama_model: (document.getElementById('settingsOllamaModel')||{}).value || '',
+    gemini_model: (document.getElementById('settingsGeminiModel')||{}).value || '',
+  };
+  var rawKey = (document.getElementById('settingsGeminiKey')||{}).value || '';
+  // Only send key if user changed it (mask is "••••••••")
+  if (rawKey && rawKey.indexOf('•') !== 0) body.gemini_key = rawKey;
+  var s = document.getElementById('settingsAISaveStatus');
+  if(s) s.textContent = 'Saving…';
+  fetch(API_BASE + '/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if(s) s.innerHTML = d && d.ok ? '<span style="color:var(--green)">✓ Saved</span> — refreshing AI status…' : '<span style="color:var(--red)">✗ Save failed</span>';
+    showToast('AI settings saved');
+    setTimeout(loadAISettings, 400);
+  }).catch(function(){ if(s) s.innerHTML = '<span style="color:var(--red)">✗ Network error</span>'; });
 }
 
 // ═══════════════════════════════════════
