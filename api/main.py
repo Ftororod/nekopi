@@ -1853,49 +1853,53 @@ async def wired_voip(target: str = "", iface: str = "eth0", count: int = 100):
     return {"ok": True, "rows": rows, "mos": mos}
 
 @app.get("/api/wired/dhcp_stress")
-async def wired_dhcp_stress(iface: str = "eth0", count: int = 3):
-    """DHCP stress test using nmap broadcast-dhcp-discover"""
+async def wired_dhcp_stress(iface: str = "eth0", count: int = 10):
+    """DHCP stress test — sends N broadcast DHCP DISCOVERs and aggregates response stats."""
     import time as _time
-    log = [f"Sending DHCP DISCOVER on {iface}..."]
-
-    # Use nmap broadcast-dhcp-discover (non-destructive)
-    out = run_cmd(["sudo", "nmap", "--script", "broadcast-dhcp-discover",
-                   "-e", iface, "--host-timeout", "10s"], timeout=15)
-
-    server_ip   = ""
-    offered_ip  = ""
-    lease_time  = ""
     import re as _re
-    srv_m   = _re.search(r"Server Identifier[:\s]+([\d.]+)", out)
-    off_m   = _re.search(r"IP Offered[:\s]+([\d.]+)", out)
-    lease_m = _re.search(r"IP Address Lease Time[:\s]+(.+)", out)
-    router_m= _re.search(r"Router[:\s]+([\d.]+)", out)
-    dns_m   = _re.search(r"Domain Name Server[:\s]+([\d., ]+)", out)
+    count = max(1, min(int(count or 1), 254))
+    log = [f"Sending {count} DHCP DISCOVER on {iface}..."]
 
-    if srv_m:   server_ip  = srv_m.group(1).strip()
-    if off_m:   offered_ip = off_m.group(1).strip()
-    if lease_m: lease_time = lease_m.group(1).strip()
+    server_ip = offered_ip = lease_time = router = dns = ""
+    rtts: list[float] = []
+    successes = 0
 
-    responded = bool(server_ip or "DHCPOFFER" in out or "IP Offered" in out)
-    log.append(f"DHCP server: {server_ip or 'not found'}")
-    if offered_ip: log.append(f"IP offered: {offered_ip}")
+    for i in range(count):
+        t0 = _time.time()
+        out = run_cmd(["sudo", "nmap", "--script", "broadcast-dhcp-discover",
+                       "-e", iface, "--host-timeout", "5s"], timeout=8)
+        dt = (_time.time() - t0) * 1000.0
+        ok = ("DHCPOFFER" in out) or ("IP Offered" in out) or ("Server Identifier" in out)
+        if ok:
+            successes += 1
+            rtts.append(dt)
+            if not server_ip:
+                m = _re.search(r"Server Identifier[:\s]+([\d.]+)", out);   server_ip  = m.group(1) if m else server_ip
+                m = _re.search(r"IP Offered[:\s]+([\d.]+)", out);          offered_ip = m.group(1) if m else offered_ip
+                m = _re.search(r"IP Address Lease Time[:\s]+(.+)", out);   lease_time = m.group(1).strip() if m else lease_time
+                m = _re.search(r"Router[:\s]+([\d.]+)", out);              router     = m.group(1) if m else router
+                m = _re.search(r"Domain Name Server[:\s]+([\d., ]+)", out);dns        = m.group(1).strip() if m else dns
 
-    # Measure response time
-    t0 = _time.time()
-    out2 = run_cmd(["sudo", "nmap", "--script", "broadcast-dhcp-discover",
-                    "-e", iface, "--host-timeout", "5s"], timeout=8)
-    ms = round((_time.time() - t0) * 1000)
+    avg = round(sum(rtts)/len(rtts), 1) if rtts else 0
+    pmin = round(min(rtts), 1) if rtts else 0
+    pmax = round(max(rtts), 1) if rtts else 0
+    succ_pct = round(successes / count * 100, 1)
+    responded = successes > 0
 
-    color = "var(--green)" if responded else "var(--red)"
+    color = "var(--green)" if succ_pct >= 90 else "var(--amber)" if succ_pct >= 50 else "var(--red)"
     rows = [
-        {"label": "DHCP Server",   "value": server_ip  or "No response", "color": color},
-        {"label": "IP Offered",    "value": offered_ip or "—",           "color": "var(--white)"},
-        {"label": "Lease Time",    "value": lease_time or "—",           "color": "var(--text2)"},
-        {"label": "Router",        "value": router_m.group(1) if router_m else "—", "color": "var(--text2)"},
-        {"label": "DNS",           "value": dns_m.group(1).strip() if dns_m else "—", "color": "var(--text2)"},
-        {"label": "Response time", "value": f"{ms}ms",                   "color": "var(--green)" if ms<200 else "var(--amber)"},
-        {"label": "Verdict",       "value": "DHCP server healthy" if responded else "No DHCP response", "color": color},
+        {"label": "Sent",          "value": str(count),                    "color": "var(--text2)"},
+        {"label": "Responses",     "value": f"{successes}/{count} ({succ_pct}%)", "color": color},
+        {"label": "DHCP Server",   "value": server_ip or "No response",    "color": "var(--white)" if server_ip else "var(--red)"},
+        {"label": "IP Offered",    "value": offered_ip or "—",             "color": "var(--white)"},
+        {"label": "Lease Time",    "value": lease_time or "—",             "color": "var(--text2)"},
+        {"label": "Router",        "value": router or "—",                 "color": "var(--text2)"},
+        {"label": "DNS",           "value": dns or "—",                    "color": "var(--text2)"},
+        {"label": "Avg RTT",       "value": f"{avg}ms",                    "color": "var(--green)" if avg<200 else "var(--amber)"},
+        {"label": "Min/Max RTT",   "value": f"{pmin}/{pmax}ms",             "color": "var(--text2)"},
+        {"label": "Verdict",       "value": "DHCP healthy" if succ_pct >= 90 else ("DHCP degraded" if succ_pct > 0 else "No DHCP response"), "color": color},
     ]
+    log.append(f"{successes}/{count} responses · avg {avg}ms")
     return {"ok": responded, "rows": rows, "log": log}
 
 

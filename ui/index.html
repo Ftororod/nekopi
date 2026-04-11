@@ -556,7 +556,7 @@ input,select,textarea { font-family:inherit; }
   .tb-pill:not(.live) { display:none; }
   .page-breadcrumb { display:none; }
   /* Topbar right: hide temp pill, shrink live pill */
-  #tempEl { display:none !important; }
+  /* tempEl visible — handled by topbar layout */
   #clockEl { display:none !important; }
   /* Tables with many columns: force horizontal scroll */
   .table-scroll-wrap {
@@ -949,7 +949,9 @@ input,select,textarea { font-family:inherit; }
       </div>
       <span class="tb-pill live" id="livePill">● —</span>
       <span class="tb-pill" id="clockEl">00:00:00</span>
-      <span class="tb-pill" id="tempEl">RPi5 · —°C</span>
+      <span class="tb-pill" id="cpuPill" title="CPU usage">CPU —%</span>
+      <span class="tb-pill" id="ramPill" title="RAM usage">RAM —/—</span>
+      <span class="tb-pill" id="tempEl"  title="CPU temperature">RPi5 · —°C</span>
 
     </div>
   </div>
@@ -4717,9 +4719,17 @@ function startLiveMetrics() {
       var te = document.getElementById('tempEl');
       if (te && data.cpu_temp != null) te.textContent = 'RPi5 · ' + data.cpu_temp + '°C';
 
-      // APs Detected card is updated by _populateNearbyAPs — not here
+      // Header pills (CPU + RAM) — visibles siempre
+      var cpuPill = document.getElementById('cpuPill');
+      var ramPill = document.getElementById('ramPill');
+      if (cpuPill && data.cpu_pct != null) cpuPill.textContent = 'CPU ' + data.cpu_pct.toFixed(0) + '%';
+      if (ramPill && data.ram) {
+        var u = (data.ram.used_mb / 1024).toFixed(1);
+        var t = (data.ram.total_mb / 1024).toFixed(1);
+        ramPill.textContent = 'RAM ' + u + '/' + t + 'G';
+      }
 
-      // CPU card
+      // CPU card (dashboard)
       var mCpu = document.getElementById('m-cpu');
       var mCpuBadge = document.getElementById('m-cpu-badge');
       var mRamSub = document.getElementById('m-ram-sub');
@@ -4781,23 +4791,47 @@ function startLiveMetrics() {
     });
   }
 
-  // AI Engine status
+  // AI Engine status — query the real /api/ai/status (not the cached boot value)
   function refreshAIStatus() {
     var mAiVal   = document.getElementById('m-ai-val');
     var mAiSub   = document.getElementById('m-ai-sub');
     var mAiBadge = document.getElementById('m-ai-badge');
-    if (activeServices.ollama) {
-      var model = activeServices.ollama_model || 'phi3.5';
-      // Limpiar nombre del modelo — quitar ":latest"
-      model = model.replace(':latest','');
-      if (mAiVal)   mAiVal.textContent  = 'Ready';
-      if (mAiSub)   mAiSub.textContent  = model + ' · local';
-      if (mAiBadge) { mAiBadge.textContent = 'LIVE'; mAiBadge.className = 'metric-badge mb-ok'; }
-    } else {
-      if (mAiVal)   mAiVal.textContent  = 'Offline';
-      if (mAiSub)   mAiSub.textContent  = 'Ollama no instalado';
-      if (mAiBadge) { mAiBadge.textContent = 'OFF'; mAiBadge.className = 'metric-badge mb-idle'; }
-    }
+    var aiNavBadge = document.querySelector('[data-page="ai"] .nav-badge');
+    var apply = function(ok, model, hasGemini) {
+      if (ok) {
+        var m = (model || '').replace(':latest','') || 'local';
+        if (mAiVal)   mAiVal.textContent  = 'Ready';
+        if (mAiSub)   mAiSub.textContent  = m + ' · local';
+        if (mAiBadge) { mAiBadge.textContent = 'LIVE'; mAiBadge.className = 'metric-badge mb-ok'; }
+        if (aiNavBadge) {
+          aiNavBadge.textContent = 'LIVE';
+          aiNavBadge.style.cssText = 'background:rgba(0,230,118,.15);color:var(--green)';
+        }
+      } else if (hasGemini) {
+        if (mAiVal)   mAiVal.textContent  = 'Cloud';
+        if (mAiSub)   mAiSub.textContent  = 'Gemini · external';
+        if (mAiBadge) { mAiBadge.textContent = 'GEMINI'; mAiBadge.className = 'metric-badge mb-warn'; }
+        if (aiNavBadge) {
+          aiNavBadge.textContent = 'CLOUD';
+          aiNavBadge.style.cssText = 'background:rgba(33,150,243,.15);color:var(--blue-b)';
+        }
+      } else {
+        if (mAiVal)   mAiVal.textContent  = 'Offline';
+        if (mAiSub)   mAiSub.textContent  = 'Ollama no disponible';
+        if (mAiBadge) { mAiBadge.textContent = 'OFF'; mAiBadge.className = 'metric-badge mb-idle'; }
+        if (aiNavBadge) {
+          aiNavBadge.textContent = 'OFF';
+          aiNavBadge.style.cssText = 'background:rgba(255,171,0,.12);color:var(--amber)';
+        }
+      }
+    };
+    if (DEMO_MODE) { apply(true, 'phi3.5', false); return; }
+    fetchAPI('/api/ai/status').then(function(d){
+      if (!d) { apply(false, '', false); return; }
+      var ok = d.ollama && d.ollama.available;
+      var hasG = d.gemini && d.gemini.has_key;
+      apply(ok, ok ? d.ollama.model : '', hasG);
+    }).catch(function(){ apply(false, '', false); });
   }
 
   // Dashboard timestamp + countdown próximo WiFi scan
@@ -5122,7 +5156,8 @@ function _loadNearbyAPs() {
       return;
     }
     var sorted = data.aps.slice().sort(function(a,b){ return (b.signal_dbm||-100)-(a.signal_dbm||-100); });
-    _populateNearbyAPs(sorted.slice(0,8));
+    // Pass FULL list — table-display limit handled by _populateNearbyAPs(limit)
+    _populateNearbyAPs(sorted, data.iface || '', 8);
   });
 }
 
@@ -5517,7 +5552,18 @@ function goPage(id) {
   if(pg) pg.classList.add('active');
   document.querySelectorAll('[data-page="' + id + '"]').forEach(function(n){ n.classList.add('active'); });
   closeMobileMenu();
-  window.scrollTo(0,0);
+  // Force scroll to top — fire now, after layout, and after onload (some onload
+  // handlers focus inputs which causes the browser to scroll into view).
+  var _scrollTop = function(){
+    try { window.scrollTo(0, 0); } catch(e){}
+    if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+    if (document.documentElement) document.documentElement.scrollTop = 0;
+    if (document.body) document.body.scrollTop = 0;
+  };
+  _scrollTop();
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(_scrollTop);
+  setTimeout(_scrollTop, 50);
+  setTimeout(_scrollTop, 200);
 
   // Sync bottom nav active state
   var bnavPages = ['dashboard','wifi','wired','security'];
@@ -5553,12 +5599,19 @@ function goPage(id) {
     pathRunning = false;
   }
 
-  // Auto-stop iperf server when leaving wired page
-  if (id !== 'wired' && _iperfServerRunning) {
-    fetchAPI('/api/iperf/server/stop');
-    _iperfServerRunning = false;
-    var btn = document.getElementById('iperfStopBtn');
-    if(btn) btn.remove();
+  // Auto-stop iperf server when leaving wired page + reset wired wizard state
+  if (id !== 'wired') {
+    if (_iperfServerRunning) {
+      fetchAPI('/api/iperf/server/stop');
+      _iperfServerRunning = false;
+      var btn = document.getElementById('iperfStopBtn');
+      if(btn) btn.remove();
+    }
+    // Reset wired wizard so returning to wired/802.1X doesn't show stale state
+    try {
+      _wiredRealResults = {};
+      if (typeof wizGoto === 'function') wizGoto('wired', 1);
+    } catch(e) {}
   }
   // Auto-stop profiler when leaving the profiler page
   if (id !== 'profiler') {
@@ -6380,11 +6433,11 @@ var wiredToolLabels = {
 var wiredConfigs = {
   lldp:    '<div class="form-row"><div class="form-group"><label class="form-label">Protocol</label><div style="display:flex;gap:12px;margin-top:4px"><label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text2)"><input type="checkbox" checked> LLDP</label><label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text2)"><input type="checkbox" checked> CDP</label></div></div><div class="form-group"><label class="form-label">Timeout</label><select class="form-input form-select"><option>10s</option><option>30s</option></select></div></div><div style="font-size:11px;color:var(--text2);margin-top:4px;padding:6px;background:var(--bg2);border-radius:4px">ℹ All interfaces scanned automatically (eth0 TEST + eth1 MGMT)</div>',
   iperf:   '<div class="form-row" style="margin-bottom:10px"><div class="form-group"><label class="form-label">Mode</label><div style="display:flex;gap:0;border:1px solid var(--border);border-radius:4px;overflow:hidden"><button id="iperfModeClient" onclick="setIperfMode(\'client\')" style="flex:1;padding:6px;font-size:11px;border:none;background:var(--blue);color:#fff;cursor:pointer;font-family:inherit">▶ Client</button><button id="iperfModeServer" onclick="setIperfMode(\'server\')" style="flex:1;padding:6px;font-size:11px;border:none;background:var(--bg3);color:var(--text2);cursor:pointer;font-family:inherit">◉ Server</button></div></div><div class="form-group"><label class="form-label">Protocol</label><select class="form-input form-select" id="iperfProto"><option value="tcp">TCP</option><option value="udp">UDP</option></select></div></div><div id="iperfClientConf"><div class="form-group"><label class="form-label">Server IP</label><input class="form-input" id="iperfServer" placeholder="192.168.x.x — iperf3 -s running there"></div><div class="form-row" style="margin-top:8px"><div class="form-group"><label class="form-label">Duration</label><select class="form-input form-select" id="iperfDuration"><option value="10">10s</option><option value="30">30s</option><option value="60">60s</option><option value="120">2 min</option></select></div><div class="form-group"><label class="form-label">Report interval</label><select class="form-input form-select" id="iperfInterval"><option value="1">Every 1s</option><option value="2">Every 2s</option><option value="5">Every 5s</option></select></div></div><div class="form-row"><div class="form-group"><label class="form-label">Parallel streams</label><select class="form-input form-select" id="iperfStreams"><option value="1">1 stream</option><option value="2">2 streams</option><option value="4">4 streams</option></select></div><div class="form-group"><label class="form-label">Direction</label><select class="form-input form-select" id="iperfDir"><option value="">TX (upload)</option><option value="-R">RX (download)</option><option value="--bidir">Bidirectional</option></select></div></div></div><div id="iperfServerConf" style="display:none"><div class="form-group"><label class="form-label" style="color:var(--green)">◉ Server Mode</label><div style="font-size:11px;color:var(--text2);padding:8px;background:var(--bg2);border-radius:4px">NekoPi will run iperf3 -s on port 5201<br>Connect from client: <code>iperf3 -c IP_NEKOPI</code></div></div></div>',
-  vlan:    '<div class="form-row"><div class="form-group"><label class="form-label">Interface</label><select class="form-input form-select" id="wiredIfaceSelect"><option value="eth0">eth0 — HAT 2.5G (TEST)</option><option value="eth1">eth1 — RPi5 (MGMT)</option></select></div><div class="form-group"><label class="form-label">VLAN Range</label><input class="form-input" id="vlanRange" value="1-20" placeholder="1-20"></div></div><div style="font-size:11px;color:var(--text2);margin-top:4px">⚠ Requires trunk port. Access ports will only show native VLAN.</div>',
+  vlan:    '<div class="form-row"><div class="form-group"><label class="form-label">Interface</label><select class="form-input form-select" id="wiredIfaceSelect"><option value="eth0">eth0 — HAT 2.5G (TEST)</option><option value="eth1">eth1 — RPi5 (MGMT)</option></select></div><div class="form-group"><label class="form-label">VLAN Range</label><input class="form-input" id="vlanRange" value="1-4094" placeholder="1-4094"></div></div><div style="font-size:11px;color:var(--text2);margin-top:4px">⚠ Full 802.1Q range (1-4094). Narrow it down on access ports — wide ranges can take long.</div>',
   blinker: '<div class="form-row"><div class="form-group"><label class="form-label">Interface</label><select class="form-input form-select" id="wiredIfaceSelect"><option value="eth0">eth0 — HAT 2.5G (TEST)</option><option value="eth1">eth1 — RPi5 (MGMT)</option></select></div><div class="form-group"><label class="form-label">Duration</label><select class="form-input form-select" id="blinkerDuration"><option value="10">10s</option><option value="30">30s</option><option value="60">60s</option></select></div></div><div style="font-size:11px;color:var(--amber);margin-top:4px">⚠ Not all NICs support LED identify. RTL8125B: not supported.</div>',
   dot1x:   '<div class="form-row"><div class="form-group"><label class="form-label">RADIUS Server</label><input class="form-input" value="192.168.1.100"></div><div class="form-group"><label class="form-label">Port</label><input class="form-input" value="1812" type="number"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Shared Secret</label><input class="form-input" type="password" value="radius_secret"></div><div class="form-group"><label class="form-label">EAP Method</label><select class="form-input form-select"><option>PEAP/MSCHAPv2</option><option>EAP-TLS</option><option>EAP-FAST</option></select></div></div><div class="form-row"><div class="form-group"><label class="form-label">Username</label><input class="form-input" value="testuser@corp.local"></div><div class="form-group"><label class="form-label">Password</label><input class="form-input" type="password" value="testpass"></div></div>',
   voip:    '<div class="form-row"><div class="form-group"><label class="form-label">Target IP</label><input class="form-input" id="voipTarget" placeholder="detecting..."></div><div class="form-group"><label class="form-label">Codec</label><select class="form-input form-select"><option>G.711 (64 Kbps)</option><option>G.729 (8 Kbps)</option><option>Opus</option></select></div></div><div class="form-row"><div class="form-group"><label class="form-label">Duration</label><select class="form-input form-select"><option>30s</option><option>60s</option><option>5min</option></select></div><div class="form-group"><label class="form-label">DSCP</label><select class="form-input form-select"><option>EF (DSCP 46) Voice</option><option>AF41 Video</option><option>CS0 Best Effort</option></select></div></div>',
-  dhcp:    '<div class="form-row"><div class="form-group"><label class="form-label">Interface</label><select class="form-input form-select" id="wiredIfaceSelect"><option value="eth0">eth0 — HAT 2.5G (TEST)</option><option value="eth1">eth1 — RPi5 (MGMT)</option></select></div><div class="form-group"><label class="form-label">Simulated Clients</label><select class="form-input form-select"><option>10 (light)</option><option>50 (medium)</option><option>100 (stress)</option><option>254 (pool exhaustion)</option></select></div></div><div class="form-group"><label class="form-label">Mode</label><select class="form-input form-select"><option>Discover only (safe)</option><option>Full DORA (requests real IPs)</option></select></div>',
+  dhcp:    '<div class="form-row"><div class="form-group"><label class="form-label">Interface</label><select class="form-input form-select" id="wiredIfaceSelect"><option value="eth0">eth0 — HAT 2.5G (TEST)</option><option value="eth1">eth1 — RPi5 (MGMT)</option></select></div><div class="form-group"><label class="form-label">Simulated Clients</label><select class="form-input form-select" id="dhcpStressCount"><option value="10">10 (light)</option><option value="50">50 (medium)</option><option value="100">100 (stress)</option><option value="254">254 (pool exhaustion)</option></select></div></div><div class="form-group"><label class="form-label">Mode</label><select class="form-input form-select" id="dhcpStressMode"><option value="discover">Discover only (safe)</option></select></div>',
   dns:     '<div class="form-group"><label class="form-label">DNS Servers</label><textarea class="form-input" rows="5">192.168.1.1\n8.8.8.8\n8.8.4.4\n1.1.1.1\n1.0.0.1\n9.9.9.9\n208.67.222.222</textarea></div><div class="form-row"><div class="form-group"><label class="form-label">Test domain</label><input class="form-input" value="google.com"></div><div class="form-group"><label class="form-label">Queries</label><input class="form-input" value="20" type="number"></div></div>',
   captive: '<div class="form-row"><div class="form-group"><label class="form-label">Interface</label><select class="form-input form-select"><option>wlan0</option><option>eth1</option></select></div><div class="form-group"><label class="form-label">Method</label><select class="form-input form-select"><option>HTTP redirect (fast)</option><option>DNS + HTTP (thorough)</option></select></div></div><div class="form-group"><label class="form-label">Probe URLs</label><textarea class="form-input" rows="3">http://connectivitycheck.gstatic.com/generate_204\nhttp://www.msftconnecttest.com/connecttest.txt\nhttp://captive.apple.com/hotspot-detect.html</textarea></div>',
 };
@@ -6624,9 +6677,10 @@ function runWiredTool() {
     dhcp:    function(){
       var iface=(document.getElementById('wiredIfaceSelect')||{}).value||'eth0';
       iface=iface.split(' ')[0];
-      addLine('t-info','Sending DHCP DISCOVER on '+iface+' (nmap broadcast)...');
+      var n=parseInt((document.getElementById('dhcpStressCount')||{}).value)||10;
+      addLine('t-info','Sending '+n+' DHCP DISCOVER on '+iface+' (nmap broadcast)...');
       addLine('t-info','Safe — does not acquire IP or disrupt network');
-      return fetchAPI('/api/wired/dhcp_stress?iface='+iface+'&count=1');
+      return fetchAPI('/api/wired/dhcp_stress?iface='+iface+'&count='+n);
     },
     captive: function(){
       return fetchAPI('/api/qc/run?groups=network').then(function(d){
