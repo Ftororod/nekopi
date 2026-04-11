@@ -4686,12 +4686,17 @@ def _report_snapshot() -> dict:
         snap["network"] = {"error": str(e)}
     return snap
 
+def _f_severity(f: dict) -> str:
+    """Findings dicts use 'severity' (canonical). Some legacy snapshots used
+    'sev' — accept both so the report aggregates count correctly."""
+    return str(f.get("severity") or f.get("sev") or "").lower()
+
 def _report_exec_summary(snap: dict, lang: str) -> str:
     sec = snap.get("security", {})
     score = sec.get("score", 100)
     findings = sec.get("findings") or []
-    crit = sum(1 for f in findings if f.get("sev") == "critical")
-    high = sum(1 for f in findings if f.get("sev") == "high")
+    crit = sum(1 for f in findings if _f_severity(f) == "critical")
+    high = sum(1 for f in findings if _f_severity(f) == "high")
     if lang == "es":
         verdict = ("riesgo crítico" if score < 50 else
                    "riesgo elevado" if score < 70 else
@@ -4721,48 +4726,62 @@ def _report_build_html(meta: dict, snap: dict) -> str:
 
     sec = snap.get("security") or {}
     findings = sec.get("findings") or []
-    crit = sum(1 for f in findings if f.get("sev") == "critical")
-    high = sum(1 for f in findings if f.get("sev") == "high")
-    med  = sum(1 for f in findings if f.get("sev") == "medium")
-    low  = sum(1 for f in findings if f.get("sev") == "low")
+    crit = sum(1 for f in findings if _f_severity(f) == "critical")
+    high = sum(1 for f in findings if _f_severity(f) == "high")
+    med  = sum(1 for f in findings if _f_severity(f) == "medium")
+    low  = sum(1 for f in findings if _f_severity(f) == "low")
     score = sec.get("score", 100)
 
-    def _section(title, body_html):
-        return f'<section><h2>{esc(title)}</h2>{body_html}</section>'
+    def _section(title, body_html, *, accent="#2196F3"):
+        return (f'<section><h2 style="border-color:{accent};color:{accent}">'
+                f'{esc(title)}</h2>{body_html}</section>')
 
-    # Security section
+    # Severity-grouped findings — order so the engineer sees the worst first
     if findings:
-        rows = "".join(
-            f'<tr><td class="sev sev-{esc(str(f.get("sev","")))}">{esc(str(f.get("sev","")).upper())}</td>'
-            f'<td>{esc(str(f.get("title","")))}</td>'
-            f'<td>{esc(str(f.get("host","")))}</td>'
-            f'<td>{esc(str(f.get("detail","")))}</td></tr>'
-            for f in findings
-        )
+        sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+        sorted_f = sorted(findings, key=lambda x: sev_order.get(_f_severity(x), 99))
+        rows = ""
+        for f in sorted_f:
+            sev = _f_severity(f) or "info"
+            rec = f.get("recommendation") or ""
+            rec_html = f'<div class="rec">→ {esc(str(rec))}</div>' if rec else ""
+            rows += (
+                f'<tr class="row-{esc(sev)}">'
+                f'<td class="sev sev-{esc(sev)}">{esc(sev.upper())}</td>'
+                f'<td><div class="f-title">{esc(str(f.get("title","")))}</div>'
+                f'<div class="f-detail">{esc(str(f.get("detail","")))}</div>'
+                f'{rec_html}</td>'
+                f'<td class="f-host">{esc(str(f.get("host","")))}</td>'
+                f'</tr>'
+            )
+        score_color = ("#43a047" if score >= 85 else
+                       "#fb8c00" if score >= 70 else
+                       "#e53935")
         sec_body = (
             f'<div class="score-row">'
-            f'<div class="score-big">{score}<span>/100</span></div>'
+            f'<div class="score-big" style="color:{score_color}">{score}<span>/100</span></div>'
             f'<div class="score-pills">'
             f'<span class="pill crit">{crit} {t["findings_crit"]}</span>'
             f'<span class="pill high">{high} {t["findings_high"]}</span>'
             f'<span class="pill med">{med} {t["findings_med"]}</span>'
             f'<span class="pill low">{low} {t["findings_low"]}</span>'
             f'</div></div>'
-            f'<table><thead><tr><th>Sev</th><th>Finding</th><th>Host</th><th>Detail</th></tr></thead>'
-            f'<tbody>{rows}</tbody></table>'
+            f'<table class="findings"><thead><tr>'
+            f'<th style="width:78px">Sev</th><th>Finding</th><th style="width:140px">Host</th>'
+            f'</tr></thead><tbody>{rows}</tbody></table>'
         )
     else:
         sec_body = f'<p class="empty">{esc(t["security_empty"])}</p>'
 
-    # Roaming section
+    # Roaming
     roam = snap.get("roaming") or {}
     roam_events = roam.get("events") or []
     if roam_events:
         rrows = "".join(
             f'<tr><td>{esc(str(e.get("ts","")))}</td>'
-            f'<td>{esc(str(e.get("client","")))}</td>'
-            f'<td>{esc(str(e.get("from_bssid","")))}</td>'
-            f'<td>{esc(str(e.get("to_bssid","")))}</td>'
+            f'<td>{esc(str(e.get("client","") or e.get("mac","")))}</td>'
+            f'<td>{esc(str(e.get("from_bssid","") or e.get("from","")))}</td>'
+            f'<td>{esc(str(e.get("to_bssid","") or e.get("to","")))}</td>'
             f'<td>{esc(str(e.get("rssi","")))}</td></tr>'
             for e in roam_events[-20:]
         )
@@ -4778,14 +4797,14 @@ def _report_build_html(meta: dict, snap: dict) -> str:
     ifaces = net.get("interfaces") or []
     if ifaces:
         irows = "".join(
-            f'<tr><td>{esc(str(i.get("name","")))}</td>'
+            f'<tr><td><strong>{esc(str(i.get("name","")))}</strong></td>'
             f'<td>{esc(str(i.get("type","")))}</td>'
             f'<td>{esc(str(i.get("ip","")))}</td>'
             f'<td>{esc(str(i.get("mac","")))}</td></tr>'
             for i in ifaces
         )
         net_body = (
-            f'<p><strong>Gateway:</strong> {esc(str(net.get("gateway","")))} '
+            f'<p class="muted"><strong>Gateway:</strong> {esc(str(net.get("gateway","")))} '
             f'· <strong>DNS:</strong> {esc(", ".join(net.get("dns") or []))}</p>'
             f'<table><thead><tr><th>Iface</th><th>Type</th><th>IP</th><th>MAC</th></tr></thead>'
             f'<tbody>{irows}</tbody></table>'
@@ -4794,51 +4813,101 @@ def _report_build_html(meta: dict, snap: dict) -> str:
         net_body = f'<p class="empty">{esc(t["network_empty"])}</p>'
 
     exec_summary = _report_exec_summary(snap, lang)
+    hostname = snap.get("hostname", "nekopi")
+    collected = snap.get("collected_at", "")
 
-    return f"""
-<!DOCTYPE html>
+    return f"""<!DOCTYPE html>
 <html lang="{lang}">
 <head>
 <meta charset="utf-8">
 <title>{esc(t["title"])} — {esc(meta.get("client",""))}</title>
 <style>
-  @page {{ size: A4; margin: 18mm 16mm; @bottom-center {{ content: "{esc(t['generated_by'])} · Page " counter(page) " / " counter(pages); font-size: 9pt; color: #888; }} }}
-  body {{ font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color:#222; font-size:10.5pt; }}
-  header {{ border-bottom: 3px solid #2196F3; padding-bottom: 12px; margin-bottom: 18px; }}
-  header h1 {{ font-family: "Bebas Neue", Arial, sans-serif; font-size: 28pt; letter-spacing: 2px; margin:0; color:#1a1a1a; }}
-  header .meta {{ color:#555; font-size:10pt; margin-top:4px; }}
-  header .client {{ color:#2196F3; font-weight:700; margin-top:6px; font-size:13pt; }}
-  section {{ margin: 14px 0; break-inside: avoid; }}
-  h2 {{ font-size: 13pt; color: #2196F3; border-bottom: 1px solid #eee; padding-bottom: 4px; }}
-  table {{ width:100%; border-collapse: collapse; margin-top:6px; font-size:9.5pt; }}
-  th, td {{ border: 1px solid #ddd; padding: 5px 7px; text-align: left; vertical-align: top; }}
-  th {{ background: #f4f7fa; color:#333; font-weight:600; }}
-  .empty {{ color:#888; font-style: italic; }}
-  .score-row {{ display:flex; align-items:center; gap: 18px; margin:10px 0; }}
-  .score-big {{ font-size: 36pt; font-weight: 700; color:#2196F3; line-height:1; }}
-  .score-big span {{ font-size: 14pt; color:#888; }}
+  @page {{
+    size: A4;
+    margin: 16mm 14mm 18mm 14mm;
+    @bottom-left  {{ content: "NekoPi Field Unit — {esc(hostname)}"; font-size: 8pt; color:#888; }}
+    @bottom-right {{ content: counter(page) " / " counter(pages); font-size: 8pt; color:#888; }}
+  }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    color:#1a1a1a; font-size:10pt; line-height:1.5; margin:0;
+  }}
+  header.cover {{
+    border-bottom: 4px solid #2196F3;
+    padding-bottom: 14px; margin-bottom: 22px;
+  }}
+  header.cover .badge {{
+    display:inline-block; padding:3px 10px; background:#1a1a1a; color:#fff;
+    font-size:8.5pt; letter-spacing:2px; text-transform:uppercase; border-radius:2px;
+  }}
+  header.cover h1 {{
+    font-size: 26pt; letter-spacing: 1px; margin: 8px 0 4px;
+    color:#1a1a1a; font-weight:800;
+  }}
+  header.cover .client {{
+    color:#2196F3; font-weight:700; font-size:14pt; margin-top:8px;
+  }}
+  header.cover .meta-grid {{
+    display:grid; grid-template-columns: 1fr 1fr 1fr; gap:6px;
+    margin-top:14px; padding-top:10px; border-top:1px solid #e0e0e0;
+    font-size:9.5pt; color:#555;
+  }}
+  header.cover .meta-grid div strong {{ color:#1a1a1a; }}
+  section {{ margin: 16px 0; break-inside: avoid; }}
+  h2 {{
+    font-size: 13pt; margin: 14px 0 8px;
+    border-bottom: 2px solid #2196F3; padding-bottom: 4px;
+    text-transform: uppercase; letter-spacing: 1px;
+  }}
+  table {{ width:100%; border-collapse: collapse; margin-top:6px; font-size:9pt; }}
+  th, td {{ border: 1px solid #e0e0e0; padding: 6px 8px; text-align: left; vertical-align: top; }}
+  th {{ background: #f4f7fa; color:#333; font-weight:600; font-size:8.5pt; text-transform:uppercase; letter-spacing:0.5px; }}
+  .empty {{ color:#888; font-style: italic; padding:8px; background:#fafafa; border-left:3px solid #e0e0e0; }}
+  .muted {{ color:#666; font-size:9pt; }}
+  .score-row {{
+    display:flex; align-items:center; gap: 18px;
+    margin:10px 0 16px; padding: 12px 14px;
+    background: #fafafa; border-radius:4px; border-left:4px solid #2196F3;
+  }}
+  .score-big {{ font-size: 36pt; font-weight: 800; line-height:1; }}
+  .score-big span {{ font-size: 14pt; color:#888; font-weight:400; }}
   .score-pills {{ display:flex; gap:6px; flex-wrap:wrap; }}
-  .pill {{ padding:4px 10px; border-radius:10px; font-size:9pt; font-weight:600; color:#fff; }}
+  .pill {{ padding:4px 12px; border-radius:12px; font-size:9pt; font-weight:700; color:#fff; }}
   .pill.crit {{ background:#e53935; }}
   .pill.high {{ background:#fb8c00; }}
   .pill.med  {{ background:#fdd835; color:#333; }}
   .pill.low  {{ background:#1e88e5; }}
-  .sev {{ font-weight:700; font-size:8.5pt; text-align:center; }}
+  table.findings tbody tr {{ break-inside: avoid; }}
+  .sev {{ font-weight:700; font-size:8.5pt; text-align:center; letter-spacing:0.5px; }}
   .sev-critical {{ background:#ffebee; color:#b71c1c; }}
   .sev-high {{ background:#fff3e0; color:#e65100; }}
   .sev-medium {{ background:#fffde7; color:#f57f17; }}
   .sev-low {{ background:#e3f2fd; color:#0d47a1; }}
-  .exec {{ background:#f4f7fa; border-left: 4px solid #2196F3; padding:10px 14px; border-radius:2px; }}
+  .sev-info {{ background:#eceff1; color:#455a64; }}
+  .row-critical td {{ background: rgba(229,57,53,0.04); }}
+  .row-high     td {{ background: rgba(251,140,0,0.04); }}
+  .f-title {{ font-weight:700; color:#1a1a1a; font-size:9.5pt; }}
+  .f-detail {{ color:#555; font-size:9pt; margin-top:3px; }}
+  .f-host {{ font-family: "SF Mono", Consolas, monospace; font-size:8.5pt; color:#1976d2; }}
+  .rec {{ color:#388e3c; font-size:9pt; margin-top:4px; font-style:italic; }}
+  .exec {{
+    background:#f4f7fa; border-left: 4px solid #2196F3;
+    padding:14px 16px; border-radius:2px; font-size:10.5pt;
+  }}
+  .footer-note {{ margin-top:30px; padding-top:10px; border-top:1px solid #e0e0e0;
+    color:#888; font-size:8.5pt; text-align:center; font-style:italic; }}
 </style>
 </head>
 <body>
-  <header>
+  <header class="cover">
+    <span class="badge">🐱 NekoPi Field Report</span>
     <h1>{esc(t["title"])}</h1>
     <div class="client">{esc(meta.get("client","—"))}</div>
-    <div class="meta">
-      <strong>{esc(t["site"])}:</strong> {esc(meta.get("site","—"))} ·
-      <strong>{esc(t["engineer"])}:</strong> {esc(meta.get("engineer","—"))} ·
-      <strong>{esc(t["date"])}:</strong> {esc(meta.get("date", time.strftime("%Y-%m-%d")))}
+    <div class="meta-grid">
+      <div><strong>{esc(t["site"])}:</strong><br>{esc(meta.get("site","—"))}</div>
+      <div><strong>{esc(t["engineer"])}:</strong><br>{esc(meta.get("engineer","—"))}</div>
+      <div><strong>{esc(t["date"])}:</strong><br>{esc(meta.get("date", time.strftime("%Y-%m-%d")))}</div>
     </div>
   </header>
 
@@ -4846,6 +4915,10 @@ def _report_build_html(meta: dict, snap: dict) -> str:
   {(_section(t["security"], sec_body) if want("security") else "")}
   {(_section(t["roaming"], roam_body) if want("roaming") else "")}
   {(_section(t["network"], net_body) if (want("wired") or want("qc") or want("wifi")) else "")}
+
+  <div class="footer-note">
+    Generated by NekoPi Field Unit · {esc(hostname)} · {esc(collected)}
+  </div>
 </body>
 </html>
 """
@@ -4854,22 +4927,37 @@ _REPORT_PDF_ERROR: str = ""  # last WeasyPrint failure, surfaced to UI
 
 def _report_render_pdf(html: str) -> bytes | None:
     """Returns PDF bytes if WeasyPrint is available. Surfaces the failure
-    reason via _REPORT_PDF_ERROR so the UI can show "PDF unavailable: …"
-    instead of silently falling back to HTML."""
+    reason via _REPORT_PDF_ERROR AND prints a full traceback to stderr
+    (captured by journald) so the engineer can debug PDF issues without
+    having to instrument the code."""
     global _REPORT_PDF_ERROR
+    import traceback as _tb
     try:
         from weasyprint import HTML  # type: ignore
     except ImportError as e:
         _REPORT_PDF_ERROR = f"WeasyPrint not installed: {e}"
+        print(f"[reports] WeasyPrint import error: {e}", flush=True)
         return None
     except Exception as e:
-        # Native lib (cairo/pango/fontconfig) load failure — most common on Pi
         _REPORT_PDF_ERROR = f"WeasyPrint import failed: {e}"
+        print(f"[reports] WeasyPrint native lib load failed: {e}", flush=True)
+        _tb.print_exc()
         return None
     try:
-        return HTML(string=html).write_pdf()
+        pdf = HTML(string=html).write_pdf()
+        _REPORT_PDF_ERROR = ""
+        return pdf
     except Exception as e:
         _REPORT_PDF_ERROR = f"WeasyPrint render failed: {e}"
+        print(f"[reports] WeasyPrint render failed: {e}", flush=True)
+        _tb.print_exc()
+        # Save the offending HTML for post-mortem
+        try:
+            (REPORTS_DIR / "_last_failed.html").write_text(html)
+            print(f"[reports] saved failing HTML → {REPORTS_DIR / '_last_failed.html'}",
+                  flush=True)
+        except Exception:
+            pass
         return None
 
 @app.post("/api/reports/export")
