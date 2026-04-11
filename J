@@ -1,0 +1,44 @@
+# Nmap 7.94SVN scan initiated Wed Apr  8 22:35:06 2026 as: nmap -sn --open -oJ - 192.168.50.0/24
+Failed to resolve "-".
+Bare '-': did you put a space between '--'?
+Nmap scan report for _gateway (192.168.50.1)
+Host is up (0.00081s latency).
+Nmap scan report for 192.168.50.101
+Host is up (0.00059s latency).
+Nmap scan report for 192.168.50.104
+Host is up (0.0050s latency).
+Nmap scan report for 192.168.50.105
+Host is up (0.073s latency).
+Nmap scan report for 192.168.50.106
+Host is up (0.073s latency).
+Nmap scan report for 192.168.50.108
+Host is up (0.069s latency).
+Nmap scan report for 192.168.50.109
+Host is up (0.069s latency).
+Nmap scan report for 192.168.50.110
+Host is up (0.0025s latency).
+Nmap scan report for 192.168.50.113
+Host is up (0.0046s latency).
+Nmap scan report for 192.168.50.114
+Host is up (0.00068s latency).
+Nmap scan report for 192.168.50.115
+Host is up (0.0077s latency).
+Nmap scan report for nekopi (192.168.50.198)
+Host is up (0.000080s latency).
+Nmap scan report for 192.168.50.204
+Host is up (0.0100s latency).
+Nmap scan report for 192.168.50.211
+Host is up (0.0035s latency).
+Nmap scan report for 192.168.50.214
+Host is up (0.018s latency).
+Nmap scan report for 192.168.50.218
+Host is up (0.011s latency).
+Nmap scan report for 192.168.50.219
+Host is up (0.046s latency).
+Nmap scan report for 192.168.50.220
+Host is up (0.038s latency).
+Nmap scan report for 192.168.50.222
+Host is up (0.011s latency).
+Nmap scan report for 192.168.50.240
+Host is up (0.00041s latency).
+# Nmap done at Wed Apr  8 22:35:10 2026 -- 256 IP addresses (20 hosts up) scanned in 4.08 seconds
