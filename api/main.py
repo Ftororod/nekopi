@@ -209,7 +209,10 @@ async def services_status():
     has_lldpd   = _svc_active("lldpd")
     has_iperf3  = bool(run_cmd(["which", "iperf3"]))
     has_nmap    = bool(run_cmd(["which", "nmap"]))
-    has_orb     = bool(run_cmd(["which", "orb"]))
+    # Orb Cloud integration was removed in the Sensor Mode rebuild — this
+    # flag stays exported as False for backwards-compat with any dashboard
+    # clients that still read it.
+    has_orb     = False
 
     # AI backend availability — RPi is NEVER an Ollama host. Ollama is always
     # remote. Returns whichever side is configured + online so the UI can show
@@ -1973,13 +1976,81 @@ import threading as _threading
 import subprocess as _subprocess
 import queue as _queue
 
-_ROAM_PROC     = None
-_ROAM_EVENTS   = []
-_ROAM_CLIENTS  = {}   # mac -> {last_bssid, last_ts, last_rssi}
-_ROAM_RUNNING  = False
-_ROAM_IFACE    = "wlan1"
-_ROAM_SSID     = ""
-_ROAM_QUEUE    = _queue.Queue()
+_ROAM_PROC            = None
+_ROAM_EVENTS          = []
+_ROAM_CLIENTS         = {}   # mac -> {last_bssid, last_ts, last_rssi}
+_ROAM_RUNNING         = False
+_ROAM_IFACE           = "wlan1"
+_ROAM_SSID            = ""
+_ROAM_QUEUE           = _queue.Queue()
+_ROAM_ACTIVE_CHANNELS = []   # channels currently being hopped
+_ROAM_HOP_MS          = 0    # current hop interval in ms (for UI display)
+
+_ROAM_DEFAULT_CHANNELS = [1, 6, 11,
+                          36, 40, 44, 48,
+                          100, 104, 108, 112,
+                          149, 153, 157, 161]
+
+def _freq_to_channel(freq: int) -> int | None:
+    if 2412 <= freq <= 2472: return (freq - 2407) // 5
+    if freq == 2484:         return 14
+    if 5170 <= freq <= 5825: return (freq - 5000) // 5
+    if 5955 <= freq <= 7115: return (freq - 5950) // 5      # 6 GHz
+    return None
+
+def _get_ssid_channels(iface: str, ssid: str) -> list[int]:
+    """Scans with `iw dev <iface> scan` and returns the sorted list of unique
+    channels on which the target SSID is beaconing. Empty list if the SSID
+    isn't found, if the scan fails, or if iw scan times out. The interface
+    must be in managed mode and UP before calling this.
+
+    Match is CASE-INSENSITIVE so "FTOROROD_5G" and "ftororod_5g" match the
+    same AP (SSIDs are technically case-sensitive per 802.11 but humans type
+    them inconsistently in the field)."""
+    if not ssid:
+        return []
+    target = ssid.strip().lower()
+    try:
+        r = subprocess.run(
+            ["sudo", "iw", "dev", iface, "scan"],
+            capture_output=True, text=True, timeout=12,
+        )
+    except subprocess.TimeoutExpired:
+        return []
+    except Exception:
+        return []
+    if r.returncode != 0:
+        return []
+    channels: set[int] = set()
+    cur_channel: int | None = None
+    cur_ssid:    str | None = None
+    # Each `BSS <mac>` line starts a new record. Within a record we see freq,
+    # then (somewhere below) SSID. When the record ends (next BSS or EOF) we
+    # flush to the set if the SSID matches.
+    def _flush():
+        if cur_ssid is not None and cur_ssid.strip().lower() == target and cur_channel:
+            channels.add(cur_channel)
+    for raw in r.stdout.splitlines():
+        line = raw.strip()
+        if line.startswith("BSS ") and ("on " + iface in line or "(on " in line):
+            _flush()
+            cur_channel = None
+            cur_ssid    = None
+            continue
+        m = re.match(r"freq:\s*(\d+)", line)
+        if m:
+            cur_channel = _freq_to_channel(int(m.group(1)))
+            continue
+        # "DS Parameter set: channel N" overrides for 2.4 GHz where HT may lie
+        m = re.match(r"DS Parameter set:\s*channel\s*(\d+)", line)
+        if m:
+            cur_channel = int(m.group(1))
+            continue
+        if line.startswith("SSID:"):
+            cur_ssid = line[5:].strip()
+            continue
+    _flush()
+    return sorted(channels)
 
 def _roam_parse_line(line):
     """Parse tcpdump radiotap output for 802.11 management frames."""
@@ -2059,8 +2130,11 @@ def _roam_parse_line(line):
 
 def _roam_capture_thread(iface, ssid, channel="hop"):
     global _ROAM_RUNNING, _ROAM_EVENTS, _ROAM_CLIENTS
-    _ROAM_EVENTS  = []
-    _ROAM_CLIENTS = {}
+    global _ROAM_ACTIVE_CHANNELS, _ROAM_HOP_MS
+    _ROAM_EVENTS          = []
+    _ROAM_CLIENTS         = {}
+    _ROAM_ACTIVE_CHANNELS = []
+    _ROAM_HOP_MS          = 0
 
     import subprocess as _sp
     import time as _t
@@ -2079,6 +2153,24 @@ def _roam_capture_thread(iface, ssid, channel="hop"):
     _sp.run(["sudo", "pkill", "-f", f"wpa_supplicant.*{iface}"],
             capture_output=True)
     _t.sleep(0.5)
+
+    # Step 1b: scan for the target SSID's channels BEFORE switching to monitor.
+    # This has to run while the interface is still in managed mode, otherwise
+    # `iw scan` refuses. If the engineer supplied an SSID and we're in hop
+    # mode, we narrow the hop list to just the channels that SSID is on —
+    # tripling the dwell time per channel and catching events we'd miss with
+    # the full 15-channel sweep.
+    ssid_channels: list[int] = []
+    if ssid and channel == "hop":
+        _sp.run(["sudo", "ip", "link", "set", iface, "up"], capture_output=True)
+        _t.sleep(0.3)
+        _log_event(f"🔍 Escaneando canales para SSID '{ssid}'…")
+        ssid_channels = _get_ssid_channels(iface, ssid)
+        if ssid_channels:
+            _log_event("✓ Canales detectados para '" + ssid + "': "
+                       + ", ".join(str(c) for c in ssid_channels))
+        else:
+            _log_event(f"⚠ SSID '{ssid}' no encontrado en scan — fallback a hopping completo")
 
     # Step 2: Put interface in monitor mode
     _sp.run(["sudo", "ip", "link", "set", iface, "down"],  capture_output=True)
@@ -2109,9 +2201,14 @@ def _roam_capture_thread(iface, ssid, channel="hop"):
     _hop_stop = _threading.Event()
 
     if channel == "hop":
-        channels_24 = [1, 6, 11]
-        channels_5  = [36, 40, 44, 48, 100, 104, 108, 112, 149, 153, 157, 161]
-        channels    = channels_24 + channels_5
+        if ssid_channels:
+            channels     = ssid_channels
+            hop_interval = 0.5   # 500 ms — longer dwell for focused SSID capture
+        else:
+            channels     = list(_ROAM_DEFAULT_CHANNELS)
+            hop_interval = 0.25  # 250 ms — full sweep keeps old behaviour
+        _ROAM_ACTIVE_CHANNELS = list(channels)
+        _ROAM_HOP_MS          = int(hop_interval * 1000)
 
         def _channel_hop():
             idx = 0
@@ -2120,14 +2217,21 @@ def _roam_capture_thread(iface, ssid, channel="hop"):
                 _sp.run(["sudo", "iw", "dev", iface, "set", "channel", str(ch)],
                         capture_output=True)
                 idx += 1
-                _hop_stop.wait(0.25)
+                _hop_stop.wait(hop_interval)
 
         _threading.Thread(target=_channel_hop, daemon=True).start()
-        _log_event("↻ Channel hopping active (2.4+5GHz, 250ms/ch)")
+        _log_event(f"↻ Hopping activo: {len(channels)} canal(es) · "
+                   f"{_ROAM_HOP_MS}ms/ch "
+                   + ("(focalizado en SSID)" if ssid_channels else "(cobertura completa)"))
     else:
         # Lock to specific channel
         _sp.run(["sudo", "iw", "dev", iface, "set", "channel", channel],
                 capture_output=True)
+        try:
+            _ROAM_ACTIVE_CHANNELS = [int(channel)]
+        except (TypeError, ValueError):
+            _ROAM_ACTIVE_CHANNELS = []
+        _ROAM_HOP_MS = 0
         _log_event(f"📡 Locked to channel {channel}")
 
     # Build tcpdump filter — capture all management frames
@@ -2195,8 +2299,10 @@ async def roaming_start(iface: str = "wlan1", ssid: str = "", channel: str = "ho
 
 @app.post("/api/roaming/stop")
 async def roaming_stop():
-    global _ROAM_RUNNING
+    global _ROAM_RUNNING, _ROAM_ACTIVE_CHANNELS, _ROAM_HOP_MS
     _ROAM_RUNNING = False
+    _ROAM_ACTIVE_CHANNELS = []
+    _ROAM_HOP_MS = 0
     run_cmd(["sudo", "pkill", "-f", "tcpdump.*type mgt"])
     await asyncio.sleep(1)
     iface = _ROAM_IFACE or ""
@@ -2224,10 +2330,14 @@ async def roaming_events(since: int = 0):
     if ft_times:
         stats["avg_ft"] = round(sum(ft_times) / len(ft_times))
     return {
-        "running":  _ROAM_RUNNING,
-        "events":   _ROAM_EVENTS[:50],
-        "clients":  clients,
-        "stats":    stats,
+        "running":         _ROAM_RUNNING,
+        "events":          _ROAM_EVENTS[:50],
+        "clients":         clients,
+        "stats":           stats,
+        "active_channels": list(_ROAM_ACTIVE_CHANNELS),
+        "hop_ms":          _ROAM_HOP_MS,
+        "ssid":            _ROAM_SSID,      # original case as typed
+        "iface":           _ROAM_IFACE,
     }
 
 @app.get("/api/roaming/status")
@@ -5133,19 +5243,43 @@ def _gemini_endpoint(model: str) -> str:
 def _ai_call_gemini(prompt: str, key: str, model: str) -> tuple[str, str]:
     if not key:
         raise RuntimeError("Gemini API key not configured")
+    # Gemini 2.5 Flash burns "thinking" tokens against maxOutputTokens before
+    # emitting the actual answer — if we don't cap the thinking budget, short
+    # prompts get truncated mid-sentence with finishReason=MAX_TOKENS. For a
+    # field-diagnosis tool we want speed + direct answers, not chain-of-thought,
+    # so we disable thinking entirely via thinkingBudget=0.
     body = json.dumps({
         "contents": [{"role": "user", "parts": [{"text": f"{AI_POSTURE_PROMPT}\n\n{prompt}"}]}],
-        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 768},
+        "generationConfig": {
+            "temperature":     0.2,
+            "maxOutputTokens": 1024,
+            "thinkingConfig":  {"thinkingBudget": 0},
+        },
     }).encode()
     url = f"{_gemini_endpoint(model)}?key={key}"
     req = _ai_req.Request(url, data=body, headers={"Content-Type": "application/json"})
-    with _ai_req.urlopen(req, timeout=30) as r:
-        data = json.loads(r.read())
-        cands = data.get("candidates") or []
-        if not cands:
-            return "", model
-        parts = (cands[0].get("content") or {}).get("parts") or []
-        return "".join(p.get("text", "") for p in parts).strip(), model
+    # 60s timeout: 2.5-flash is fast without thinking, but the first call after
+    # cold-start can still take 15-20s through the edge network.
+    with _ai_req.urlopen(req, timeout=60) as r:
+        raw = r.read()  # read the full response body, no partial stream
+    data = json.loads(raw)
+    cands = data.get("candidates") or []
+    if not cands:
+        # Surface why — prompt feedback may indicate blocked content
+        pf = data.get("promptFeedback") or {}
+        reason = pf.get("blockReason") or "no candidates returned"
+        raise RuntimeError(f"Gemini: {reason}")
+    cand   = cands[0]
+    parts  = (cand.get("content") or {}).get("parts") or []
+    text   = "".join(p.get("text", "") for p in parts).strip()
+    finish = cand.get("finishReason") or ""
+    if finish == "MAX_TOKENS":
+        # Still return what we got but flag the truncation in stderr so the
+        # engineer sees it in journald if it becomes a recurring problem.
+        print(f"[gemini] response truncated at MAX_TOKENS for model {model} "
+              f"({len(text)} chars)", flush=True)
+        text += "\n\n[⚠ respuesta truncada por MAX_TOKENS]"
+    return text, model
 
 def _ai_call_ollama(prompt: str, base_url: str) -> tuple[str, str]:
     """Calls a REMOTE Ollama agent — never localhost. Auto-detects model
@@ -5196,7 +5330,7 @@ async def ai_status():
     to use per call (privacy via localOnly, otherwise prefer Gemini)."""
     s = _settings_load()
     gemini_key   = s.get("gemini_key") or ""
-    gemini_model = s.get("gemini_model") or "gemini-1.5-flash"
+    gemini_model = s.get("gemini_model") or "gemini-2.5-flash"
     ollama_url   = s.get("ollama_url") or ""
 
     gemini_configured = bool(gemini_key)
@@ -5248,7 +5382,7 @@ async def ai_gemini(request: Request):
     if not key:
         return JSONResponse({"ok": False, "error": "Gemini API key not configured"},
                             status_code=400)
-    model = s.get("gemini_model") or "gemini-1.5-flash"
+    model = s.get("gemini_model") or "gemini-2.5-flash"
     try:
         text, used = _ai_call_gemini(prompt, key, model)
         return {"ok": True, "backend": "gemini", "model": used, "response": text}
@@ -5300,7 +5434,7 @@ async def ai_test_gemini(request: Request):
     except Exception:
         body = {}
     key   = (body.get("key") or "").strip()
-    model = (body.get("model") or "gemini-1.5-flash").strip() or "gemini-1.5-flash"
+    model = (body.get("model") or "gemini-2.5-flash").strip() or "gemini-2.5-flash"
     if not key:
         return JSONResponse({"ok": False, "error": "missing key"}, status_code=400)
     try:
@@ -5349,6 +5483,263 @@ async def ai_test_ollama(request: Request):
         return {"ok": True, "model": model, "warning": f"tags ok, generate failed: {e}",
                 "models": models}
     return {"ok": True, "model": model, "models": models, "response": text}
+
+# ═══════════════════════════════════════════════════════════════
+#  INFLUXDB + GRAFANA — persistence for Sensor Mode probes
+# ═══════════════════════════════════════════════════════════════
+INFLUX_URL    = "http://localhost:8086"
+INFLUX_ORG    = "nekopi"
+INFLUX_BUCKET = "nekopi"
+INFLUX_TOKEN  = "5U4EfGnqooTW4E1J9vtjiXXI0A0UNKISIt2SQbeR_uacBOQGKz5twd-UcUlGCjwNWwYBhVXod80CbnSWw6P2OA=="
+
+GRAFANA_URL  = "http://localhost:3000"
+GRAFANA_USER = "admin"
+GRAFANA_PASS = "admin"
+
+_INFLUX_CLIENT = None
+_INFLUX_WRITE  = None
+_INFLUX_ERROR  = ""
+
+def _influx_client():
+    """Lazy-init a process-wide InfluxDB client. Returns None if the lib or
+    server is unavailable so callers can no-op gracefully."""
+    global _INFLUX_CLIENT, _INFLUX_WRITE, _INFLUX_ERROR
+    if _INFLUX_CLIENT is not None:
+        return _INFLUX_WRITE
+    try:
+        from influxdb_client import InfluxDBClient  # type: ignore
+        from influxdb_client.client.write_api import SYNCHRONOUS  # type: ignore
+    except ImportError as e:
+        _INFLUX_ERROR = f"influxdb-client missing: {e}"
+        return None
+    try:
+        _INFLUX_CLIENT = InfluxDBClient(
+            url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG, timeout=4_000)
+        _INFLUX_WRITE  = _INFLUX_CLIENT.write_api(write_options=SYNCHRONOUS)
+        return _INFLUX_WRITE
+    except Exception as e:
+        _INFLUX_ERROR = f"influx connect failed: {e}"
+        _INFLUX_CLIENT = None
+        return None
+
+def _influx_write(measurement: str, tags: dict, fields: dict) -> bool:
+    """Writes a single point to the nekopi bucket. Drops NaN/None fields so
+    the query side doesn't have to filter them out. Returns True on success,
+    False on any failure — never raises."""
+    w = _influx_client()
+    if not w:
+        return False
+    # Influx rejects None/NaN floats — keep only real numbers + strings
+    clean_fields = {}
+    for k, v in (fields or {}).items():
+        if v is None:
+            continue
+        if isinstance(v, float):
+            import math
+            if math.isnan(v) or math.isinf(v):
+                continue
+        clean_fields[k] = v
+    if not clean_fields:
+        return False
+    try:
+        from influxdb_client import Point  # type: ignore
+        p = Point(measurement)
+        for k, v in (tags or {}).items():
+            if v:
+                p.tag(k, str(v))
+        for k, v in clean_fields.items():
+            p.field(k, v)
+        w.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
+        return True
+    except Exception as e:
+        global _INFLUX_ERROR
+        _INFLUX_ERROR = f"influx write failed: {e}"
+        return False
+
+
+@app.get("/api/influx/status")
+async def influx_status():
+    """Quick health check — surfaces last error so the UI can show a badge."""
+    w = _influx_client()
+    return {
+        "ok":    bool(w),
+        "url":   INFLUX_URL,
+        "org":   INFLUX_ORG,
+        "bucket": INFLUX_BUCKET,
+        "error": _INFLUX_ERROR,
+    }
+
+
+# ── Grafana auto-provision: datasource + dashboard ───────────────
+_GRAFANA_DASHBOARD_UID  = "nekopi-main"
+_GRAFANA_DATASOURCE_UID = "nekopi-influx"
+
+def _grafana_request(method: str, path: str, body: dict | None = None) -> dict:
+    """Helper for Grafana HTTP API calls using basic auth (admin/admin)."""
+    import urllib.request as _gr, base64
+    url = GRAFANA_URL.rstrip("/") + path
+    auth = base64.b64encode(f"{GRAFANA_USER}:{GRAFANA_PASS}".encode()).decode()
+    headers = {
+        "Authorization": f"Basic {auth}",
+        "Content-Type":  "application/json",
+    }
+    data = json.dumps(body).encode() if body is not None else None
+    req = _gr.Request(url, data=data, headers=headers, method=method)
+    with _gr.urlopen(req, timeout=4) as r:
+        raw = r.read()
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {"raw": raw.decode("utf-8", "ignore")}
+
+def _grafana_ensure_datasource() -> bool:
+    """Creates the InfluxDB datasource in Grafana if it's not already there.
+    Uses a stable UID so subsequent runs are idempotent."""
+    try:
+        _grafana_request("GET", f"/api/datasources/uid/{_GRAFANA_DATASOURCE_UID}")
+        return True  # already present
+    except Exception:
+        pass
+    body = {
+        "uid":       _GRAFANA_DATASOURCE_UID,
+        "name":      "NekoPi InfluxDB",
+        "type":      "influxdb",
+        "url":       INFLUX_URL,
+        "access":    "proxy",
+        "isDefault": True,
+        "jsonData": {
+            "version":       "Flux",
+            "organization":  INFLUX_ORG,
+            "defaultBucket": INFLUX_BUCKET,
+        },
+        "secureJsonData": {"token": INFLUX_TOKEN},
+    }
+    try:
+        _grafana_request("POST", "/api/datasources", body)
+        return True
+    except Exception as e:
+        print(f"[grafana] datasource create failed: {e}", flush=True)
+        return False
+
+def _grafana_dashboard_spec() -> dict:
+    """Hand-built dashboard JSON with the six requested panels."""
+    def flux(q): return q.strip()
+    panels = []
+    # Panel 0 — Ping GW over time
+    panels.append({
+        "type": "timeseries", "title": "Ping Gateway",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "datasource": {"type": "influxdb", "uid": _GRAFANA_DATASOURCE_UID},
+        "fieldConfig": {"defaults": {"unit": "ms"}, "overrides": []},
+        "targets": [{"query": flux(f'''
+from(bucket: "{INFLUX_BUCKET}")
+  |> range(start: -1h)
+  |> filter(fn: (r) => r._measurement == "probe" and r._field == "ping_gw_ms")
+  |> aggregateWindow(every: 30s, fn: mean, createEmpty: false)
+''')}],
+    })
+    # Panel 1 — DNS over time
+    panels.append({
+        "type": "timeseries", "title": "DNS Resolve",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "datasource": {"type": "influxdb", "uid": _GRAFANA_DATASOURCE_UID},
+        "fieldConfig": {"defaults": {"unit": "ms"}, "overrides": []},
+        "targets": [{"query": flux(f'''
+from(bucket: "{INFLUX_BUCKET}")
+  |> range(start: -1h)
+  |> filter(fn: (r) => r._measurement == "probe" and r._field == "dns_ms")
+  |> aggregateWindow(every: 30s, fn: mean, createEmpty: false)
+''')}],
+    })
+    # Panel 2 — Throughput
+    panels.append({
+        "type": "timeseries", "title": "Throughput",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "datasource": {"type": "influxdb", "uid": _GRAFANA_DATASOURCE_UID},
+        "fieldConfig": {"defaults": {"unit": "mbits"}, "overrides": []},
+        "targets": [{"query": flux(f'''
+from(bucket: "{INFLUX_BUCKET}")
+  |> range(start: -1h)
+  |> filter(fn: (r) => r._measurement == "probe" and r._field == "throughput_mbps")
+  |> aggregateWindow(every: 30s, fn: mean, createEmpty: false)
+''')}],
+    })
+    # Panel 3 — Loss%
+    panels.append({
+        "type": "bargauge", "title": "Packet Loss",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "datasource": {"type": "influxdb", "uid": _GRAFANA_DATASOURCE_UID},
+        "fieldConfig": {"defaults": {"unit": "percent", "max": 5}, "overrides": []},
+        "targets": [{"query": flux(f'''
+from(bucket: "{INFLUX_BUCKET}")
+  |> range(start: -1h)
+  |> filter(fn: (r) => r._measurement == "probe" and r._field == "loss_pct")
+  |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)
+''')}],
+    })
+    # Panel 4 — URL response times (multi-line by url tag)
+    panels.append({
+        "type": "timeseries", "title": "URL Monitoring — total load time",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+        "datasource": {"type": "influxdb", "uid": _GRAFANA_DATASOURCE_UID},
+        "fieldConfig": {"defaults": {"unit": "ms"}, "overrides": []},
+        "targets": [{"query": flux(f'''
+from(bucket: "{INFLUX_BUCKET}")
+  |> range(start: -1h)
+  |> filter(fn: (r) => r._measurement == "url_probe" and r._field == "total_ms")
+  |> aggregateWindow(every: 30s, fn: mean, createEmpty: false)
+  |> keep(columns: ["_time", "_value", "url"])
+''')}],
+    })
+    # Panel 5 — Top Talkers (last sensor cycle)
+    panels.append({
+        "type": "table", "title": "Top Talkers — latest",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+        "datasource": {"type": "influxdb", "uid": _GRAFANA_DATASOURCE_UID},
+        "targets": [{"query": flux(f'''
+from(bucket: "{INFLUX_BUCKET}")
+  |> range(start: -5m)
+  |> filter(fn: (r) => r._measurement == "top_talker")
+  |> last()
+  |> keep(columns: ["host", "_value", "_field"])
+''')}],
+    })
+    return {
+        "dashboard": {
+            "uid":      _GRAFANA_DASHBOARD_UID,
+            "title":    "NekoPi Field Unit",
+            "timezone": "browser",
+            "schemaVersion": 38,
+            "version":  0,
+            "refresh":  "10s",
+            "time":     {"from": "now-1h", "to": "now"},
+            "panels":   panels,
+            "tags":     ["nekopi", "auto-provisioned"],
+        },
+        "overwrite": True,
+    }
+
+def _grafana_ensure_dashboard() -> bool:
+    try:
+        _grafana_request("POST", "/api/dashboards/db", _grafana_dashboard_spec())
+        return True
+    except Exception as e:
+        print(f"[grafana] dashboard create failed: {e}", flush=True)
+        return False
+
+@app.on_event("startup")
+async def _nekopi_boot():
+    """Best-effort bootstrap: provisions Grafana datasource + dashboard so the
+    engineer gets a working board on first load. Failures are logged but
+    never block API startup."""
+    try:
+        _grafana_ensure_datasource()
+        _grafana_ensure_dashboard()
+    except Exception as e:
+        print(f"[grafana] boot provision skipped: {e}", flush=True)
+
 
 # ═══════════════════════════════════════════════════════════════
 #  SENSOR MODE — pktvisor integration (on-demand only)
@@ -5412,6 +5803,51 @@ async def sensor_stop():
     _PKT["proc"] = None
     _PKT["iface"] = ""
     return {"ok": True, "running": False}
+
+
+@app.post("/api/sensor/push")
+async def sensor_push(request: Request):
+    """Writes a single probe cycle to InfluxDB. The frontend posts each cycle
+    here with the measured metrics; the backend handles the write so the UI
+    stays client-agnostic and the Influx credentials never reach the browser.
+
+    Body (all fields optional — None values are dropped):
+      {
+        "iface":          "eth0",
+        "ssid":           "CORP-MAIN",
+        "vlan":           "100",
+        "ping_gw_ms":     1.4,
+        "dns_ms":         12.3,
+        "throughput_mbps": 0.02,
+        "loss_pct":       0.0,
+        "jitter_ms":      0.3,
+        "mos":            4.3
+      }
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    iface = body.get("iface") or "unknown"
+    tags  = {"iface": iface}
+    if body.get("ssid"): tags["ssid"] = body["ssid"]
+    if body.get("vlan"): tags["vlan"] = str(body["vlan"])
+    # Coerce numeric fields — the client may send them as strings
+    def _num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+    fields = {
+        "ping_gw_ms":      _num(body.get("ping_gw_ms")),
+        "dns_ms":          _num(body.get("dns_ms")),
+        "throughput_mbps": _num(body.get("throughput_mbps")),
+        "loss_pct":        _num(body.get("loss_pct")),
+        "jitter_ms":       _num(body.get("jitter_ms")),
+        "mos":             _num(body.get("mos")),
+    }
+    ok = _influx_write("probe", tags, fields)
+    return {"ok": ok, "error": _INFLUX_ERROR if not ok else ""}
 
 
 # ── PCAP capture (one-shot, downloadable + Deep Analysis fodder) ──
@@ -5618,7 +6054,14 @@ async def sensor_pcap_analyze(name: str):
     summary = {"name": name, "size": p.stat().st_size, "ext": "pcap", "pcap": s}
     anon = _make_anonymizer()
     prompt = _build_deep_prompt("pcap", name, summary, anon)
-    summary["anon_map"] = {"ips": len(anon.seen_ips), "macs": len(anon.seen_macs)}
+    # Inverted maps (label → real) for local-only UI display. Never leaves
+    # the device — the model only receives the anonymized summary.
+    summary["anon_map"] = {
+        "ips":     len(anon.seen_ips),
+        "macs":    len(anon.seen_macs),
+        "ip_map":  {v: k for k, v in anon.seen_ips.items()},
+        "mac_map": {v: k for k, v in anon.seen_macs.items()},
+    }
 
     cfg = _settings_load()
     gemini_key = cfg.get("gemini_key") or ""
@@ -5631,7 +6074,7 @@ async def sensor_pcap_analyze(name: str):
     if gemini_key:
         try:
             response, model = _ai_call_gemini(
-                prompt, gemini_key, cfg.get("gemini_model") or "gemini-1.5-flash")
+                prompt, gemini_key, cfg.get("gemini_model") or "gemini-2.5-flash")
             backend = "gemini"
         except Exception as e:
             error = f"Gemini failed: {e}"
@@ -5835,9 +6278,14 @@ async def ai_deep_analyze(file: UploadFile = File(...)):
     anon = _make_anonymizer()
     prompt = _build_deep_prompt(ext, name, summary, anon)
     summary["anonymized_prompt"] = prompt
+    # anon.seen_ips is {real_ip → label} — invert for the UI so it shows
+    # label → real (Host-A → 192.168.50.1). This map is ONLY rendered to
+    # the engineer in the local browser; it's never sent to Gemini/Ollama.
     summary["anon_map"] = {
-        "ips":  len(anon.seen_ips),
-        "macs": len(anon.seen_macs),
+        "ips":     len(anon.seen_ips),
+        "macs":    len(anon.seen_macs),
+        "ip_map":  {v: k for k, v in anon.seen_ips.items()},
+        "mac_map": {v: k for k, v in anon.seen_macs.items()},
     }
 
     # Step 3 — dispatch to Gemini (preferred) or Ollama (fallback)
@@ -5852,7 +6300,7 @@ async def ai_deep_analyze(file: UploadFile = File(...)):
     if gemini_key:
         try:
             response, model = _ai_call_gemini(
-                prompt, gemini_key, s.get("gemini_model") or "gemini-1.5-flash")
+                prompt, gemini_key, s.get("gemini_model") or "gemini-2.5-flash")
             backend = "gemini"
         except Exception as e:
             error = f"Gemini failed: {e}"
@@ -6129,7 +6577,7 @@ async def settings_get():
     return {
         "ollama_url":   s.get("ollama_url",   ""),
         "gemini_key":   "••••••••" if s.get("gemini_key") else "",
-        "gemini_model": s.get("gemini_model", "gemini-1.5-flash"),
+        "gemini_model": s.get("gemini_model", "gemini-2.5-flash"),
         "ui_lang":      s.get("ui_lang", "es"),
         "client_name":  s.get("client_name", ""),
         "engineer":     s.get("engineer", ""),

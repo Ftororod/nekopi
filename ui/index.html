@@ -2307,212 +2307,154 @@ input,select,textarea { font-family:inherit; }
        SENSOR MODE
   ═══════════════════════════════ -->
   <div class="page" id="page-sensor">
-    <div class="section-title">&#128202; Sensor Mode</div>
-    <div class="section-sub">pktvisor edge analysis · InfluxDB local · Grafana · Orb Cloud optional · wiperf-style probing</div>
+    <div class="section-title">📊 Sensor Mode</div>
+    <div class="section-sub">Monitoreo continuo en vivo · Captura puntual PCAP · pktvisor edge analysis</div>
 
     <!-- Action bar -->
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
-      <button class="btn btn-primary" id="sensorStartBtn" onclick="toggleSensor()">&#9654; Start Sensor Mode</button>
-      <button class="btn btn-ghost btn-sm" onclick="openGrafana()">&#128202; Grafana &#8599;</button>
-      <button class="btn btn-ghost btn-sm" onclick="openInflux()">&#9674; InfluxDB &#8599;</button>
-      <span class="status-badge sb-idle" id="sensorMainStatus" style="margin-left:4px"><span class="sb-dot"></span>Stopped</span>
+      <span class="status-badge sb-idle" id="sensorMainStatus"><span class="sb-dot"></span>Stopped</span>
       <span style="font-size:11px;color:var(--text2)" id="sensorCycleEl"></span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="openGrafana()">📊 Grafana ↗</button>
+      <button class="btn btn-ghost btn-sm" onclick="openInflux()">◊ InfluxDB ↗</button>
     </div>
 
-    <div class="two-col" style="margin-bottom:14px">
+    <!-- ══════════════════════════════════════════════════════════
+         FUNCIÓN A — LIVE MONITORING (pktvisor continuous capture)
+         ══════════════════════════════════════════════════════════ -->
+    <div class="card" style="margin-bottom:14px;border-left:4px solid var(--green)">
+      <div class="card-header">
+        <div class="card-title">🟢 Live Monitoring <span style="font-size:10px;color:var(--text2);letter-spacing:1px;text-transform:uppercase">· pktvisor continuous capture</span></div>
+      </div>
+      <div class="card-body">
+        <!-- Controls row -->
+        <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-bottom:14px">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Interface</label>
+            <select class="form-input form-select" id="sensorIfaceSelect" style="width:140px">
+              <option value="auto">auto</option>
+              <option value="eth0">eth0</option>
+              <option value="eth1">eth1</option>
+              <option value="wlan0">wlan0</option>
+              <option value="wlan1">wlan1</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Cycle</label>
+            <select class="form-input form-select" id="sensorInterval" style="width:140px">
+              <option value="30">30s (intensive)</option>
+              <option value="60" selected>60s (recommended)</option>
+              <option value="300">5 min (light)</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" id="sensorStartBtn" onclick="toggleSensor()">▶ Start Sensor</button>
+        </div>
 
-      <!-- LEFT: Config -->
-      <div class="card">
-        <div class="card-header"><div class="card-title">&#9881; pktvisor Config</div></div>
-        <div class="card-body">
+        <!-- Tests per cycle -->
+        <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:8px">Tests per cycle</div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px">
+          <label class="toggle-wrap"><input type="checkbox" id="senTestPing" checked><span class="toggle-lbl">Ping GW</span></label>
+          <label class="toggle-wrap"><input type="checkbox" id="senTestDns"  checked><span class="toggle-lbl">DNS</span></label>
+          <label class="toggle-wrap"><input type="checkbox" id="senTestPub"  checked><span class="toggle-lbl">Public IP</span></label>
+          <label class="toggle-wrap"><input type="checkbox" id="senTestTraf" checked><span class="toggle-lbl">Throughput</span></label>
+        </div>
 
-          <!-- Capture source -->
-          <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:8px">Capture Source</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px">
-            <button id="modePcap" onclick='setCaptureMode("pcap")'
-              style="padding:10px 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--blue);color:#fff;font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:4px">
-              <span style="font-size:16px">&#128268;</span>PCAP
-            </button>
-            <button id="modeMonitor" onclick='setCaptureMode("monitor")'
-              style="padding:10px 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--bg3);color:var(--text2);font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:4px">
-              <span style="font-size:16px">&#128246;</span>Monitor
-            </button>
-            <button id="modeSflow" onclick='setCaptureMode("sflow")'
-              style="padding:10px 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--bg3);color:var(--text2);font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:4px">
-              <span style="font-size:16px">&#127760;</span>sFlow
-            </button>
+        <!-- Live metrics grid -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:12px">
+          <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center;border-left:2px solid var(--green)">
+            <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase">Ping GW</div>
+            <div style="font-family:Impact,'Arial Narrow',sans-serif;font-size:28px;color:var(--green)" id="sMetricPing">&mdash;</div>
+            <div style="font-size:11px;color:var(--text2)">ms</div>
           </div>
-          <div id="captureModeNote" style="font-size:11px;color:var(--text2);margin-bottom:12px;padding:8px;background:var(--bg3);border-radius:var(--radius)">
-            PCAP on eth1 &mdash; sees own traffic only unless connected to SPAN port
+          <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center;border-left:2px solid var(--cyan)">
+            <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase">DNS</div>
+            <div style="font-family:Impact,'Arial Narrow',sans-serif;font-size:28px;color:var(--cyan)" id="sMetricDns">&mdash;</div>
+            <div style="font-size:11px;color:var(--text2)">ms</div>
           </div>
+          <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center;border-left:2px solid var(--blue-b)">
+            <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase">Throughput</div>
+            <div style="font-family:Impact,'Arial Narrow',sans-serif;font-size:28px;color:var(--blue-b)" id="sMetricThroughput">&mdash;</div>
+            <div style="font-size:11px;color:var(--text2)">Mb/s</div>
+          </div>
+          <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center;border-left:2px solid var(--amber)">
+            <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase">MOS</div>
+            <div style="font-family:Impact,'Arial Narrow',sans-serif;font-size:28px;color:var(--amber)" id="sMetricMos">&mdash;</div>
+            <div style="font-size:11px;color:var(--text2)">/ 5.0</div>
+          </div>
+          <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center;border-left:2px solid var(--red)">
+            <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase">Packet Loss</div>
+            <div style="font-family:Impact,'Arial Narrow',sans-serif;font-size:28px;color:var(--red)" id="sMetricLoss">&mdash;</div>
+            <div style="font-size:11px;color:var(--text2)">%</div>
+          </div>
+          <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center;border-left:2px solid var(--purple)">
+            <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase">Jitter</div>
+            <div style="font-family:Impact,'Arial Narrow',sans-serif;font-size:28px;color:var(--purple)" id="sMetricJitter">&mdash;</div>
+            <div style="font-size:11px;color:var(--text2)">ms</div>
+          </div>
+        </div>
 
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Interface</label>
-              <select class="form-input form-select" id="sensorIfaceSelect">
-                <option>All interfaces</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Probe Interval</label>
-              <select class="form-input form-select" id="sensorInterval">
-                <option value="60">60s (recommended)</option>
-                <option value="30">30s (intensive)</option>
-                <option value="300">5 min (light)</option>
-              </select>
-            </div>
-          </div>
+        <!-- Throughput context disclaimer -->
+        <div style="background:rgba(33,150,243,.05);border:1px solid rgba(33,150,243,.2);border-radius:var(--radius);padding:8px 12px;font-size:11px;color:var(--text2);line-height:1.6;margin-bottom:14px">
+          ℹ <strong style="color:var(--blue-b)">Throughput</strong> medido en tráfico propio del NekoPi.
+          Valores bajos (≈0.01 Mbps en eth0) son normales cuando no hay tráfico activo.
+          Para medir throughput real de red usa <strong>iPerf3</strong> en el módulo <a href="#" onclick="goPage('wired');return false;" style="color:var(--blue-b)">Wired/LAN</a>.
+        </div>
 
-          <div class="divider"></div>
-          <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:8px">Tests per cycle</div>
-          <div style="display:flex;flex-direction:column;gap:7px">
-            <label class="toggle-wrap"><input type="checkbox" id="senTestPing"   checked><span class="toggle-lbl">Ping latency (gateway + 8.8.8.8)</span></label>
-            <label class="toggle-wrap"><input type="checkbox" id="senTestDns"    checked><span class="toggle-lbl">DNS resolution time</span></label>
-            <label class="toggle-wrap"><input type="checkbox" id="senTestPub"    checked><span class="toggle-lbl">Public IP geolocation</span></label>
-            <label class="toggle-wrap"><input type="checkbox" id="senTestTraf"   checked><span class="toggle-lbl">Throughput (live RX/TX)</span></label>
-            <label class="toggle-wrap"><input type="checkbox" id="senTestWifiCh"        ><span class="toggle-lbl">WiFi channel utilization</span></label>
-          </div>
-
-          <div class="divider"></div>
-          <!-- InfluxDB destination -->
-          <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:8px">InfluxDB Destination (always local)</div>
-          <div style="display:flex;gap:0;margin-bottom:8px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
-            <button id="sInfluxLocalBtn"  onclick='setInfluxModeSetting("local")'
-              style="flex:1;padding:7px;font-size:11px;border:none;cursor:pointer;background:var(--blue);color:#fff;font-family:inherit;letter-spacing:1px">
-              &#128274; Local
-            </button>
-            <button id="sInfluxRemoteBtn" onclick='setInfluxModeSetting("remote")'
-              style="flex:1;padding:7px;font-size:11px;border:none;cursor:pointer;background:var(--bg3);color:var(--text2);font-family:inherit;letter-spacing:1px;border-left:1px solid var(--border)">
-              &#127760; Remote
-            </button>
-          </div>
-          <div id="sInfluxLocalPanel" style="font-size:11px;color:var(--text2)">
-            localhost:8086 &middot; bucket: nekopi &middot; auto-configured
-            <span class="status-badge sb-ok" id="settingsInfluxStatus" style="margin-top:6px;display:inline-flex"><span class="sb-dot"></span>Local</span>
-          </div>
-          <div id="sInfluxRemotePanel" style="display:none">
-            <input class="form-input" placeholder="http://influx.corp.local:8086" style="margin-bottom:6px">
-            <input class="form-input" placeholder="InfluxDB token" type="password" style="margin-bottom:6px">
-            <input class="form-input" placeholder="bucket name" value="nekopi">
-          </div>
+        <!-- Top talkers -->
+        <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Top Talkers</div>
+        <div id="sTopTalkers" style="min-height:60px;margin-bottom:10px">
+          <div style="font-size:11px;color:var(--text2)">Start Sensor Mode to see top talkers</div>
+        </div>
+        <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Top DNS Queries</div>
+        <div id="sTopDns" style="min-height:40px">
+          <div style="font-size:11px;color:var(--text2)">Start Sensor Mode to see DNS queries</div>
         </div>
       </div>
+    </div>
 
-      <!-- RIGHT: Live metrics + Orb -->
-      <div style="display:flex;flex-direction:column;gap:14px">
-
-        <!-- Live metrics -->
-        <div class="card">
-          <div class="card-header"><div class="card-title">&#128202; Live Metrics</div></div>
-          <div class="card-body">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-              <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center;border-left:2px solid var(--green)">
-                <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase">Ping GW</div>
-                <div style="font-family:Impact,'Arial Narrow',sans-serif;font-size:28px;color:var(--green)" id="sMetricPing">&mdash;</div>
-                <div style="font-size:11px;color:var(--text2)">ms</div>
-              </div>
-              <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center;border-left:2px solid var(--cyan)">
-                <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase">DNS</div>
-                <div style="font-family:Impact,'Arial Narrow',sans-serif;font-size:28px;color:var(--cyan)" id="sMetricDns">&mdash;</div>
-                <div style="font-size:11px;color:var(--text2)">ms</div>
-              </div>
-              <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center;border-left:2px solid var(--blue-b)">
-                <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase">Throughput</div>
-                <div style="font-family:Impact,'Arial Narrow',sans-serif;font-size:28px;color:var(--blue-b)" id="sMetricThroughput">&mdash;</div>
-                <div style="font-size:11px;color:var(--text2)">Mb/s</div>
-              </div>
-              <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center;border-left:2px solid var(--amber)">
-                <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase">MOS</div>
-                <div style="font-family:Impact,'Arial Narrow',sans-serif;font-size:28px;color:var(--amber)" id="sMetricMos">&mdash;</div>
-                <div style="font-size:11px;color:var(--text2)">/ 5.0</div>
-              </div>
-              <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center;border-left:2px solid var(--red)">
-                <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase">Packet Loss</div>
-                <div style="font-family:Impact,'Arial Narrow',sans-serif;font-size:28px;color:var(--red)" id="sMetricLoss">&mdash;</div>
-                <div style="font-size:11px;color:var(--text2)">%</div>
-              </div>
-              <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center;border-left:2px solid var(--purple)">
-                <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase">Jitter</div>
-                <div style="font-family:Impact,'Arial Narrow',sans-serif;font-size:28px;color:var(--purple)" id="sMetricJitter">&mdash;</div>
-                <div style="font-size:11px;color:var(--text2)">ms</div>
-              </div>
-            </div>
-            <!-- Top talkers (pktvisor) -->
-            <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">
-              Top Talkers <span style="color:var(--text2);font-size:8px;text-transform:none;letter-spacing:0">&mdash; pktvisor packet capture</span>
-            </div>
-            <div id="sTopTalkers" style="min-height:60px">
-              <div style="font-size:11px;color:var(--text2)">Start Sensor Mode to see top talkers</div>
-            </div>
-            <div class="divider"></div>
-            <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Top DNS Queries</div>
-            <div id="sTopDns" style="min-height:40px">
-              <div style="font-size:11px;color:var(--text2)">Start Sensor Mode to see DNS queries</div>
-            </div>
-
-            <div class="divider"></div>
-            <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:8px">📦 PCAP Capture</div>
-            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-              <select class="form-input form-select" id="sPcapIface" style="width:90px;font-size:11px;padding:3px 6px">
-                <option value="eth1" selected>eth1</option>
-                <option value="eth0">eth0</option>
-                <option value="wlan0">wlan0</option>
-                <option value="wlan1">wlan1</option>
-              </select>
-              <select class="form-input form-select" id="sPcapSeconds" style="width:80px;font-size:11px;padding:3px 6px">
-                <option value="5">5s</option>
-                <option value="10" selected>10s</option>
-                <option value="30">30s</option>
-                <option value="60">60s</option>
-              </select>
-              <button class="btn btn-primary btn-sm" id="sPcapCaptureBtn" onclick="sensorPcapCapture(event)">📥 Capturar</button>
-              <button class="btn btn-ghost btn-sm" onclick="sensorPcapList()">↻</button>
-            </div>
-            <div id="sPcapList" style="font-size:11px;color:var(--text2);max-height:140px;overflow-y:auto">
-              <div class="t-muted">Aún no hay capturas. Pulsa "Capturar".</div>
-            </div>
-            <div id="sPcapAiPanel" style="display:none;margin-top:10px;padding:10px;background:var(--bg3);border-left:3px solid var(--purple);border-radius:var(--radius)">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-                <span style="font-size:11px;color:var(--purple);font-weight:700">🧠 Análisis IA · <span id="sPcapAiName">—</span></span>
-                <button class="btn btn-ghost btn-sm" onclick="document.getElementById('sPcapAiPanel').style.display='none'">✕</button>
-              </div>
-              <div class="ai-output" id="sPcapAiOutput"><span class="t-muted">Procesando…</span></div>
-            </div>
-          </div>
+    <!-- ══════════════════════════════════════════════════════════
+         FUNCIÓN B — PCAP CAPTURE (snapshot, downloadable + AI)
+         ══════════════════════════════════════════════════════════ -->
+    <div class="card" style="margin-bottom:14px;border-left:4px solid var(--purple)">
+      <div class="card-header">
+        <div class="card-title">📦 PCAP Capture <span style="font-size:10px;color:var(--text2);letter-spacing:1px;text-transform:uppercase">· snapshot puntual</span></div>
+      </div>
+      <div class="card-body">
+        <div style="background:rgba(179,136,255,.05);border:1px solid rgba(179,136,255,.2);border-radius:var(--radius);padding:8px 12px;font-size:11px;color:var(--text2);line-height:1.6;margin-bottom:12px">
+          💾 Captura <strong style="color:var(--purple)">X segundos</strong> → genera archivo <code>.pcap</code> descargable y analizable con IA.
+          Usa esto para diagnósticos puntuales: ráfagas sospechosas, sesiones específicas, evidencia para reportes.
         </div>
-
-        <!-- Orb Cloud integration -->
-        <div class="card" style="border-color:rgba(255,109,0,.2)">
-          <div class="card-header">
-            <div class="card-title">&#9729;&#65039; Orb Cloud</div>
-            <span class="status-badge sb-idle" id="orbStatus"><span class="sb-dot"></span>Not connected</span>
+        <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-bottom:12px">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Interface</label>
+            <select class="form-input form-select" id="sPcapIface" style="width:120px">
+              <option value="eth1" selected>eth1</option>
+              <option value="eth0">eth0</option>
+              <option value="wlan0">wlan0</option>
+              <option value="wlan1">wlan1</option>
+            </select>
           </div>
-          <div class="card-body">
-            <div style="background:rgba(255,109,0,.06);border:1px solid rgba(255,109,0,.2);border-radius:var(--radius);padding:10px;font-size:11px;color:var(--text2);margin-bottom:12px;line-height:1.7">
-              <strong style="color:var(--orange-b)">How it works:</strong>
-              pktvisor always runs locally. If an Orb token is configured, metrics also sync to
-              <strong style="color:var(--white)">orb.net</strong> via MQTT TLS &mdash;
-              giving you historical data, fleet management, and remote dashboard access.<br>
-              <span style="color:var(--text2)">&#128161; Local mode always works without internet or Orb account.</span>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Orb Agent Token</label>
-              <input class="form-input" id="orbToken" placeholder="Paste token from orb.net/agents">
-              <div class="field-note">Get a free token at <a href="https://orb.net" target="_blank" style="color:var(--blue-b)">orb.net</a></div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Agent Name (optional)</label>
-              <input class="form-input" id="orbAgentName" placeholder="nekopi-field-01">
-            </div>
-            <div style="font-size:11px;color:var(--text2);margin-bottom:10px" id="orbSyncStatus"></div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn btn-primary btn-sm" onclick="connectOrb()">&#9889; Connect</button>
-              <button class="btn btn-ghost btn-sm" onclick="disconnectOrb()">&#10005; Disconnect</button>
-              <button class="btn btn-ghost btn-sm" onclick="openOrbDashboard()" style="color:var(--orange-b)">&#128279; Orb Dashboard &#8599;</button>
-            </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Duration</label>
+            <select class="form-input form-select" id="sPcapSeconds" style="width:100px">
+              <option value="5">5 s</option>
+              <option value="10" selected>10 s</option>
+              <option value="30">30 s</option>
+              <option value="60">60 s</option>
+            </select>
           </div>
+          <button class="btn btn-primary" id="sPcapCaptureBtn" onclick="sensorPcapCapture(event)">📥 Capturar</button>
+          <button class="btn btn-ghost btn-sm" onclick="sensorPcapList()">↻ Refrescar</button>
         </div>
-
+        <div id="sPcapList" style="font-size:11px;color:var(--text2);max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:6px">
+          <div class="t-muted" style="padding:8px">Aún no hay capturas. Pulsa "Capturar" para iniciar.</div>
+        </div>
+        <div id="sPcapAiPanel" style="display:none;margin-top:10px;padding:10px;background:var(--bg3);border-left:3px solid var(--purple);border-radius:var(--radius)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:11px;color:var(--purple);font-weight:700">🧠 Análisis IA · <span id="sPcapAiName">—</span></span>
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('sPcapAiPanel').style.display='none'">✕</button>
+          </div>
+          <div class="ai-output" id="sPcapAiOutput"><span class="t-muted">Procesando…</span></div>
+        </div>
       </div>
     </div>
 
@@ -3289,6 +3231,12 @@ input,select,textarea { font-family:inherit; }
             <label class="toggle-wrap"><input type="checkbox" id="roamFilterProbe"          onchange="applyRoamFilter()"><span class="toggle-lbl">Probe Req</span></label>
           </div>
           <div class="divider"></div>
+          <div id="roamChannelInfo" style="display:none;padding:8px 10px;margin-bottom:8px;
+               background:rgba(0,229,255,.06);border:1px solid rgba(0,229,255,.2);
+               border-radius:var(--radius);font-size:11px;color:var(--text2)">
+            <span id="roamChannelLabel">📡 Monitoreando canales: —</span>
+            <span id="roamChannelHop"   style="margin-left:8px;color:var(--text2);font-size:10px"></span>
+          </div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-primary" id="roamStartBtn" onclick="startRoaming()">▶ Start Capture</button>
             <button class="btn btn-ghost btn-sm" id="roamStopBtn" onclick="stopRoaming()" style="opacity:0.4;pointer-events:none">■ Stop</button>
@@ -3976,7 +3924,7 @@ input,select,textarea { font-family:inherit; }
             </div>
             <div class="form-group">
               <label class="form-label">Modelo</label>
-              <input class="form-input" id="settingsGeminiModel" placeholder="gemini-1.5-flash" value="gemini-1.5-flash">
+              <input class="form-input" id="settingsGeminiModel" placeholder="gemini-2.5-flash" value="gemini-2.5-flash">
             </div>
             <div style="display:flex;gap:8px;align-items:center">
               <button class="btn btn-primary btn-sm" onclick="aiTestGemini(event)">🧪 Test</button>
@@ -5568,7 +5516,7 @@ const pages = {
   security:   { title:'Security Audit',    sub:'Network · Wireless · Wired · Compliance', onload: function(){ autoSecTarget(); } },
   toolkit:    { title:'Rescue Toolkit',    sub:'DHCP · TFTP · MAC · ARP · Captive · Static IP · Syslog · WoL', onload: function(){ tkInit(); } },
   path:       { title:'Path Analyzer',     sub:'Traceroute continuo · dual interface · WiFi vs ETH' },
-  sensor:     { title:'Sensor Mode',       sub:'pktvisor · wiperf · InfluxDB · Grafana · Orb', onload: function(){
+  sensor:     { title:'Sensor Mode',       sub:'pktvisor live · PCAP snapshot · InfluxDB · Grafana', onload: function(){
     // Auto-fill the iface dropdown with real interfaces
     fetchAPI('/api/network/info').then(function(d){
       if(!d || !d.interfaces) return;
@@ -7337,6 +7285,11 @@ function makeHopRow(hop, histories, accentColor) {
 
 var _pathSeq = -1;
 var _pathPollIv = null;
+// _conHealthIv was used by the old Console page to poll /api/system/metrics
+// every few seconds. The Cockpit iframe rebuild dropped that poller but
+// goPage() still references the variable to stop it on page change — keep
+// it declared (and always null) so goPage doesn't ReferenceError.
+var _conHealthIv = null;
 
 function fetchAndRunPath() {
   if (DEMO_MODE) {
@@ -7588,13 +7541,12 @@ function exportPathCSV(){
 }
 
 // ═══════════════════════════════════════
-//  SENSOR MODE — pktvisor + Orb
+//  SENSOR MODE — pktvisor live + PCAP snapshot
 // ═══════════════════════════════════════
 var sensorRunning = false;
 var sensorIntervalId = null;
 var sensorHistory = [];
 var sensorCycle = 0;
-var orbConnected = false;
 
 function toggleSensor(){
   sensorRunning=!sensorRunning;
@@ -7728,14 +7680,15 @@ function sensorPcapAnalyze(name, ev){
         return;
       }
       var anon = (d.summary && d.summary.anon_map) || {};
-      var anonNote = (anon.ips || anon.macs)
+      var countNote = (anon.ips || anon.macs)
         ? '<div style="font-size:10px;color:var(--text2);margin-top:4px">'
           +'🔒 Anonimizado: '+(anon.ips||0)+' IPs · '+(anon.macs||0)+' MACs'
-          +'</div>'
+          +' — las IPs reales no se enviaron a la IA</div>'
         : '';
       var html =
-        '<div style="margin-bottom:8px">'+_aiBackendBadge(d.backend, d.model)+anonNote+'</div>'
-        + _aiFormatResponse(d.response);
+        '<div style="margin-bottom:8px">'+_aiBackendBadge(d.backend, d.model)+countNote+'</div>'
+        + _aiFormatResponse(d.response)
+        + _aiAnonMapHTML(anon);
       _aiTypewriter(out, html);
     })
     .catch(function(e){
@@ -7769,7 +7722,7 @@ function runSensorCycle(){
     setM('sMetricThroughput', mbps,   'var(--blue-b)');
     setM('sMetricLoss',       loss,   loss<0.1?'var(--green)':'var(--red)');
     setM('sMetricJitter',     jitter, jitter<1?'var(--green)':'var(--amber)');
-    setM('sMetricMos',        mos,    parseFloat(mos)>=4?'var(--amber)':'var(--red)');
+    setM('sMetricMos',        mos,    parseFloat(mos)>=4?'var(--green)':'var(--amber)');
     addSensorHistoryRow({time:new Date().toTimeString().slice(0,8),iface:'demo',ping:ping,dns:dns,mbps:mbps,loss:loss,jitter:jitter,mos:mos});
     return;
   }
@@ -7848,6 +7801,26 @@ function runSensorCycle(){
 
   Promise.all(promises).then(function(){
     addSensorHistoryRow(snap);
+    // Push this cycle to InfluxDB via the backend so Grafana panels have
+    // something to plot. The backend drops None/NaN fields automatically.
+    var toNum = function(v){ var n = parseFloat(v); return isNaN(n) ? null : n; };
+    var payload = {
+      iface:            snap.iface || (document.getElementById('sensorIfaceSelect')||{}).value || 'unknown',
+      ssid:             window._currentSsid || '',
+      ping_gw_ms:       toNum(snap.ping),
+      dns_ms:           toNum(snap.dns),
+      throughput_mbps:  toNum(snap.mbps),
+      loss_pct:         toNum(snap.loss),
+      jitter_ms:        toNum(snap.jitter),
+      mos:              toNum(snap.mos),
+    };
+    if (!DEMO_MODE) {
+      fetch(API_BASE + '/api/sensor/push', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+      }).catch(function(){}); // best-effort
+    }
   });
 }
 
@@ -7886,48 +7859,44 @@ function _renderSensorTopDns(top){
 function addSensorHistoryRow(r){
   var tbody=document.getElementById('sensorHistoryBody'); if(!tbody) return;
   if(tbody.querySelector('td[colspan]')) tbody.innerHTML='';
+  // MOS-independent status. POOR criteria: loss > 1%  OR  ping > 100 ms  OR
+  // throughput < 1 Mbps WHILE there's actual traffic. Jitter/MOS are
+  // advisory only — if we don't have enough samples for them we show "—"
+  // instead of falsely flagging POOR.
+  var lossN = parseFloat(r.loss);
+  var pingN = parseFloat(r.ping);
+  var mbpsN = parseFloat(r.mbps);
+  var hasLoss = !isNaN(lossN);
+  var hasPing = !isNaN(pingN);
+  var status = 'GOOD';
+  var statusCls = 'sb-ok';
+  if ((hasLoss && lossN > 1) || (hasPing && pingN > 100)) {
+    status = 'POOR'; statusCls = 'sb-fail';
+  } else if ((hasLoss && lossN > 0.1) || (hasPing && pingN > 50)) {
+    status = 'FAIR'; statusCls = 'sb-warn';
+  }
+  var mosDisplay = (r.mos == null || r.mos === '—' || isNaN(parseFloat(r.mos)))
+    ? '<span style="color:var(--text2)">—</span>'
+    : '<span style="color:'
+      + (parseFloat(r.mos) >= 4 ? 'var(--green)'
+         : parseFloat(r.mos) >= 3 ? 'var(--amber)' : 'var(--red)')
+      + ';font-weight:600">' + r.mos + '</span>';
+  var jitterDisplay = (r.jitter == null || r.jitter === '—' || isNaN(parseFloat(r.jitter)))
+    ? '<span style="color:var(--text2)">—</span>'
+    : '<span style="color:var(--text2)">' + r.jitter + 'ms</span>';
   var tr=document.createElement('tr');
-  var mosColor=parseFloat(r.mos)>=4?'var(--green)':parseFloat(r.mos)>=3?'var(--amber)':'var(--red)';
-  var statusCls=parseFloat(r.mos)>=4?'sb-ok':parseFloat(r.mos)>=3?'sb-warn':'sb-fail';
-  tr.innerHTML='<td style="color:var(--text2);font-size:10px">'+r.time+'</td><td style="color:var(--text2)">'+r.iface+'</td><td style="color:var(--green)">'+r.ping+'ms</td><td style="color:var(--cyan)">'+r.dns+'ms</td><td style="color:var(--blue-b)">'+r.mbps+' Mb/s</td><td style="color:'+(r.loss<0.1?'var(--green)':'var(--red)')+'">'+r.loss+'%</td><td style="color:var(--text2)">'+r.jitter+'ms</td><td style="color:'+mosColor+';font-weight:600">'+r.mos+'</td><td><span class="status-badge '+statusCls+'"><span class="sb-dot"></span>'+(parseFloat(r.mos)>=4?'GOOD':parseFloat(r.mos)>=3?'FAIR':'POOR')+'</span></td>';
+  tr.innerHTML =
+    '<td style="color:var(--text2);font-size:10px">'+r.time+'</td>'
+    +'<td style="color:var(--text2)">'+r.iface+'</td>'
+    +'<td style="color:var(--green)">'+r.ping+'ms</td>'
+    +'<td style="color:var(--cyan)">'+r.dns+'ms</td>'
+    +'<td style="color:var(--blue-b)">'+r.mbps+' Mb/s</td>'
+    +'<td style="color:'+(hasLoss && lossN<0.1?'var(--green)':'var(--red)')+'">'+r.loss+'%</td>'
+    +'<td>'+jitterDisplay+'</td>'
+    +'<td>'+mosDisplay+'</td>'
+    +'<td><span class="status-badge '+statusCls+'"><span class="sb-dot"></span>'+status+'</span></td>';
   tbody.insertBefore(tr,tbody.firstChild);
   if(tbody.children.length>50) tbody.removeChild(tbody.lastChild);
-}
-
-function setCaptureMode(mode){
-  ['modePcap','modeMonitor','modeSflow'].forEach(function(id){
-    var btn=document.getElementById(id);
-    if(btn) btn.style.background=id==='mode'+mode.charAt(0).toUpperCase()+mode.slice(1)?'var(--blue)':'var(--bg3)';
-  });
-  var noteEl=document.getElementById('captureModeNote');
-  var notes={
-    pcap:'PCAP on eth1 \u2014 sees own traffic only unless connected to SPAN port',
-    monitor:'Monitor mode on wlan1 \u2014 sees all WiFi frames passively. wlan0 stays connected.',
-    sflow:'Receiving sFlow/NetFlow from switch on UDP 6343 \u2014 full network visibility',
-  };
-  if(noteEl) noteEl.textContent=notes[mode]||'';
-  showToast('Capture mode: '+mode);
-}
-
-function connectOrb(){
-  var token=(document.getElementById('orbToken')||{}).value;
-  if(!token){ showToast('Enter Orb agent token first'); return; }
-  orbConnected=true;
-  var st=document.getElementById('orbStatus');
-  if(st){st.className='status-badge sb-ok';st.innerHTML='<span class="sb-dot"></span>Connected to orb.net';}
-  showToast('Connected to Orb Cloud \u2014 metrics will sync every cycle');
-}
-
-function disconnectOrb(){
-  orbConnected=false;
-  var st=document.getElementById('orbStatus');
-  if(st){st.className='status-badge sb-idle';st.innerHTML='<span class="sb-dot"></span>Not connected';}
-  showToast('Disconnected from Orb Cloud \u2014 local mode only');
-}
-
-function openOrbDashboard(){
-  if(!orbConnected){ showToast('Connect to Orb Cloud first'); return; }
-  window.open('https://orb.net','_blank');
 }
 
 function exportSensorCSV(){
@@ -7950,17 +7919,9 @@ function _nekopiHost(){ return window.location.hostname || 'localhost'; }
 function openGrafana(){ window.open('http://'+_nekopiHost()+':3000','_blank'); }
 function openInflux(){  window.open('http://'+_nekopiHost()+':8086','_blank'); }
 
-function setInfluxModeSetting(mode){
-  var isLocal=mode==='local';
-  var s=function(id,bg,color){var el=document.getElementById(id);if(el){el.style.background=bg;el.style.color=color;}};
-  s('sInfluxLocalBtn',  isLocal?'var(--blue)':'var(--bg4)', isLocal?'#fff':'var(--text2)');
-  s('sInfluxRemoteBtn', isLocal?'var(--bg4)':'var(--blue)', isLocal?'var(--text2)':'#fff');
-  var lp=document.getElementById('sInfluxLocalPanel'),rp=document.getElementById('sInfluxRemotePanel');
-  if(lp) lp.style.display=isLocal?'':'none';
-  if(rp) rp.style.display=isLocal?'none':'';
-  var badge=document.getElementById('settingsInfluxStatus');
-  if(badge){badge.innerHTML='<span class="sb-dot"></span>'+(isLocal?'Local':'Remote');badge.className='status-badge '+(isLocal?'sb-ok':'sb-run');}
-}
+// setCaptureMode + setInfluxModeSetting were removed with the Sensor Mode
+// rebuild — the PCAP/Monitor/sFlow toggles and the Influx local/remote
+// widget were decorative and tied to no real backend behaviour.
 
 // ═══════════════════════════════════════
 //  REPORTS
@@ -8315,6 +8276,63 @@ function _aiTypewriter(el, html){
   });
 }
 
+// Renders the anonymization header for a deep-analysis response:
+//   - compact count badge  ("🔒 Anonimizado: 5 IPs · 2 MACs")
+//   - collapsible <details> block with the real → label mapping
+// The map is sourced from anon.ip_map / anon.mac_map which the backend
+// only includes in the response to the local browser — the model never
+// receives these dicts. The details block explicitly tells the engineer
+// the map is local-only so there's no ambiguity about what reached Gemini.
+function _aiAnonMapHTML(anon){
+  anon = anon || {};
+  var ipCount  = anon.ips  || 0;
+  var macCount = anon.macs || 0;
+  if(!ipCount && !macCount) return '';
+  var esc = function(s){
+    return String(s||'').replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  };
+  var rows = '';
+  var ipMap  = anon.ip_map  || {};
+  var macMap = anon.mac_map || {};
+  // Sort keys so Host-A, Host-B, … are listed in order.
+  var labelSort = function(a, b){
+    var ra = /-(\d+)$/.exec(a); var rb = /-(\d+)$/.exec(b);
+    if(ra && rb) return parseInt(ra[1]) - parseInt(rb[1]);
+    return a < b ? -1 : a > b ? 1 : 0;
+  };
+  Object.keys(ipMap).sort(labelSort).forEach(function(label){
+    rows += '<tr><td style="padding:3px 8px;color:var(--blue-b);font-family:monospace">'
+      + esc(label) + '</td>'
+      + '<td style="padding:3px 8px;color:var(--white);font-family:monospace">'
+      + esc(ipMap[label]) + '</td></tr>';
+  });
+  Object.keys(macMap).sort(labelSort).forEach(function(label){
+    rows += '<tr><td style="padding:3px 8px;color:var(--purple);font-family:monospace">'
+      + esc(label) + '</td>'
+      + '<td style="padding:3px 8px;color:var(--text);font-family:monospace">'
+      + esc(macMap[label]) + '</td></tr>';
+  });
+  return (
+    '<details style="margin-top:6px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">'
+    + '<summary style="padding:6px 10px;cursor:pointer;font-size:11px;color:var(--green);user-select:none">'
+    + '🗺 Mapa de IPs · '+ipCount+' IPs · '+macCount+' MACs '
+    + '<span style="color:var(--text2);font-weight:normal">(solo visible localmente — no se envió a la IA)</span>'
+    + '</summary>'
+    + '<div style="padding:4px 0 8px">'
+    + '<table style="width:100%;border-collapse:collapse;font-size:11px">'
+    + '<thead><tr>'
+    +   '<th style="padding:4px 8px;text-align:left;color:var(--text2);letter-spacing:1px;font-size:9px;text-transform:uppercase;border-bottom:1px solid var(--border)">Label</th>'
+    +   '<th style="padding:4px 8px;text-align:left;color:var(--text2);letter-spacing:1px;font-size:9px;text-transform:uppercase;border-bottom:1px solid var(--border)">Real</th>'
+    + '</tr></thead>'
+    + '<tbody>' + rows + '</tbody>'
+    + '</table>'
+    + '</div>'
+    + '</details>'
+  );
+}
+
 // Module-specific demo responses — used in DEMO mode so the UI stays
 // interactive without ever touching the network.
 var _AI_DEMO = {
@@ -8464,14 +8482,15 @@ function callAI(prompt, outputElementId, opts){
         }
         var d = res.data;
         var anon = (d.summary && d.summary.anon_map) || {};
-        var anonNote = (anon.ips || anon.macs)
+        var countNote = (anon.ips || anon.macs)
           ? '<div style="font-size:10px;color:var(--text2);margin-top:4px">'
             +'🔒 Anonimizado: '+(anon.ips||0)+' IPs · '+(anon.macs||0)+' MACs'
-            +'</div>'
+            +' — las IPs reales no se enviaron a la IA</div>'
           : '';
         var html =
-          '<div style="margin-bottom:8px">'+_aiBackendBadge(d.backend, d.model)+anonNote+'</div>'
-          + _aiFormatResponse(d.response);
+          '<div style="margin-bottom:8px">'+_aiBackendBadge(d.backend, d.model)+countNote+'</div>'
+          + _aiFormatResponse(d.response)
+          + _aiAnonMapHTML(anon);
         _aiTypewriter(outputEl, html);
       })
       .catch(function(e){
@@ -9092,7 +9111,7 @@ function loadAISettings(){
     var gk = document.getElementById('settingsGeminiKey');
     if(gk) gk.value = s.gemini_key || '';
     var gm = document.getElementById('settingsGeminiModel');
-    if(gm) gm.value = s.gemini_model || 'gemini-1.5-flash';
+    if(gm) gm.value = s.gemini_model || 'gemini-2.5-flash';
     // Read-only: detected Ollama model
     var om = document.getElementById('settingsOllamaModel');
     if(om){
@@ -9141,7 +9160,7 @@ function saveDeviceSettings(){
 function aiTestGemini(ev){
   var btn = ev && ev.currentTarget;
   var key   = (document.getElementById('settingsGeminiKey')||{}).value || '';
-  var model = (document.getElementById('settingsGeminiModel')||{}).value || 'gemini-1.5-flash';
+  var model = (document.getElementById('settingsGeminiModel')||{}).value || 'gemini-2.5-flash';
   var statusEl = document.getElementById('aiGeminiStatus');
   if(!key || key.indexOf('•') === 0){
     if(statusEl) statusEl.innerHTML = '<span style="color:var(--amber)">⚠ Pega tu API key primero</span>';
@@ -9300,36 +9319,70 @@ function startRoaming(){
 
 function _roamPoll(){
   fetchAPI('/api/roaming/events').then(function(d){
-    if(!d) return;
-    if(d.events && d.events.length){
-      var tbody = document.getElementById('roamEventBody');
-      if(tbody){
-        tbody.innerHTML = d.events.map(function(e){
-          var ftColor = e.ft_ms>0&&e.ft_ms<50?'var(--green)':e.ft_ms>0&&e.ft_ms<150?'var(--amber)':e.ft_ms>0?'var(--red)':'var(--text2)';
-          var typeClass = e.type.includes('FT')?'sb-ok':e.type.includes('Deauth')?'sb-fail':e.type.includes('Legacy')?'sb-warn':'sb-idle';
-          return '<tr>'
-            +'<td style="color:var(--text2);font-size:10px">'+e.time+'</td>'
-            +'<td style="font-family:monospace;font-size:10px;color:var(--white)">'+e.mac+'</td>'
-            +'<td style="font-size:10px;color:var(--text2)">'+e.from_ap+'</td>'
-            +'<td style="font-size:10px;color:var(--cyan)">'+e.to_ap+'</td>'
-            +'<td style="font-size:10px;color:'+(e.rssi>=-70?'var(--green)':e.rssi>=-80?'var(--amber)':'var(--red)')+'">'+e.rssi+' dBm</td>'
-            +'<td style="font-weight:600;color:'+ftColor+'">'+e.ft_time+'</td>'
-            +'<td><span class="status-badge '+typeClass+'"><span class="sb-dot"></span>'+e.type+'</span></td>'
-            +'</tr>';
-        }).join('');
-      }
-    }
+    // Defensive: fetchAPI returns null on HTTP error / CORS / DEMO mode, and
+    // each caller below would blow up on d.events access. Coerce to an empty
+    // shape so the UI stays responsive instead of throwing.
+    d = d || { events:[], clients:[], stats:{}, active_channels:[] };
+    _roamUpdateChannels(d);
+    // Backend uses snake_case (from_ap, to_ap, ft_time, ft_ms). The renderer
+    // and filter expect camelCase (fromAP, toAP, ftTime). Normalize once
+    // here so every downstream consumer sees the same shape.
+    var events = (d.events || []).map(function(e){
+      return {
+        time:   e.time   || '',
+        mac:    e.mac    || '',
+        fromAP: e.from_ap || e.fromAP || '—',
+        toAP:   e.to_ap   || e.toAP   || '—',
+        rssi:   e.rssi != null ? e.rssi : -99,
+        ftTime: e.ft_time || e.ftTime || '—',
+        ft_ms:  e.ft_ms != null ? e.ft_ms : -1,
+        type:   e.type || 'unknown',
+        raw:    e.raw  || '',
+      };
+    });
+    // Keep the canonical event log in sync with what the backend returns —
+    // applyRoamFilter() and clearRoamFilter() both read from roamAllEvents.
+    roamAllEvents = events;
+    // Route through the filter pipeline so the currently-applied filter
+    // state is respected on every poll tick (otherwise polls would clobber
+    // a user's active filter).
+    applyRoamFilter();
     // Update client dropdown
-    if(d.clients){
-      var sel = document.getElementById('roamClientSelect');
-      if(sel){
-        var cur = sel.value;
-        sel.innerHTML = '<option value="">— all clients —</option>'
-          + d.clients.map(function(c){ return '<option value="'+c+'"'+(c===cur?' selected':'')+'>'+c+'</option>'; }).join('');
-      }
+    var sel = document.getElementById('roamClientSelect');
+    if(sel){
+      var cur = sel.value;
+      var clients = d.clients || [];
+      sel.innerHTML = '<option value="">— all clients —</option>'
+        + clients.map(function(c){ return '<option value="'+c+'"'+(c===cur?' selected':'')+'>'+c+'</option>'; }).join('');
     }
-    _roamUpdateStats(d.stats);
+    _roamUpdateStats(d.stats || {});
   });
+}
+
+// Reflects the active hop channels reported by the backend. Called from the
+// events poller — when the backend narrows the hop list (e.g. only ch 1+6+36
+// because the target SSID beacons there), this card surfaces the chosen set.
+function _roamUpdateChannels(d){
+  var info  = document.getElementById('roamChannelInfo');
+  var label = document.getElementById('roamChannelLabel');
+  var hop   = document.getElementById('roamChannelHop');
+  if(!info) return;
+  var chs = (d && d.active_channels) || [];
+  if(!d || !d.running || !chs.length){
+    info.style.display = 'none';
+    return;
+  }
+  info.style.display = '';
+  var focused = d.ssid && chs.length > 0 && chs.length < 10;
+  if(label){
+    label.textContent = '📡 Monitoreando canales: ' + chs.join(' · ');
+  }
+  if(hop){
+    hop.textContent =
+      '· ' + (d.hop_ms || 0) + 'ms/ch'
+      + (focused ? ' · focalizado en "' + d.ssid + '"' : ' · cobertura completa');
+    hop.style.color = focused ? 'var(--green)' : 'var(--text2)';
+  }
 }
 
 function _roamUpdateStats(stats){
@@ -9371,6 +9424,8 @@ function stopRoaming(){
     if(st){st.className='status-badge sb-idle';st.innerHTML='<span class="sb-dot"></span>Idle';}
     if(startBtn){ startBtn.style.opacity='1'; startBtn.style.pointerEvents='auto'; }
     if(stopBtn){ stopBtn.style.background=''; stopBtn.style.borderColor=''; stopBtn.style.color=''; stopBtn.style.opacity='0.4'; stopBtn.style.pointerEvents='none'; stopBtn.textContent='■ Stop'; }
+    var info = document.getElementById('roamChannelInfo');
+    if(info) info.style.display = 'none';
     showToast('Roaming capture stopped · wlan1 restored to managed');
   });
 }
@@ -9381,11 +9436,18 @@ function runRoamingAI(ev){
   panel.style.display=''; panel.scrollIntoView({behavior:'smooth',block:'nearest'});
   var btn = (ev&&ev.currentTarget)||null;
   var build = function(d){
-    var events  = (d && d.events)  || [];
-    var clients = Array.isArray(d && d.clients) ? d.clients : Object.keys(d && d.clients || {});
-    var stats   = (d && d.stats)   || {};
-    var ssid    = (window._roamSsid  || '—');
-    var iface   = (window._roamIface || 'wlan1');
+    // Null-safe: fetchAPI may resolve with null on HTTP error or DEMO mode
+    d = d || {};
+    var events  = d.events  || [];
+    var clients = Array.isArray(d.clients) ? d.clients : Object.keys(d.clients || {});
+    var stats   = d.stats   || {};
+    // Prefer the backend-echoed SSID (preserves original case) then the
+    // current input field, then a dash. Never transform casing.
+    var ssid    = d.ssid
+                  || ((document.getElementById('roamSSID')||{}).value || '').trim()
+                  || '—';
+    var iface   = d.iface
+                  || ((document.getElementById('roamIface')||{}).value || 'wlan1');
     var prompt;
     if(events.length === 0){
       // 0 events — be explicit so the model doesn't invent problems
@@ -11895,7 +11957,6 @@ function nkInit() {
   var modelEl = document.getElementById('aiModel');
   if (langEl)  langEl.value  = aiSettings.lang;
   if (modelEl) modelEl.value = aiSettings.model;
-  try { setCaptureMode('pcap'); } catch(e) {}
   try { refreshAIButtons(); } catch(e) {}
   // Periodically re-check AI backend so the buttons follow Settings changes
   setInterval(function(){ try { refreshAIButtons(); } catch(e){} }, 30000);
@@ -12058,8 +12119,14 @@ var roamAllEvents = [];   // full unfiltered event log
 var roamSeenMacs  = {};   // mac → count
 
 function applyRoamFilter() {
-  var mac   = ((document.getElementById('roamMacFilter') || {}).value || '').trim().toLowerCase();
-  var ssid  = ((document.getElementById('roamSSID')      || {}).value || '').trim().toLowerCase();
+  // Original-case values for display (label, tooltip, exports).
+  var macRaw   = ((document.getElementById('roamMacFilter') || {}).value || '').trim();
+  var ssidRaw  = ((document.getElementById('roamSSID')      || {}).value || '').trim();
+  // Lowercased copies are ONLY used for case-insensitive comparison. The
+  // user-facing label keeps the original casing so an SSID like
+  // "FTOROROD_5G" doesn't get rendered as "ftororod_5g".
+  var mac   = macRaw.toLowerCase();
+  var ssid  = ssidRaw.toLowerCase();
   var bar     = document.getElementById('roamFilterBar');
   var label   = document.getElementById('roamFilterLabel');
   var count   = document.getElementById('roamFilterCount');
@@ -12091,7 +12158,9 @@ function applyRoamFilter() {
   var hasFilter = mac || ssid || !allowAssoc || !allowAuth || !allowDeauth || !allowAction || allowProbe;
   if (hasFilter && bar) {
     bar.style.display = 'flex';
-    if (label) label.textContent = [mac && 'MAC='+mac, ssid && 'SSID='+ssid].filter(Boolean).join(' · ') || 'type filters';
+    if (label) label.textContent =
+      [macRaw && 'MAC='+macRaw, ssidRaw && 'SSID='+ssidRaw]
+      .filter(Boolean).join(' · ') || 'type filters';
     if (count) count.textContent = '(' + filtered.length + ' of ' + roamAllEvents.length + ' events)';
   } else if (bar) {
     bar.style.display = 'none';
@@ -12101,10 +12170,31 @@ function applyRoamFilter() {
 }
 
 function clearRoamFilter() {
-  var input  = document.getElementById('roamMacFilter');
-  var select = document.getElementById('roamClientSelect');
-  if (input)  input.value  = '';
-  if (select) select.value = '';
+  // CLEAR on the filter bar must reset every control applyRoamFilter()
+  // inspects so the table re-renders with all captured events:
+  //   - MAC filter  (free-text input)
+  //   - SSID filter (same input the capture uses as its target)
+  //   - Client dropdown
+  //   - Event-type checkboxes → back to default "everything except probes"
+  // The capture thread committed its channel plan at start, so clearing
+  // the SSID field mid-capture doesn't affect the running hopping.
+  var mac    = document.getElementById('roamMacFilter');
+  var client = document.getElementById('roamClientSelect');
+  var ssid   = document.getElementById('roamSSID');
+  if (mac)    mac.value    = '';
+  if (client) client.value = '';
+  if (ssid)   ssid.value   = '';
+  var defaultState = {
+    roamFilterAssoc:  true,
+    roamFilterAuth:   true,
+    roamFilterDeauth: true,
+    roamFilterAction: true,
+    roamFilterProbe:  false,
+  };
+  Object.keys(defaultState).forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) el.checked = defaultState[id];
+  });
   applyRoamFilter();
 }
 
@@ -12130,8 +12220,14 @@ function addRoamClient(mac) {
 function renderRoamEvents(events) {
   var tbody = document.getElementById('roamEventBody');
   if (!tbody) return;
+  events = events || [];
   if (!events.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px">No events match filter</td></tr>';
+    // Differentiate empty-buffer vs filter-empty so the engineer knows
+    // whether to relax the filter or wait for more capture.
+    var msg = roamAllEvents.length
+      ? 'No events match filter'
+      : 'No events captured yet · waiting for roaming frames…';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px">'+msg+'</td></tr>';
     return;
   }
   tbody.innerHTML = events.map(function(e) {
