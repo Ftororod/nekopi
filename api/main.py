@@ -5805,6 +5805,206 @@ async def sensor_stop():
     return {"ok": True, "running": False}
 
 
+# ── URL Monitoring — ThousandEyes-style DNS/TCP/TLS/TTFB probe ──
+# URLs live in data/url_monitor.json so they survive restarts. The probe
+# function times each TCP/TLS phase separately using low-level sockets
+# and http.client so we can surface the breakdown, not just total time.
+URL_MONITOR_FILE = BASE_DIR / "data" / "url_monitor.json"
+URL_MONITOR_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+_URL_DEFAULTS = [
+    "https://www.google.com",
+    "https://www.cloudflare.com",
+]
+
+_URL_RESULTS: list[dict] = []   # last probe results (one per URL)
+
+def _url_load() -> list[str]:
+    try:
+        if URL_MONITOR_FILE.exists():
+            d = json.loads(URL_MONITOR_FILE.read_text())
+            urls = d.get("urls") or []
+            if isinstance(urls, list):
+                return [str(u) for u in urls if u]
+    except Exception:
+        pass
+    # First-run bootstrap
+    _url_save(list(_URL_DEFAULTS))
+    return list(_URL_DEFAULTS)
+
+def _url_save(urls: list[str]) -> None:
+    try:
+        URL_MONITOR_FILE.write_text(json.dumps({"urls": urls}, indent=2))
+    except Exception:
+        pass
+
+def _url_probe_one(url: str) -> dict:
+    """Measures DNS / TCP / TLS / TTFB / total for a single URL using the
+    stdlib. Times are in milliseconds. Returns a dict the caller can ship
+    straight to Influx + to the UI."""
+    import socket as _so, ssl as _ssl, time as _t
+    import urllib.parse as _up
+    import http.client as _hc
+
+    result: dict = {
+        "url":        url,
+        "dns_ms":     None,
+        "tcp_ms":     None,
+        "tls_ms":     None,
+        "ttfb_ms":    None,
+        "total_ms":   None,
+        "status":     None,
+        "error":      None,
+        "ts":         int(_t.time()),
+    }
+    try:
+        u = _up.urlparse(url if "://" in url else "https://" + url)
+    except Exception as e:
+        result["error"] = f"parse: {e}"
+        return result
+    scheme = (u.scheme or "https").lower()
+    host   = u.hostname or ""
+    port   = u.port or (443 if scheme == "https" else 80)
+    path   = u.path or "/"
+    if u.query:
+        path += "?" + u.query
+    if not host:
+        result["error"] = "empty host"
+        return result
+
+    t_start = _t.perf_counter()
+    # DNS
+    try:
+        t0 = _t.perf_counter()
+        ip = _so.gethostbyname(host)
+        result["dns_ms"] = round((_t.perf_counter() - t0) * 1000, 2)
+    except Exception as e:
+        result["error"] = f"dns: {e}"
+        return result
+
+    # TCP
+    try:
+        t0 = _t.perf_counter()
+        sock = _so.create_connection((ip, port), timeout=5)
+        result["tcp_ms"] = round((_t.perf_counter() - t0) * 1000, 2)
+    except Exception as e:
+        result["error"] = f"tcp: {e}"
+        return result
+
+    # TLS
+    try:
+        if scheme == "https":
+            t0 = _t.perf_counter()
+            ctx = _ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = _ssl.CERT_NONE
+            sock = ctx.wrap_socket(sock, server_hostname=host)
+            result["tls_ms"] = round((_t.perf_counter() - t0) * 1000, 2)
+    except Exception as e:
+        result["error"] = f"tls: {e}"
+        try: sock.close()
+        except Exception: pass
+        return result
+
+    # HTTP request → TTFB
+    try:
+        req = (
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {host}\r\n"
+            f"User-Agent: NekoPi/1.0 URL-Monitor\r\n"
+            f"Accept: */*\r\n"
+            f"Connection: close\r\n\r\n"
+        ).encode()
+        sock.sendall(req)
+        t0 = _t.perf_counter()
+        first = sock.recv(1)   # block until first byte of response
+        result["ttfb_ms"] = round((_t.perf_counter() - t0) * 1000, 2)
+        # Read the full status line so we can surface the HTTP code
+        buf = bytearray(first)
+        while b"\r\n" not in buf and len(buf) < 512:
+            chunk = sock.recv(256)
+            if not chunk:
+                break
+            buf += chunk
+        try:
+            status_line = buf.split(b"\r\n", 1)[0].decode("ascii", "ignore")
+            parts = status_line.split(" ", 2)
+            if len(parts) >= 2:
+                result["status"] = int(parts[1])
+        except Exception:
+            pass
+    except Exception as e:
+        result["error"] = f"http: {e}"
+    finally:
+        try: sock.close()
+        except Exception: pass
+
+    result["total_ms"] = round((_t.perf_counter() - t_start) * 1000, 2)
+    return result
+
+
+@app.get("/api/sensor/urls")
+async def sensor_urls_list():
+    return {"urls": _url_load()}
+
+
+@app.post("/api/sensor/urls")
+async def sensor_urls_add(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    url = (body.get("url") or "").strip()
+    if not url:
+        return JSONResponse({"ok": False, "error": "empty url"}, status_code=400)
+    if len(url) > 512:
+        return JSONResponse({"ok": False, "error": "url too long"}, status_code=400)
+    urls = _url_load()
+    if url not in urls:
+        urls.append(url)
+        _url_save(urls)
+    return {"ok": True, "urls": urls}
+
+
+@app.delete("/api/sensor/urls")
+async def sensor_urls_remove(url: str):
+    urls = _url_load()
+    urls = [u for u in urls if u != url]
+    _url_save(urls)
+    return {"ok": True, "urls": urls}
+
+
+@app.post("/api/sensor/urls/probe")
+async def sensor_urls_probe():
+    """Runs one probe cycle against every configured URL. Results are stored
+    in _URL_RESULTS (fetchable via /api/sensor/url-results) and each result
+    is written to Influx measurement=url_probe with url as a tag so Grafana
+    can multi-line by URL."""
+    global _URL_RESULTS
+    urls = _url_load()
+    results: list[dict] = []
+    for url in urls:
+        r = _url_probe_one(url)
+        results.append(r)
+        tags = {"url": url}
+        fields = {
+            "dns_ms":   r.get("dns_ms"),
+            "tcp_ms":   r.get("tcp_ms"),
+            "tls_ms":   r.get("tls_ms"),
+            "ttfb_ms":  r.get("ttfb_ms"),
+            "total_ms": r.get("total_ms"),
+            "status":   r.get("status"),
+        }
+        _influx_write("url_probe", tags, fields)
+    _URL_RESULTS = results
+    return {"ok": True, "count": len(results), "results": results}
+
+
+@app.get("/api/sensor/url-results")
+async def sensor_url_results():
+    return {"results": _URL_RESULTS}
+
+
 @app.post("/api/sensor/push")
 async def sensor_push(request: Request):
     """Writes a single probe cycle to InfluxDB. The frontend posts each cycle

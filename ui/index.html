@@ -2458,6 +2458,50 @@ input,select,textarea { font-family:inherit; }
       </div>
     </div>
 
+    <!-- ══════════════════════════════════════════════════════════
+         URL MONITORING — ThousandEyes-style DNS/TCP/TLS/TTFB probe
+         ══════════════════════════════════════════════════════════ -->
+    <div class="card" style="margin-bottom:14px;border-left:4px solid var(--cyan)">
+      <div class="card-header">
+        <div class="card-title">🌐 URL Monitoring <span style="font-size:10px;color:var(--text2);letter-spacing:1px;text-transform:uppercase">· DNS · TCP · TLS · TTFB · Total</span></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-primary btn-sm" id="urlProbeBtn" onclick="urlProbeNow(event)">▶ Probe now</button>
+          <label class="toggle-wrap" style="font-size:11px">
+            <input type="checkbox" id="urlAutoProbe">
+            <span class="toggle-lbl">Auto cada 60s</span>
+          </label>
+        </div>
+      </div>
+      <div class="card-body">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+          <input class="form-input" id="urlAddInput" placeholder="https://example.com" style="flex:1">
+          <button class="btn btn-ghost btn-sm" onclick="urlAdd()">+ Agregar</button>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table" style="font-size:11px;min-width:700px">
+            <thead>
+              <tr>
+                <th>URL</th>
+                <th style="text-align:right">DNS</th>
+                <th style="text-align:right">TCP</th>
+                <th style="text-align:right">TLS</th>
+                <th style="text-align:right">TTFB</th>
+                <th style="text-align:right">Total</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="urlMonBody">
+              <tr><td colspan="8" style="text-align:center;color:var(--text2);padding:16px">Sin resultados. Agrega URLs y pulsa "Probe now".</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="font-size:10px;color:var(--text2);margin-top:8px">
+          🟢 &lt; 200ms · 🟡 200–500ms · 🔴 &gt; 500ms · Resultados escritos a InfluxDB · Grafana panel en la dashboard <strong>NekoPi Field Unit</strong>
+        </div>
+      </div>
+    </div>
+
     <!-- History table -->
     <div class="card">
       <div class="card-header">
@@ -5540,6 +5584,11 @@ const pages = {
         runSensorCycle();
       }
     });
+    // Load the URL monitor list + latest results so the table isn't empty
+    try { urlLoadList(); } catch(e) {}
+    fetchAPI('/api/sensor/url-results').then(function(d){
+      if(d && d.results && d.results.length) urlRenderResults(d.results);
+    });
   } },
   scan:       { title:'Network Scan',      sub:'nmap · CVE lookup · AI inline' },
   roaming:    { title:'Roaming Analyzer',  sub:'802.11r/k/v · FT timing', onload: function(){
@@ -7898,6 +7947,132 @@ function addSensorHistoryRow(r){
   tbody.insertBefore(tr,tbody.firstChild);
   if(tbody.children.length>50) tbody.removeChild(tbody.lastChild);
 }
+
+// ── URL Monitoring (ThousandEyes-style DNS/TCP/TLS/TTFB probe) ──
+var _urlAutoIv = null;
+
+function _urlColor(ms){
+  if (ms == null) return 'var(--text2)';
+  if (ms < 200) return 'var(--green)';
+  if (ms < 500) return 'var(--amber)';
+  return 'var(--red)';
+}
+
+function _urlFmt(ms){
+  if (ms == null) return '—';
+  return ms.toFixed ? ms.toFixed(0)+'ms' : ms+'ms';
+}
+
+function urlLoadList(){
+  fetchAPI('/api/sensor/urls').then(function(d){
+    if(!d) return;
+    urlRenderEmpty(d.urls || []);
+  });
+}
+
+function urlRenderEmpty(urls){
+  // Render a placeholder row for each configured URL so the user sees what's
+  // going to be probed even before pressing "Probe now".
+  var tbody = document.getElementById('urlMonBody');
+  if(!tbody) return;
+  if(!urls.length){
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:16px">Sin URLs configuradas. Agrega una arriba.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = urls.map(function(u){
+    return '<tr>'
+      +'<td style="color:var(--white);font-family:monospace;font-size:10px">'+u+'</td>'
+      +'<td colspan="5" style="text-align:center;color:var(--text2)">— not probed yet —</td>'
+      +'<td>—</td>'
+      +'<td style="text-align:right"><button class="btn btn-ghost btn-sm" style="padding:1px 8px;font-size:10px" onclick="urlRemove(\''
+      +u.replace(/'/g,"\\'")+'\')">✕</button></td>'
+      +'</tr>';
+  }).join('');
+}
+
+function urlAdd(){
+  var input = document.getElementById('urlAddInput');
+  var url = (input && input.value || '').trim();
+  if(!url){ showToast('Escribe una URL'); return; }
+  fetch(API_BASE + '/api/sensor/urls', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({url: url}),
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if(d && d.ok){
+      if(input) input.value = '';
+      urlRenderEmpty(d.urls || []);
+      showToast('✓ URL agregada');
+    } else {
+      showToast('✗ '+(d && d.error || 'failed'));
+    }
+  });
+}
+
+function urlRemove(url){
+  fetch(API_BASE + '/api/sensor/urls?url='+encodeURIComponent(url), {method:'DELETE'})
+    .then(function(r){ return r.json(); }).then(function(d){
+      if(d && d.ok){
+        urlRenderEmpty(d.urls || []);
+        showToast('URL eliminada');
+      }
+    });
+}
+
+function urlProbeNow(ev){
+  var btn = ev && ev.currentTarget;
+  if(btn){ btn.disabled = true; btn._old = btn.textContent; btn.textContent = '⌛ Probing…'; }
+  fetch(API_BASE + '/api/sensor/urls/probe', {method:'POST'})
+    .then(function(r){ return r.json(); }).then(function(d){
+      if(d && d.ok){
+        urlRenderResults(d.results || []);
+      } else {
+        showToast('✗ probe failed');
+      }
+    })
+    .catch(function(e){ showToast('✗ '+e.message); })
+    .finally(function(){
+      if(btn){ btn.disabled = false; btn.textContent = btn._old || '▶ Probe now'; delete btn._old; }
+    });
+}
+
+function urlRenderResults(results){
+  var tbody = document.getElementById('urlMonBody');
+  if(!tbody) return;
+  if(!results.length){
+    urlRenderEmpty([]);
+    return;
+  }
+  var esc = function(s){ return String(s||'').replace(/[<>"']/g, function(c){ return {'<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); };
+  tbody.innerHTML = results.map(function(r){
+    var statusTxt = r.error
+      ? '<span style="color:var(--red);font-size:10px">✗ '+esc(r.error)+'</span>'
+      : (r.status
+         ? '<span style="color:'+(r.status<400?'var(--green)':'var(--red)')+';font-weight:700">'+r.status+'</span>'
+         : '—');
+    var cell = function(ms){
+      return '<td style="text-align:right;color:'+_urlColor(ms)+';font-family:monospace">'+_urlFmt(ms)+'</td>';
+    };
+    return '<tr>'
+      +'<td style="color:var(--white);font-family:monospace;font-size:10px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.url)+'</td>'
+      + cell(r.dns_ms) + cell(r.tcp_ms) + cell(r.tls_ms) + cell(r.ttfb_ms)
+      + '<td style="text-align:right;color:'+_urlColor(r.total_ms)+';font-family:monospace;font-weight:700">'+_urlFmt(r.total_ms)+'</td>'
+      + '<td>'+statusTxt+'</td>'
+      + '<td style="text-align:right"><button class="btn btn-ghost btn-sm" style="padding:1px 8px;font-size:10px" onclick="urlRemove(\''+r.url.replace(/'/g,"\\'")+'\')">✕</button></td>'
+      + '</tr>';
+  }).join('');
+}
+
+// Auto-probe toggle — kicks off a 60s interval that reuses urlProbeNow.
+document.addEventListener('change', function(e){
+  if(e.target && e.target.id === 'urlAutoProbe'){
+    if(e.target.checked){
+      urlProbeNow();
+      _urlAutoIv = setInterval(function(){ urlProbeNow(); }, 60000);
+    } else {
+      clearInterval(_urlAutoIv); _urlAutoIv = null;
+    }
+  }
+});
 
 function exportSensorCSV(){
   if(!sensorHistory.length){showToast('No data yet');return;}
