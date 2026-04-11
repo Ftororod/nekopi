@@ -4305,6 +4305,35 @@ input,select,textarea { font-family:inherit; }
               <input class="form-input" id="secSsidFilter" placeholder="e.g. CORP-WIFI, GUEST-NET  (comma separated, blank = all visible)" style="font-family:monospace;font-size:11px">
               <div class="field-note">Only these SSIDs will be evaluated. Leave blank to scan all visible networks (includes neighbors).</div>
             </div>
+            <!-- Vendor override — narrows default-cred testing and CVE filtering -->
+            <div class="form-row" style="margin-bottom:10px">
+              <div class="form-group">
+                <label class="form-label">Vendor (override auto-detect)</label>
+                <select class="form-input form-select" id="secVendorOverride">
+                  <option value="">— auto-detect from MAC OUI / banners —</option>
+                  <option value="Cisco">Cisco</option>
+                  <option value="Mikrotik">Mikrotik</option>
+                  <option value="Ubiquiti">Ubiquiti</option>
+                  <option value="TP-Link">TP-Link</option>
+                  <option value="Tenda">Tenda</option>
+                  <option value="D-Link">D-Link</option>
+                  <option value="Netgear">Netgear</option>
+                  <option value="Huawei">Huawei</option>
+                  <option value="Zyxel">Zyxel</option>
+                  <option value="ZTE">ZTE</option>
+                  <option value="HP Aruba">HP Aruba</option>
+                  <option value="HP ProCurve">HP ProCurve</option>
+                  <option value="Hikvision">Hikvision</option>
+                  <option value="Dahua">Dahua</option>
+                  <option value="Axis">Axis</option>
+                  <option value="Reolink">Reolink</option>
+                  <option value="Fortinet">Fortinet</option>
+                  <option value="SonicWall">SonicWall</option>
+                  <option value="pfSense">pfSense</option>
+                </select>
+                <div class="field-note">Restricts default-credential probes and CVE matching to this vendor. Leave blank to auto-detect.</div>
+              </div>
+            </div>
             <div id="secBtnRow" style="display:flex;gap:8px;align-items:center">
               <button class="btn btn-primary" id="secStartBtn" onclick="startSecAudit()">▶ Start Audit</button>
               <button class="btn btn-ghost btn-sm" id="secStopBtn" onclick="stopSecAudit()" style="opacity:0.4;pointer-events:none;border-color:var(--red);color:var(--red)">■ Stop</button>
@@ -5601,6 +5630,33 @@ const pages = {
       _wtsScanData = _WTS_DEMO_SCAN;
       _wtsRenderMetrics(_WTS_DEMO_SCAN);
     }
+  } },
+  profiler:   { title:'Client Profiler', sub:'Virtual AP · 802.11 capability inspection', onload: function(){
+    // Auto-detect WiFi interfaces and prefer the USB monitor adapter
+    fetchAPI('/api/wifi/interfaces').then(function(d){
+      var sel = document.getElementById('profilerIface');
+      if(!sel) return;
+      var ifs = (d && d.interfaces) || [];
+      if(!ifs.length){
+        sel.innerHTML = '<option value="">⚠ No WiFi adapter detected</option>';
+        return;
+      }
+      sel.innerHTML = ifs.map(function(i){
+        var hint = i.monitor ? ' — monitor capable' : ' — managed only';
+        return '<option value="'+i.name+'">'+i.name+hint+'</option>';
+      }).join('');
+      // Pick the first monitor-capable adapter (usually wlan1)
+      var pref = ifs.find(function(i){return i.monitor;});
+      if(pref) sel.value = pref.name;
+    });
+    // Sync the badge with backend reality
+    fetchAPI('/api/profiler/status').then(function(d){
+      var st = document.getElementById('profilerStatus');
+      if(st && d){
+        if(d.running){ st.className='status-badge sb-run';  st.innerHTML='<span class="sb-dot"></span>AP Active'; }
+        else         { st.className='status-badge sb-idle'; st.innerHTML='<span class="sb-dot"></span>AP Down';  }
+      }
+    });
   } },
   netpush:    { title:'NetPush',            sub:'Mass Config · Cisco IOS · SSH · Discovery → Show → Push', onload: function(){
     npUpdateSelectedCount();
@@ -8992,13 +9048,26 @@ function stopProfiler(){
   clearInterval(_profilerPollIv);
   clearInterval(_profilerTimeoutIv);
   var st = document.getElementById('profilerStatus');
-  if(st){st.className='status-badge sb-idle';st.innerHTML='<span class="sb-dot"></span>AP Down';}
+  if(st){st.className='status-badge sb-idle';st.innerHTML='<span class="sb-dot"></span>Stopping…';}
   var term = document.getElementById('profilerTerminal');
   if(term){var s=document.createElement('span');s.className='term-line t-warn';s.textContent='Stopping AP...';term.appendChild(s);}
   if(!DEMO_MODE) {
     fetch('/api/profiler/stop',{method:'POST'}).then(function(){
       if(term){var s=document.createElement('span');s.className='term-line t-ok';s.textContent='✓ AP stopped';term.appendChild(s);}
+      // Verify with backend that the process is truly gone
+      setTimeout(function(){
+        fetchAPI('/api/profiler/status').then(function(d){
+          if(st){
+            if(d && d.running){ st.className='status-badge sb-warn'; st.innerHTML='<span class="sb-dot"></span>Still running'; }
+            else { st.className='status-badge sb-idle'; st.innerHTML='<span class="sb-dot"></span>AP Down'; }
+          }
+        });
+      }, 500);
+    }).catch(function(){
+      if(st){ st.className='status-badge sb-fail'; st.innerHTML='<span class="sb-dot"></span>Stop failed'; }
     });
+  } else {
+    if(st){st.className='status-badge sb-idle';st.innerHTML='<span class="sb-dot"></span>AP Down';}
   }
 }
 
@@ -9208,6 +9277,7 @@ function startSecAudit(){
   var subnet = (document.getElementById('secSubnet')||{}).value||'';
   var iface  = (document.getElementById('secWifiIface')||{}).value||'wlan1';
   var ssids  = (document.getElementById('secSsidFilter')||{}).value||'';
+  var vendor = (document.getElementById('secVendorOverride')||{}).value||'';
   var sb     = document.getElementById('secStartBtn');
   var st     = document.getElementById('secStatus');
   var bar    = document.getElementById('secStatusBar');
@@ -9244,7 +9314,7 @@ function startSecAudit(){
 
   if(DEMO_MODE){ _secDemoMode(); return; }
 
-  fetchAPI('/api/security/start?subnet='+encodeURIComponent(subnet)+'&iface='+iface+'&ssid_filter='+encodeURIComponent(ssids), {method:'POST'})
+  fetchAPI('/api/security/start?subnet='+encodeURIComponent(subnet)+'&iface='+iface+'&ssid_filter='+encodeURIComponent(ssids)+'&vendor='+encodeURIComponent(vendor), {method:'POST'})
   .then(function(d){
     if(d&&d.ok){
       var sm = document.getElementById('secStatusMsg');

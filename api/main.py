@@ -2549,7 +2549,7 @@ def _sec_score_deduct(severity):
     deduct = {"critical": 20, "high": 10, "medium": 5, "low": 2, "info": 0}
     _SEC_SCORE = max(0, _SEC_SCORE - deduct.get(severity, 0))
 
-def _run_security_audit(subnet, wifi_iface, ssid_filter: str = ""):
+def _run_security_audit(subnet, wifi_iface, ssid_filter: str = "", vendor_override: str = ""):
     global _SEC_RUNNING, _SEC_PROGRESS, _SEC_STATUS, _SEC_FINDINGS, _SEC_HOSTS, _SEC_SCORE, _SEC_SUMMARY, _SEC_START_TIME
     import re as _re, subprocess as _sp, json as _json, time as _time
 
@@ -2789,10 +2789,16 @@ def _run_security_audit(subnet, wifi_iface, ssid_filter: str = ""):
                     continue
 
                 cap_m    = _re.search(r"capability:.*", block)
-                has_priv = cap_m and "Privacy" in cap_m.group(0)
-                has_wpa3 = "SAE" in block
-                has_wpa2 = "RSN:" in block
-                has_wpa  = "WPA:" in block
+                has_priv = bool(cap_m and "Privacy" in cap_m.group(0))
+                # Robust detection — iw output spacing varies between releases.
+                # WPA3 = any SAE/OWE auth suite under RSN.
+                has_wpa3 = bool(_re.search(r"\bSAE\b|Authentication suites:.*SAE", block, _re.I)) \
+                           or "OWE" in block
+                # WPA2 = any RSN information element. Match "RSN:", "RSN " or just an
+                # "RSN Information" header — all current iw releases emit one of these.
+                has_wpa2 = bool(_re.search(r"\bRSN(?:\s+Information)?\s*:", block)) \
+                           or "Group cipher:" in block and "Pairwise ciphers:" in block
+                has_wpa  = bool(_re.search(r"\bWPA\s*:", block))
                 has_wep  = has_priv and not has_wpa3 and not has_wpa2 and not has_wpa
                 is_open  = not has_priv
 
@@ -2842,6 +2848,8 @@ def _run_security_audit(subnet, wifi_iface, ssid_filter: str = ""):
 
             # Detect vendor first — used in CVE title and creds
             detected_vendor = _guess_vendor(host, data["ports"])
+            if vendor_override:
+                detected_vendor = vendor_override
             host_label = detected_vendor or data["name"] or host
 
             # CVE scan with vulners
@@ -2859,6 +2867,15 @@ def _run_security_audit(subnet, wifi_iface, ssid_filter: str = ""):
                 if dedup_key in _seen_cves:
                     continue          # Skip duplicate — same CVE on same host
                 _seen_cves.add(dedup_key)
+                # When we know the vendor (auto or override), only keep CVEs whose
+                # nmap context line mentions it — kills the bulk false-positive
+                # spam from nmap-vulners reporting unrelated CVEs.
+                if detected_vendor:
+                    span_start = max(0, cve_m.start() - 200)
+                    context = vuln_out[span_start:cve_m.end() + 80].lower()
+                    keys = [w for w in detected_vendor.lower().split() if len(w) > 3]
+                    if keys and not any(k in context for k in keys):
+                        continue
                 if cvss >= 7.0:
                     severity = "critical" if cvss >= 9.0 else "high"
                     _sec_add_finding(severity,
@@ -2888,7 +2905,7 @@ def _run_security_audit(subnet, wifi_iface, ssid_filter: str = ""):
 
             # Default credentials — vendor-targeted, max 6 attempts
             _SEC_STATUS = f"Phase 4/4 — Checking default creds on {host}"
-            detected_vendor = _guess_vendor(host, data["ports"])
+            detected_vendor = vendor_override or _guess_vendor(host, data["ports"])
             open_port_set   = {p["port"] for p in data["ports"]}
 
             if detected_vendor:
@@ -2988,7 +3005,8 @@ def _run_security_audit(subnet, wifi_iface, ssid_filter: str = ""):
         _SEC_RUNNING = False
 
 @app.post("/api/security/start")
-async def security_start(subnet: str = "", iface: str = "wlan1", ssid_filter: str = ""):
+async def security_start(subnet: str = "", iface: str = "wlan1",
+                         ssid_filter: str = "", vendor: str = ""):
     global _SEC_RUNNING, _SEC_STATUS, _SEC_PROGRESS
     if _SEC_RUNNING:
         return {"ok": False, "error": "Scan already running"}
@@ -3014,7 +3032,7 @@ async def security_start(subnet: str = "", iface: str = "wlan1", ssid_filter: st
     def _launch():
         import time as _time
         _time.sleep(0.2)
-        _run_security_audit(subnet, iface, ssid_filter)
+        _run_security_audit(subnet, iface, ssid_filter, vendor)
 
     t = _sec_threading.Thread(target=_launch, daemon=True)
     t.start()
