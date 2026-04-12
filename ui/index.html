@@ -4274,6 +4274,14 @@ input,select,textarea { font-family:inherit; }
           </div>
           <span style="font-size:11px;color:var(--green)">● Read-only</span>
         </div>
+        <div class="divider"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:12px;font-weight:600;color:var(--white)">DHCP Leases — eth1</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadDhcpLeases()">↺ Refresh</button>
+        </div>
+        <div id="dhcpLeasesBody" style="overflow-x:auto">
+          <div class="t-muted" style="text-align:center;padding:10px">Cargando leases…</div>
+        </div>
       </div>
     </div>
 
@@ -6005,7 +6013,7 @@ const pages = {
   cpusher:    { title:'Console Pusher',  sub:'Serial config push · Cisco IOS · FTDI/USB', onload: function(){
     try { cpRefreshPorts(); cpPollStart(); } catch(e) {}
   } },
-  settings:   { title:'Settings',          sub:'NekoPi Field Unit v1.0', onload: function(){ try{ initProbeConfigUI(); initWifiScanIntervalUI(); loadAISettings(); }catch(e){} } },
+  settings:   { title:'Settings',          sub:'NekoPi Field Unit v1.0', onload: function(){ try{ initProbeConfigUI(); initWifiScanIntervalUI(); loadAISettings(); loadDhcpLeases(); }catch(e){} } },
   about:      { title:'About',             sub:'NekoPi Field Unit v1.0.0 · hardware · software · credits' },
 };
 
@@ -10237,6 +10245,42 @@ function setAIModel(val){
 // ── Settings: AI backends (Gemini API + REMOTE Ollama agent) ─────────
 // Both backends coexist. callAI() picks per-call: localOnly → Ollama,
 // otherwise prefer Gemini. There is no "active backend" radio anymore.
+// ── DHCP Leases (management interface eth1) ───────────────────
+var _dhcpLeaseIv = null;
+
+function loadDhcpLeases(){
+  var box = document.getElementById('dhcpLeasesBody');
+  if(!box) return;
+  fetchAPI('/api/mgmt/leases').then(function(d){
+    if(!d) { box.innerHTML = '<div class="t-muted" style="text-align:center;padding:10px">No disponible</div>'; return; }
+    var leases = d.leases || [];
+    if(!leases.length){
+      box.innerHTML = '<div class="t-muted" style="text-align:center;padding:10px">Sin clientes conectados</div>';
+      return;
+    }
+    var html = '<table class="data-table"><thead><tr>'
+      +'<th>IP</th><th>MAC</th><th>Hostname</th><th>Expira</th>'
+      +'</tr></thead><tbody>';
+    leases.forEach(function(l){
+      html += '<tr>'
+        +'<td style="font-family:monospace;color:var(--cyan)">'+l.ip+'</td>'
+        +'<td style="font-family:monospace;color:var(--text2)">'+l.mac+'</td>'
+        +'<td style="color:var(--white)">'+(l.hostname||'—')+'</td>'
+        +'<td style="color:var(--text2)">'+(l.expires_label||'—')+'</td>'
+        +'</tr>';
+    });
+    html += '</tbody></table>';
+    box.innerHTML = html;
+  });
+  // Auto-refresh every 30s while on Settings page
+  if(!_dhcpLeaseIv) _dhcpLeaseIv = setInterval(function(){
+    if(document.getElementById('page-settings') &&
+       document.getElementById('page-settings').classList.contains('active')){
+      loadDhcpLeases();
+    }
+  }, 30000);
+}
+
 function loadAISettings(){
   Promise.all([
     fetchAPI('/api/settings'),

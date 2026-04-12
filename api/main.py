@@ -7248,6 +7248,38 @@ async def console_validate(request: Request):
     }
 
 
+@app.get("/api/mgmt/leases")
+async def mgmt_leases():
+    """Parses /var/lib/misc/dnsmasq.leases and returns active DHCP leases
+    on the management interface (eth1). Each line is:
+      timestamp  mac  ip  hostname  client-id"""
+    leases_file = Path("/var/lib/misc/dnsmasq.leases")
+    if not leases_file.exists():
+        return {"leases": [], "error": "leases file not found"}
+    now = int(time.time())
+    leases: list[dict] = []
+    try:
+        for line in leases_file.read_text().strip().splitlines():
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            expires_ts = int(parts[0])
+            remaining  = max(0, expires_ts - now)
+            hours      = remaining // 3600
+            minutes    = (remaining % 3600) // 60
+            leases.append({
+                "ip":             parts[2],
+                "mac":            parts[1],
+                "hostname":       parts[3] if parts[3] != "*" else "",
+                "expires_ts":     expires_ts,
+                "expires_in_min": hours * 60 + minutes,
+                "expires_label":  f"{hours}h {minutes:02d}m" if hours else f"{minutes}m",
+            })
+    except Exception as e:
+        return {"leases": [], "error": str(e)}
+    return {"leases": leases}
+
+
 @app.get("/api/system/logs")
 async def system_logs(unit: str = "nekopi", lines: int = 200):
     """Returns the last N journalctl lines, optionally filtered to a unit."""
