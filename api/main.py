@@ -670,20 +670,55 @@ async def qc_run(gateway: str = "", dns: str = "", target: str = "1.1.1.1", grou
     async def test_wifi_standard():
         if not wifi_iface:
             return {"name":"WiFi Standard","ok":False,"val":"no iface","detail":"","icon":"📻","group":"wifi"}
-        out = run_cmd(["iw", "dev", wifi_iface["name"], "link"])
-        rate_m = re.search(r"tx bitrate:\s*([\d.]+)\s*MBit/s", out)
-        he_m   = re.search(r"HE-MCS\s*(\d+)", out)
-        vht_m  = re.search(r"VHT-MCS\s*(\d+)", out)
-        mcs_m  = re.search(r"MCS\s*(\d+)", out)
-        width_m= re.search(r"(\d+)MHz", out)
-        rate   = float(rate_m.group(1)) if rate_m else 0
-        std    = "802.11ax(WiFi6)" if he_m else "802.11ac(WiFi5)" if vht_m else "802.11n(WiFi4)" if mcs_m else "legacy"
-        width  = width_m.group(1) + "MHz" if width_m else "?"
-        ok     = he_m is not None or vht_m is not None
-        return {"name":"WiFi Standard","ok":ok,
-                "val":std,
-                "detail":f"{rate:.0f}Mbps · {width}",
-                "icon":"📻","group":"wifi"}
+        iname = wifi_iface["name"]
+        # Step 1 — current connection: channel, width, TX rate from `iw dev info` + `link`
+        info_out = run_cmd(["iw", "dev", iname, "info"])
+        link_out = run_cmd(["iw", "dev", iname, "link"])
+        width_m  = re.search(r"width:\s*(\d+)\s*MHz", info_out)
+        chan_m   = re.search(r"channel\s+(\d+)\s+\((\d+)\s*MHz\)", info_out)
+        rate_m   = re.search(r"tx bitrate:\s*([\d.]+)\s*MBit/s", link_out)
+        width    = int(width_m.group(1)) if width_m else 0
+        channel  = int(chan_m.group(1)) if chan_m else 0
+        freq     = int(chan_m.group(2)) if chan_m else 0
+        rate     = float(rate_m.group(1)) if rate_m else 0
+        band     = "6GHz" if freq >= 5935 else "5GHz" if freq >= 4900 else "2.4GHz" if freq else "?"
+
+        # Step 2 — adapter capabilities from `iw phy info`
+        phy_m   = re.search(r"wiphy\s+(\d+)", info_out)
+        phy_name = f"phy{phy_m.group(1)}" if phy_m else "phy0"
+        phy_out = run_cmd(["iw", "phy", phy_name, "info"])
+        has_eht = bool(re.search(r"EHT Phy Cap|EHT MAC Cap", phy_out, re.I))
+        has_he  = bool(re.search(r"HE Phy Cap|HE MAC Cap|HE.*capabilities", phy_out, re.I))
+        has_vht = bool(re.search(r"VHT Capabilities", phy_out, re.I))
+        has_ht  = bool(re.search(r"HT TX/RX MCS|Capabilities:.*HT", phy_out, re.I))
+
+        if has_eht:   std, gen = "802.11be (WiFi 7)", 7
+        elif has_he:  std, gen = "802.11ax (WiFi 6)", 6
+        elif has_vht: std, gen = "802.11ac (WiFi 5)", 5
+        elif has_ht:  std, gen = "802.11n (WiFi 4)",  4
+        else:         std, gen = "802.11a/g (legacy)", 0
+
+        # Step 3 — expected TX rate for the current standard + width
+        expected_rates = {
+            (7, 320): 2880, (7, 160): 1440, (7, 80): 720,
+            (6, 160): 1200, (6, 80): 600,   (6, 40): 286, (6, 20): 143,
+            (5, 160): 866,  (5, 80): 433,   (5, 40): 200, (5, 20): 86,
+            (4, 40): 150,   (4, 20): 72,
+        }
+        expected = expected_rates.get((gen, width)) or expected_rates.get((gen, 20)) or 54
+        detail_parts = [f"{rate:.0f}Mbps", f"ch{channel}", f"{width}MHz" if width else "", band]
+        detail = " · ".join(p for p in detail_parts if p)
+
+        if rate > 0 and rate < expected * 0.3 and gen >= 4:
+            return {"name": "WiFi Standard", "ok": False,
+                    "val": std,
+                    "detail": f"{detail} · TX MUY BAJA para {std} (esperado >{expected}Mbps)",
+                    "icon": "📻", "group": "wifi"}
+
+        return {"name": "WiFi Standard", "ok": True,
+                "val": std,
+                "detail": detail,
+                "icon": "📻", "group": "wifi"}
 
     async def test_wifi_channel_load():
         if not wifi_iface:
