@@ -243,8 +243,8 @@ input,select,textarea { font-family:inherit; }
 }
 .hamburger span { width:20px; height:2px; background:currentColor; border-radius:1px; display:block; }
 
-/* CONTENT */
-.content { padding:24px; flex:1; }
+/* CONTENT — breathing room between sidebar and page content */
+.content { padding:20px 24px; flex:1; }
 
 /* ═══════════════════════════════════════════
    COMPONENTS
@@ -476,7 +476,7 @@ input,select,textarea { font-family:inherit; }
 /* ═══════════════════════════════════════════
    PAGES
 ═══════════════════════════════════════════ */
-.page { display:none; }
+.page { display:none; padding:0 0 40px; margin:0; box-sizing:border-box; }
 .page.active { display:block; }
 
 /* Divider */
@@ -485,12 +485,11 @@ input,select,textarea { font-family:inherit; }
 /* Section title — every page starts flush at the top */
 .section-title {
   font-family:-apple-system,'Segoe UI',sans-serif; font-weight:700;
-  font-size:18px; letter-spacing:2px; text-transform:uppercase;
+  font-size:18px; letter-spacing:1px; text-transform:uppercase;
   color:var(--white); margin:0 0 4px; padding:0;
   display:flex; align-items:center; gap:10px;
 }
-.section-sub { font-size:12px; color:var(--text2); margin:0 0 18px; padding:0; }
-.page { padding-top:0; margin-top:0; }
+.section-sub { font-size:11px; color:var(--text2); margin:4px 0 20px; padding:0; }
 
 /* Two col */
 .two-col { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
@@ -640,8 +639,9 @@ input,select,textarea { font-family:inherit; }
   #secHostsTable { font-size:10px; }
   #secHostsTable th, #secHostsTable td { padding:6px 7px; }
   /* Section titles: slightly smaller but still readable */
-  .section-title { font-size:16px; letter-spacing:1px; margin-bottom:2px; }
-  .section-sub { font-size:11px; margin-bottom:12px; }
+  .section-title { font-size:16px; letter-spacing:1px; margin:0 0 2px; }
+  .section-sub { font-size:11px; margin:2px 0 12px; }
+  .page { padding:0 0 30px; }
   /* Data tables horizontal scroll */
   .data-table { display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; white-space:nowrap; }
 }
@@ -6018,18 +6018,28 @@ function goPage(id) {
   closeMobileMenu();
   // Force scroll to top — fire now, after layout, and after onload (some onload
   // handlers focus inputs which causes the browser to scroll into view).
+  // Aggressively scroll every possible container to the top. Uses
+  // behavior:'instant' so there's no visible animation — the page
+  // just snaps to position 0 before the user's eye catches up.
   var _scrollTop = function(){
-    try { window.scrollTo(0, 0); } catch(e){}
+    try { window.scrollTo({top:0, behavior:'instant'}); } catch(e){
+      try { window.scrollTo(0, 0); } catch(e2) {}
+    }
     if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
     if (document.documentElement) document.documentElement.scrollTop = 0;
     if (document.body) document.body.scrollTop = 0;
+    // .content is the flex child that holds .page elements — on some
+    // browser/zoom combos IT is the scroll parent, not window.
     var ct = document.querySelector('.content');
     if (ct) ct.scrollTop = 0;
+    // .main wraps the entire right side (topbar + content)
+    var mn = document.querySelector('.main');
+    if (mn) mn.scrollTop = 0;
   };
   _scrollTop();
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(_scrollTop);
-  setTimeout(_scrollTop, 50);
-  setTimeout(_scrollTop, 200);
+  setTimeout(_scrollTop, 30);
+  setTimeout(_scrollTop, 150);
 
   // Sync bottom nav active state
   var bnavPages = ['dashboard','wifi','wired','security'];
@@ -11606,6 +11616,8 @@ function showTool(id){
     if(tab){tab.style.background=t===id?'rgba(33,150,243,.12)':'var(--bg2)';tab.style.color=t===id?'var(--blue-b)':'var(--text2)';}
   });
   if(id==='path') goPage('path');
+  // Snap to top so the tool content is immediately visible
+  try { window.scrollTo({top:0, behavior:'instant'}); } catch(e){}
 }
 
 function ipToInt(ip){ return ip.split('.').reduce(function(a,o){return(a<<8)+parseInt(o,10);},0)>>>0; }
