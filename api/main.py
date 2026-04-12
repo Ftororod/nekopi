@@ -1106,30 +1106,51 @@ async def wifi_scan(iface: str = ""):
     # Forzar interfaz UP antes de escanear (puede estar DORMANT sin AP)
     run_cmd(["ip", "link", "set", iface, "up"])
     await asyncio.sleep(0.5)
-    out = run_cmd(["iw", "dev", iface, "scan"], timeout=20)
-    aps = []; cur: dict = {}
-    for line in out.splitlines():
-        line = line.strip()
-        if line.startswith("BSS "):
-            if cur.get("bssid"): aps.append(cur)
-            cur = {"bssid": line.split()[1].split("(")[0]}
-        elif "SSID:" in line: cur["ssid"] = line.split("SSID:")[1].strip()
-        elif "signal:" in line:
-            m = re.search(r"signal:\s*([-\d.]+)", line)
-            cur["signal_dbm"] = float(m.group(1)) if m else None
-        elif "freq:" in line:
-            m = re.search(r"freq:\s*(\d+)", line)
-            if m:
-                freq = int(m.group(1)); cur["freq_mhz"] = freq
-                cur["band"] = "6GHz" if freq >= 5925 else "5GHz" if freq >= 5000 else "2.4GHz"
-        elif "* primary channel:" in line:
-            m = re.search(r"primary channel:\s*(\d+)", line)
-            cur["channel"] = int(m.group(1)) if m else None
-        elif "RSN:" in line or "WPA:" in line:
-            cur.setdefault("security", []).append("WPA2" if "RSN:" in line else "WPA")
-        elif "capability:" in line and "IBSS" not in line:
-            if "ESS" in line: cur.setdefault("security", [])
-    if cur.get("bssid"): aps.append(cur)
+    # A fresh scan returns FULL capability IEs (HT/VHT/HE); the cached dump
+    # may omit them depending on the driver. Try in order:
+    # 1. sudo iw scan (works under systemd with AmbientCapabilities)
+    # 2. iw scan      (works if the process itself has CAP_NET_ADMIN)
+    # 3. iw scan dump (always readable but may lack VHT/HE cap IEs)
+    out = run_cmd(["sudo", "iw", "dev", iface, "scan"], timeout=20)
+    if not out or "command failed" in out or "Operation not permitted" in out:
+        out = run_cmd(["iw", "dev", iface, "scan"], timeout=20)
+    if not out or "command failed" in out or "Operation not permitted" in out:
+        out = run_cmd(["iw", "dev", iface, "scan", "dump"], timeout=10)
+    # Split into per-BSS blocks so _wifi_phy_from_caps can classify each AP
+    raw_blocks = out.split("BSS ")
+    aps: list[dict] = []
+    for block in raw_blocks:
+        if not block.strip():
+            continue
+        cur: dict = {}
+        bss_m = re.match(r"([\da-fA-F:]{17})", block.strip())
+        if bss_m:
+            cur["bssid"] = bss_m.group(1)
+        for line in block.splitlines():
+            ls = line.strip()
+            if ls.startswith("SSID:"):
+                cur["ssid"] = ls.split("SSID:", 1)[1].strip()
+            elif "signal:" in ls:
+                m = re.search(r"signal:\s*([-\d.]+)", ls)
+                cur["signal_dbm"] = float(m.group(1)) if m else None
+            elif "freq:" in ls:
+                m = re.search(r"freq:\s*(\d+)", ls)
+                if m:
+                    freq = int(m.group(1)); cur["freq_mhz"] = freq
+                    cur["band"] = "6GHz" if freq >= 5925 else "5GHz" if freq >= 5000 else "2.4GHz"
+            elif "* primary channel:" in ls:
+                m = re.search(r"primary channel:\s*(\d+)", ls)
+                cur["channel"] = int(m.group(1)) if m else None
+            elif ls.startswith("RSN:") or ls.startswith("WPA:"):
+                cur.setdefault("security", []).append("WPA2" if ls.startswith("RSN:") else "WPA")
+            elif "capability:" in ls and "IBSS" not in ls:
+                if "ESS" in ls:
+                    cur.setdefault("security", [])
+        # PHY detection using the full BSS block (checks VHT before HT)
+        if cur.get("bssid"):
+            cur["phy"] = _wifi_phy_from_caps(block)
+            cur["bw"]  = _wifi_bw_from_caps(block)
+            aps.append(cur)
     return {"iface": iface, "count": len(aps), "aps": aps}
 
 @app.get("/api/wifi/info")
@@ -4586,15 +4607,20 @@ async def netpush_clear():
 # ═══════════════════════════════════════════════════════════════
 
 def _wifi_phy_from_caps(block: str) -> str:
-    """Detects the best PHY mode advertised in an iw BSS block.
-    Returns one of WiFi4/5/6/7 or 'legacy' if none found."""
-    if re.search(r"EHT Capabilities|Extremely High Throughput", block, re.IGNORECASE):
+    """Detects the HIGHEST PHY mode advertised in an iw BSS block.
+    Priority: WiFi7 > WiFi6 > WiFi5 > WiFi4 > legacy.
+
+    Uses word-boundary anchors (\b) on the HT pattern so it never
+    accidentally matches inside "VHT capabilities" — that was the
+    root cause of the WiFi4-instead-of-WiFi5 bug."""
+    if re.search(r"EHT Capabilit|EHT Phy Cap|Extremely High Throughput", block, re.I):
         return "WiFi7"
-    if re.search(r"HE Capabilities|High Efficiency", block, re.IGNORECASE):
+    if re.search(r"\bHE Capabilit|\bHE Phy Cap|High Efficiency", block, re.I):
         return "WiFi6"
-    if re.search(r"VHT Capabilities|Very High Throughput", block, re.IGNORECASE):
+    if re.search(r"VHT Capabilit|Very High Throughput", block, re.I):
         return "WiFi5"
-    if re.search(r"HT Capabilities|High Throughput", block, re.IGNORECASE):
+    # \bHT\b prevents matching "VHT" — the V is not a word boundary
+    if re.search(r"\bHT Capabilit|\bHT operation\b", block, re.I):
         return "WiFi4"
     return "legacy"
 
