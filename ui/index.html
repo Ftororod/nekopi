@@ -289,7 +289,7 @@ input,select,textarea { font-family:inherit; }
 .metric-sub { font-size:11px; color:var(--text2); margin-top:3px; }
 .metric-badge {
   position:absolute; top:12px; right:12px;
-  font-size:8px; padding:2px 6px; border-radius:2px;
+  font-size:10px; padding:2px 6px; border-radius:2px;
 }
 .mb-ok   { background:rgba(0,230,118,.12); color:var(--green); }
 .mb-warn { background:rgba(255,171,0,.12);  color:var(--amber); }
@@ -482,14 +482,15 @@ input,select,textarea { font-family:inherit; }
 /* Divider */
 .divider { height:1px; background:var(--border); margin:16px 0; }
 
-/* Section title */
+/* Section title — every page starts flush at the top */
 .section-title {
   font-family:-apple-system,'Segoe UI',sans-serif; font-weight:700;
-  font-size:22px; letter-spacing:2px; text-transform:uppercase;
-  color:var(--white); margin-bottom:4px;
+  font-size:18px; letter-spacing:2px; text-transform:uppercase;
+  color:var(--white); margin:0 0 4px; padding:0;
   display:flex; align-items:center; gap:10px;
 }
-.section-sub { font-size:11px; color:var(--text2); margin-bottom:20px; }
+.section-sub { font-size:12px; color:var(--text2); margin:0 0 18px; padding:0; }
+.page { padding-top:0; margin-top:0; }
 
 /* Two col */
 .two-col { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
@@ -545,8 +546,69 @@ input,select,textarea { font-family:inherit; }
 .drawer-overlay.open { display:block; }
 
 /* ═══════════════════════════════════════════
+   UI/UX AUDIT OVERRIDES — global consistency
+═══════════════════════════════════════════ */
+/* Card consistency — ensures every card follows the same visual rules */
+.card-header { min-height:40px; padding:10px 14px; }
+.card-title { font-size:13px; font-weight:600; }
+.card-body { padding:14px; font-size:12px; }
+
+/* Table consistency */
+.data-table th {
+  font-size:10px; letter-spacing:1.5px; text-transform:uppercase;
+  color:var(--text2); padding:8px 12px;
+}
+.data-table td { font-size:12px; padding:8px 12px; color:var(--text); }
+.data-table td:first-child { color:var(--white); }
+.data-table tr:hover td { background:rgba(33,150,243,.03); }
+
+/* Form labels */
+.form-label { font-size:11px; }
+
+/* Status badges legibility */
+.status-badge { font-size:10px; min-height:20px; }
+
+/* Buttons — touch-friendly minimums */
+.btn { min-height:30px; }
+
+/* File-list rows (OTA, Sensor PCAP, etc.) */
+.file-row {
+  display:flex; align-items:center; gap:8px;
+  padding:10px 14px; border-bottom:1px solid var(--border);
+  flex-wrap:wrap;
+}
+.file-row .file-name { font-size:12px; color:var(--white); font-family:monospace; flex:1; min-width:120px; overflow:hidden; text-overflow:ellipsis; }
+.file-row .file-meta { font-size:11px; color:var(--text2); white-space:nowrap; }
+.file-row .btn { font-size:14px; min-width:32px; min-height:32px; padding:4px 10px; }
+
+/* AI output minimum font */
+.ai-output { font-size:12px; }
+
+/* ═══════════════════════════════════════════
    RESPONSIVE
 ═══════════════════════════════════════════ */
+
+/* Tablet: 640-768px — sidebar collapses, grids stay 2-col */
+
+/* Mobile: <=640px — everything 1 column, bigger touch targets */
+@media (max-width: 640px) {
+  .two-col, .three-col { grid-template-columns:1fr !important; }
+  .form-row { grid-template-columns:1fr !important; }
+  .card-body { padding:10px !important; }
+  .btn { min-height:36px; font-size:12px; }
+  .file-row { flex-direction:column; align-items:flex-start; gap:6px; }
+  .file-row .btn { width:100%; text-align:center; }
+  /* Inline grids declared via style= attribute */
+  [style*="grid-template-columns: 1fr 1fr"],
+  [style*="grid-template-columns:1fr 1fr"] {
+    grid-template-columns:1fr !important;
+  }
+  /* Live metrics in sensor/OTA: force 2 columns on small screens */
+  [style*="repeat(auto-fit,minmax(130px"] {
+    grid-template-columns:1fr 1fr !important;
+  }
+}
+
 @media (max-width: 768px) {
   .sidebar { transform:translateX(-100%) !important; }
   .sidebar.open { transform:translateX(0) !important; box-shadow:4px 0 24px rgba(0,0,0,.5); }
@@ -577,9 +639,9 @@ input,select,textarea { font-family:inherit; }
   }
   #secHostsTable { font-size:10px; }
   #secHostsTable th, #secHostsTable td { padding:6px 7px; }
-  /* Section titles smaller on mobile */
-  .section-title { font-size:17px; letter-spacing:1px; margin-bottom:2px; }
-  .section-sub { font-size:10px; margin-bottom:14px; }
+  /* Section titles: slightly smaller but still readable */
+  .section-title { font-size:16px; letter-spacing:1px; margin-bottom:2px; }
+  .section-sub { font-size:11px; margin-bottom:12px; }
   /* Data tables horizontal scroll */
   .data-table { display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; white-space:nowrap; }
 }
@@ -599,9 +661,9 @@ input,select,textarea { font-family:inherit; }
 .wts-sym input:checked + span, .wts-sym input:checked ~ * { color:var(--white); }
 .wts-metric { background:var(--bg3); border-radius:var(--radius); padding:10px 8px;
   text-align:center; border-left:2px solid var(--border); }
-.wts-metric-label { font-size:8px; letter-spacing:2px; color:var(--text2); text-transform:uppercase; margin-bottom:2px; }
+.wts-metric-label { font-size:10px; letter-spacing:2px; color:var(--text2); text-transform:uppercase; margin-bottom:2px; }
 .wts-metric-val { font-family:Impact,'Arial Narrow',sans-serif; font-size:24px; color:var(--white); line-height:1; }
-.wts-metric-unit { font-size:9px; color:var(--text2); margin-top:2px; }
+.wts-metric-unit { font-size:10px; color:var(--text2); margin-top:2px; }
 .wts-finding { border-radius:var(--radius); padding:10px 12px; margin-bottom:8px; }
 .wts-finding-crit { background:rgba(255,68,68,.08); border:1px solid rgba(255,68,68,.25); }
 .wts-finding-warn { background:rgba(255,171,0,.08); border:1px solid rgba(255,171,0,.25); }
@@ -5961,6 +6023,8 @@ function goPage(id) {
     if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
     if (document.documentElement) document.documentElement.scrollTop = 0;
     if (document.body) document.body.scrollTop = 0;
+    var ct = document.querySelector('.content');
+    if (ct) ct.scrollTop = 0;
   };
   _scrollTop();
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(_scrollTop);
@@ -7972,16 +8036,11 @@ function sensorPcapList(){
       }
       box.innerHTML = files.map(function(f){
         var when = new Date(f.mtime*1000).toTimeString().slice(0,8);
-        return '<div style="display:flex;align-items:center;justify-content:space-between;'
-          +'padding:4px 6px;border-bottom:1px solid var(--border);gap:6px">'
-          +'<span style="color:var(--white);font-family:monospace;font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis">'
-          +f.name+'</span>'
-          +'<span style="color:var(--text2);font-size:10px">'+_bytesFmt(f.size)+' · '+when+'</span>'
-          +'<a class="btn btn-ghost btn-sm" style="padding:1px 6px;font-size:10px" '
-          +'href="'+API_BASE+'/api/sensor/pcap/download?name='+encodeURIComponent(f.name)+'">⬇</a>'
-          +'<button class="btn btn-primary btn-sm" data-ai-btn '
-          +'style="padding:1px 6px;font-size:10px" '
-          +'onclick="sensorPcapAnalyze(\''+f.name+'\', event)">🧠 IA</button>'
+        return '<div class="file-row">'
+          +'<span class="file-name">'+f.name+'</span>'
+          +'<span class="file-meta">'+_bytesFmt(f.size)+' · '+when+'</span>'
+          +'<a class="btn btn-ghost btn-sm" href="'+API_BASE+'/api/sensor/pcap/download?name='+encodeURIComponent(f.name)+'">⬇</a>'
+          +'<button class="btn btn-primary btn-sm" data-ai-btn onclick="sensorPcapAnalyze(\''+f.name+'\', event)">🧠 IA</button>'
           +'</div>';
       }).join('');
       refreshAIButtons();
@@ -8874,17 +8933,12 @@ function otaRefreshFiles(){
         return;
       }
       box.innerHTML = files.map(function(f){
-        var when = new Date(f.mtime*1000).toLocaleString();
-        return '<div style="display:flex;align-items:center;gap:6px;padding:6px;border-bottom:1px solid var(--border)">'
-          +'<span style="flex:1;font-family:monospace;font-size:10px;color:var(--white);overflow:hidden;text-overflow:ellipsis">'+f.name+'</span>'
-          +'<span style="font-size:10px;color:var(--text2)">'+_bytesFmt(f.size)+'</span>'
-          +'<a class="btn btn-ghost btn-sm" style="padding:1px 6px;font-size:10px" '
-          +'href="'+API_BASE+'/api/ota/download/'+encodeURIComponent(f.name)+'">⬇</a>'
-          +'<button class="btn btn-primary btn-sm" data-ai-btn '
-          +'style="padding:1px 6px;font-size:10px" '
-          +'onclick="otaAnalyze(\''+f.name+'\',event)">🔬 IA</button>'
-          +'<button class="btn btn-ghost btn-sm" style="padding:1px 6px;font-size:10px;color:var(--red)" '
-          +'onclick="otaDelete(\''+f.name+'\')">🗑</button>'
+        return '<div class="file-row">'
+          +'<span class="file-name">'+f.name+'</span>'
+          +'<span class="file-meta">'+_bytesFmt(f.size)+'</span>'
+          +'<a class="btn btn-ghost btn-sm" href="'+API_BASE+'/api/ota/download/'+encodeURIComponent(f.name)+'">⬇</a>'
+          +'<button class="btn btn-primary btn-sm" data-ai-btn onclick="otaAnalyze(\''+f.name+'\',event)">🔬 IA</button>'
+          +'<button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="otaDelete(\''+f.name+'\')">🗑</button>'
           +'</div>';
       }).join('');
       refreshAIButtons();
