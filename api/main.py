@@ -670,35 +670,10 @@ async def qc_run(gateway: str = "", dns: str = "", target: str = "1.1.1.1", grou
     async def test_wifi_standard():
         if not wifi_iface:
             return {"name":"WiFi Standard","ok":False,"val":"no iface","detail":"","icon":"📻","group":"wifi"}
-        iname = wifi_iface["name"]
-        # Step 1 — current connection: channel, width, TX rate from `iw dev info` + `link`
-        info_out = run_cmd(["iw", "dev", iname, "info"])
-        link_out = run_cmd(["iw", "dev", iname, "link"])
-        width_m  = re.search(r"width:\s*(\d+)\s*MHz", info_out)
-        chan_m   = re.search(r"channel\s+(\d+)\s+\((\d+)\s*MHz\)", info_out)
-        rate_m   = re.search(r"tx bitrate:\s*([\d.]+)\s*MBit/s", link_out)
-        width    = int(width_m.group(1)) if width_m else 0
-        channel  = int(chan_m.group(1)) if chan_m else 0
-        freq     = int(chan_m.group(2)) if chan_m else 0
-        rate     = float(rate_m.group(1)) if rate_m else 0
-        band     = "6GHz" if freq >= 5935 else "5GHz" if freq >= 4900 else "2.4GHz" if freq else "?"
-
-        # Step 2 — adapter capabilities from `iw phy info`
-        phy_m   = re.search(r"wiphy\s+(\d+)", info_out)
-        phy_name = f"phy{phy_m.group(1)}" if phy_m else "phy0"
-        phy_out = run_cmd(["iw", "phy", phy_name, "info"])
-        has_eht = bool(re.search(r"EHT Phy Cap|EHT MAC Cap", phy_out, re.I))
-        has_he  = bool(re.search(r"HE Phy Cap|HE MAC Cap|HE.*capabilities", phy_out, re.I))
-        has_vht = bool(re.search(r"VHT Capabilities", phy_out, re.I))
-        has_ht  = bool(re.search(r"HT TX/RX MCS|Capabilities:.*HT", phy_out, re.I))
-
-        if has_eht:   std, gen = "802.11be (WiFi 7)", 7
-        elif has_he:  std, gen = "802.11ax (WiFi 6)", 6
-        elif has_vht: std, gen = "802.11ac (WiFi 5)", 5
-        elif has_ht:  std, gen = "802.11n (WiFi 4)",  4
-        else:         std, gen = "802.11a/g (legacy)", 0
-
-        # Step 3 — expected TX rate for the current standard + width
+        d = detect_adapter_phy(wifi_iface["name"])
+        gen, rate, width = d["gen"], d["rate"], d["width"]
+        detail_parts = [f"{rate:.0f}Mbps", f"ch{d['channel']}", f"{width}MHz" if width else "", d["band"]]
+        detail = " · ".join(p for p in detail_parts if p)
         expected_rates = {
             (7, 320): 2880, (7, 160): 1440, (7, 80): 720,
             (6, 160): 1200, (6, 80): 600,   (6, 40): 286, (6, 20): 143,
@@ -706,18 +681,13 @@ async def qc_run(gateway: str = "", dns: str = "", target: str = "1.1.1.1", grou
             (4, 40): 150,   (4, 20): 72,
         }
         expected = expected_rates.get((gen, width)) or expected_rates.get((gen, 20)) or 54
-        detail_parts = [f"{rate:.0f}Mbps", f"ch{channel}", f"{width}MHz" if width else "", band]
-        detail = " · ".join(p for p in detail_parts if p)
-
         if rate > 0 and rate < expected * 0.3 and gen >= 4:
             return {"name": "WiFi Standard", "ok": False,
-                    "val": std,
-                    "detail": f"{detail} · TX MUY BAJA para {std} (esperado >{expected}Mbps)",
+                    "val": d["label"],
+                    "detail": f"{detail} · TX MUY BAJA para {d['label']} (esperado >{expected}Mbps)",
                     "icon": "📻", "group": "wifi"}
-
         return {"name": "WiFi Standard", "ok": True,
-                "val": std,
-                "detail": detail,
+                "val": d["label"], "detail": detail,
                 "icon": "📻", "group": "wifi"}
 
     async def test_wifi_channel_load():
@@ -4638,6 +4608,69 @@ def _wifi_bw_from_caps(block: str) -> int | None:
         return 20
     return None
 
+_PHY_RANK   = {"WiFi7": 7, "WiFi6": 6, "WiFi5": 5, "WiFi4": 4, "legacy": 0}
+_PHY_LABELS = {7: "802.11be (WiFi 7)", 6: "802.11ax (WiFi 6)",
+               5: "802.11ac (WiFi 5)", 4: "802.11n (WiFi 4)", 0: "802.11a/g (legacy)"}
+
+def detect_adapter_phy(iface: str) -> dict:
+    """Single source of truth for the adapter's WiFi standard. Uses `iw phy`
+    capabilities (NOT the scan block which depends on the AP). Called by both
+    Quick Check and WiFi Troubleshooter so they always agree.
+
+    Returns:
+      phy     — "WiFi5" / "WiFi6" / etc.
+      gen     — 5 / 6 / etc. (numeric rank)
+      label   — "802.11ac (WiFi 5)"
+      width   — current channel width in MHz (from iw dev info)
+      channel — current channel number
+      freq    — current frequency in MHz
+      band    — "2.4GHz" / "5GHz" / "6GHz"
+      rate    — current TX bitrate in Mbps
+    """
+    result = {"phy": "legacy", "gen": 0, "label": _PHY_LABELS[0],
+              "width": 0, "channel": 0, "freq": 0, "band": "?", "rate": 0}
+    try:
+        info_out = run_cmd(["iw", "dev", iface, "info"])
+        link_out = run_cmd(["iw", "dev", iface, "link"])
+    except Exception:
+        return result
+
+    # Channel / width / freq from iw dev info
+    w_m = re.search(r"width:\s*(\d+)\s*MHz", info_out)
+    c_m = re.search(r"channel\s+(\d+)\s+\((\d+)\s*MHz\)", info_out)
+    r_m = re.search(r"tx bitrate:\s*([\d.]+)\s*MBit/s", link_out)
+    result["width"]   = int(w_m.group(1)) if w_m else 0
+    result["channel"] = int(c_m.group(1)) if c_m else 0
+    result["freq"]    = int(c_m.group(2)) if c_m else 0
+    result["rate"]    = float(r_m.group(1)) if r_m else 0
+    f = result["freq"]
+    result["band"] = "6GHz" if f >= 5935 else "5GHz" if f >= 4900 else "2.4GHz" if f else "?"
+
+    # Adapter capabilities from iw phy info
+    phy_m = re.search(r"wiphy\s+(\d+)", info_out)
+    phy_name = f"phy{phy_m.group(1)}" if phy_m else "phy0"
+    try:
+        phy_out = run_cmd(["iw", "phy", phy_name, "info"])
+    except Exception:
+        return result
+
+    if re.search(r"EHT Phy Cap|EHT MAC Cap", phy_out, re.I):
+        gen = 7
+    elif re.search(r"HE Phy Cap|HE MAC Cap|HE.*[Cc]apabilities", phy_out, re.I):
+        gen = 6
+    elif re.search(r"VHT Capabilities", phy_out, re.I):
+        gen = 5
+    elif re.search(r"HT TX/RX MCS", phy_out, re.I):
+        gen = 4
+    else:
+        gen = 0
+
+    result["gen"]   = gen
+    result["phy"]   = {7:"WiFi7",6:"WiFi6",5:"WiFi5",4:"WiFi4"}.get(gen, "legacy")
+    result["label"] = _PHY_LABELS.get(gen, _PHY_LABELS[0])
+    return result
+
+
 def _wifi_iface_noise_floor(iface: str) -> float | None:
     """Reads noise floor from `iw dev <iface> survey dump` for the in-use channel."""
     try:
@@ -4781,32 +4814,17 @@ async def wifits_scan(iface: str = "wlan0"):
     result["beacon_int"]   = None
     result["ap_phy_mode"]  = None  # what the AP advertises (may be higher than link)
 
-    # Detect the adapter's own capabilities so we can cap the displayed PHY
-    # to what the link actually negotiates (AP may be WiFi6 but adapter WiFi5)
-    _phy_rank = {"WiFi7": 7, "WiFi6": 6, "WiFi5": 5, "WiFi4": 4, "legacy": 0}
-    adapter_phy = "legacy"
-    try:
-        info_out = run_cmd(["iw", "dev", iface, "info"])
-        phy_m = re.search(r"wiphy\s+(\d+)", info_out)
-        if phy_m:
-            phy_out = run_cmd(["iw", "phy", f"phy{phy_m.group(1)}", "info"])
-            if re.search(r"EHT Phy Cap|EHT MAC Cap", phy_out, re.I):
-                adapter_phy = "WiFi7"
-            elif re.search(r"HE Phy Cap|HE MAC Cap|HE.*capabilities", phy_out, re.I):
-                adapter_phy = "WiFi6"
-            elif re.search(r"VHT Capabilities", phy_out, re.I):
-                adapter_phy = "WiFi5"
-            elif re.search(r"HT TX/RX MCS", phy_out, re.I):
-                adapter_phy = "WiFi4"
-        # Also grab real bandwidth from iw dev info (more reliable than scan)
-        bw_m = re.search(r"width:\s*(\d+)\s*MHz", info_out)
-        if bw_m:
-            result["bandwidth"] = int(bw_m.group(1))
-    except Exception:
-        pass
+    # Use the shared adapter-PHY detector (same function as Quick Check).
+    # This is the authoritative source for what the link actually negotiates.
+    adapter = detect_adapter_phy(iface)
+    adapter_phy = adapter["phy"]
+    if adapter["width"]:
+        result["bandwidth"] = adapter["width"]
 
     try:
         scan_out = run_cmd(["sudo", "iw", "dev", iface, "scan"], timeout=20)
+        if not scan_out or "command failed" in scan_out or "Operation not permitted" in scan_out:
+            scan_out = run_cmd(["iw", "dev", iface, "scan", "dump"], timeout=10)
         current_ch    = result.get("channel")
         current_bssid = (result.get("bssid") or "").lower()
         same_ch = 0
@@ -4824,12 +4842,13 @@ async def wifits_scan(iface: str = "wlan0"):
             bssid  = (bss_m.group(1).lower() if bss_m else "")
             if current_bssid and bssid == current_bssid:
                 result["ap_phy_mode"] = ap_phy
-                # The actual link PHY is min(AP, adapter) — e.g. if AP is
-                # WiFi6 but adapter is WiFi5, the link runs at WiFi5.
-                if _phy_rank.get(ap_phy, 0) > _phy_rank.get(adapter_phy, 0):
-                    result["phy_mode"] = adapter_phy
-                else:
-                    result["phy_mode"] = ap_phy
+                # The adapter's PHY from `iw phy info` is AUTHORITATIVE — it
+                # always returns the full capability set. The scan block's caps
+                # are unreliable (may be truncated in cached dumps, showing
+                # WiFi4 for an AP that's really WiFi6). Use adapter_phy as
+                # the definitive link PHY — it represents what the link can
+                # actually negotiate.
+                result["phy_mode"] = adapter_phy
                 if result["bandwidth"] is None:
                     result["bandwidth"] = bw
                 if beacon_m:
@@ -4851,7 +4870,7 @@ async def wifits_scan(iface: str = "wlan0"):
         result["total_aps_seen"] = total
     except Exception as e:
         result["scan_error"] = str(e)
-    # If scan failed but we have adapter info, use adapter phy as fallback
+    # If scan failed entirely, adapter PHY is the definitive answer
     if result["phy_mode"] is None and adapter_phy != "legacy":
         result["phy_mode"] = adapter_phy
 
