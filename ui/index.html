@@ -29,10 +29,7 @@
 body {
   margin: 0;
   overflow-x: hidden;
-}
-.main {
-  min-height: 100vh;
-  padding-bottom: 60px;
+  overflow-y: hidden; /* .content owns the scroll, not body */
 }
 </style>
 <style>
@@ -191,9 +188,12 @@ input,select,textarea { font-family:inherit; }
 @keyframes blink-d { 0%,100%{opacity:1} 50%{opacity:.35} }
 
 /* MAIN */
+/* .main fills the viewport height exactly. .topbar is sticky at 56px,
+   .content fills the rest and owns the vertical scroll. No min-height
+   so the body never grows beyond one viewport. */
 .main {
   margin-left:var(--sidebar-w);
-  flex:1; display:flex; flex-direction:column; min-height:100vh;
+  display:flex; flex-direction:column; height:100vh; overflow:hidden;
 }
 
 /* TOPBAR */
@@ -244,7 +244,7 @@ input,select,textarea { font-family:inherit; }
 .hamburger span { width:20px; height:2px; background:currentColor; border-radius:1px; display:block; }
 
 /* CONTENT — breathing room between sidebar and page content */
-.content { padding:20px 24px; flex:1; }
+.content { padding:20px 24px; flex:1; overflow-y:auto; height:calc(100vh - var(--topbar-h)); }
 
 /* ═══════════════════════════════════════════
    COMPONENTS
@@ -476,7 +476,11 @@ input,select,textarea { font-family:inherit; }
 /* ═══════════════════════════════════════════
    PAGES
 ═══════════════════════════════════════════ */
-.page { display:none; padding:0 0 40px; margin:0; box-sizing:border-box; }
+/* .content handles the scroll + the 20px 24px padding envelope.
+   .page only adds bottom clearance so the last card isn't glued
+   to the viewport edge. No top/horizontal padding here — that
+   would double-up with .content's padding and push the title down. */
+.page { display:none; padding:0 0 40px; margin:0; }
 .page.active { display:block; }
 
 /* Divider */
@@ -611,7 +615,8 @@ input,select,textarea { font-family:inherit; }
 @media (max-width: 768px) {
   .sidebar { transform:translateX(-100%) !important; }
   .sidebar.open { transform:translateX(0) !important; box-shadow:4px 0 24px rgba(0,0,0,.5); }
-  .main { margin-left:0; padding-bottom:calc(var(--bottom-h) + env(safe-area-inset-bottom, 0px) + 8px); }
+  .main { margin-left:0; height:100vh; overflow:hidden; }
+  .content { height:calc(100vh - var(--topbar-h) - var(--bottom-h) - env(safe-area-inset-bottom, 0px)); }
   .hamburger { display:flex; }
   .bottom-nav { display:block; }
   .metrics-grid { grid-template-columns:repeat(2,1fr); }
@@ -6018,28 +6023,17 @@ function goPage(id) {
   closeMobileMenu();
   // Force scroll to top — fire now, after layout, and after onload (some onload
   // handlers focus inputs which causes the browser to scroll into view).
-  // Aggressively scroll every possible container to the top. Uses
-  // behavior:'instant' so there's no visible animation — the page
-  // just snaps to position 0 before the user's eye catches up.
+  // .content is the ONLY scroll container (overflow-y:auto, fixed height).
+  // body + window have overflow:hidden so window.scrollTo is a no-op.
+  // We still call it as a safety net for edge cases.
   var _scrollTop = function(){
-    try { window.scrollTo({top:0, behavior:'instant'}); } catch(e){
-      try { window.scrollTo(0, 0); } catch(e2) {}
-    }
-    if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
-    if (document.documentElement) document.documentElement.scrollTop = 0;
-    if (document.body) document.body.scrollTop = 0;
-    // .content is the flex child that holds .page elements — on some
-    // browser/zoom combos IT is the scroll parent, not window.
     var ct = document.querySelector('.content');
     if (ct) ct.scrollTop = 0;
-    // .main wraps the entire right side (topbar + content)
-    var mn = document.querySelector('.main');
-    if (mn) mn.scrollTop = 0;
+    try { window.scrollTo(0, 0); } catch(e){}
   };
   _scrollTop();
-  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(_scrollTop);
-  setTimeout(_scrollTop, 30);
-  setTimeout(_scrollTop, 150);
+  requestAnimationFrame(_scrollTop);
+  setTimeout(_scrollTop, 50);
 
   // Sync bottom nav active state
   var bnavPages = ['dashboard','wifi','wired','security'];
@@ -11616,8 +11610,8 @@ function showTool(id){
     if(tab){tab.style.background=t===id?'rgba(33,150,243,.12)':'var(--bg2)';tab.style.color=t===id?'var(--blue-b)':'var(--text2)';}
   });
   if(id==='path') goPage('path');
-  // Snap to top so the tool content is immediately visible
-  try { window.scrollTo({top:0, behavior:'instant'}); } catch(e){}
+  var ct = document.querySelector('.content');
+  if (ct) ct.scrollTop = 0;
 }
 
 function ipToInt(ip){ return ip.split('.').reduce(function(a,o){return(a<<8)+parseInt(o,10);},0)>>>0; }
