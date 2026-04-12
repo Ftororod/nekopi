@@ -3427,6 +3427,36 @@ def _get_iface_mac(iface: str) -> str:
         return ""
 
 # ── DHCP Server ──────────────────────────────────────────────
+@app.get("/api/toolkit/dhcp/option43")
+async def toolkit_dhcp_option43(wlc_ips: str = "", mode: int = 2):
+    """Generates the hex string for DHCP Option 43 used by Cisco CW917X APs
+    to find their WLC.  mode: 2=Catalyst, 1=Meraki.
+
+    Example: wlc_ips=192.168.1.10  mode=2  → f305c0a8010a02
+    Multiple: wlc_ips=192.168.1.10,192.168.1.11 → f309c0a8010ac0a8010b02"""
+    ips = [ip.strip() for ip in wlc_ips.split(",") if ip.strip()]
+    if not ips:
+        return JSONResponse({"ok": False, "error": "no IPs provided"}, status_code=400)
+    ip_hex_parts: list[str] = []
+    for ip in ips:
+        try:
+            parts = ip.split(".")
+            if len(parts) != 4:
+                raise ValueError
+            ip_hex_parts.append("".join(f"{int(p):02x}" for p in parts))
+        except (ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": f"invalid IP: {ip}"}, status_code=400)
+    size = len(ips) * 4 + 1
+    hex_str = f"f3{size:02x}{''.join(ip_hex_parts)}{mode:02x}"
+    return {
+        "ok": True,
+        "hex":  hex_str,
+        "ips":  ips,
+        "mode": "Catalyst" if mode == 2 else "Meraki",
+        "dnsmasq_opt": f"43,{hex_str}",
+    }
+
+
 @app.post("/api/toolkit/dhcp/start")
 async def toolkit_dhcp_start(
     iface: str = "eth0",
@@ -3434,7 +3464,8 @@ async def toolkit_dhcp_start(
     end_ip: str = "192.168.99.200",
     lease: str = "1h",
     gateway: str = "",
-    dns: str = "8.8.8.8"
+    dns: str = "8.8.8.8",
+    option43: str = "",
 ):
     if _TK["dhcp"]["running"]:
         return {"ok": False, "error": "DHCP already running", "running": True}
@@ -3477,6 +3508,9 @@ async def toolkit_dhcp_start(
         ]
         if gateway:
             cmd += [f"--dhcp-option=3,{gateway}"]
+        if option43 and re.match(r"^[0-9a-fA-F]+$", option43):
+            cmd += [f"--dhcp-option=43,{option43}"]
+            _tk_log("dhcp", f"📡 Option 43: {option43}")
 
         _TK["dhcp"]["pidfile"] = pidfile
 

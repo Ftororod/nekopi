@@ -1846,6 +1846,32 @@ input,select,textarea { font-family:inherit; }
               <input class="form-input" id="tkDhcpDns" value="8.8.8.8" style="font-family:monospace">
             </div>
           </div>
+          <!-- Option 43 Presets for Cisco APs -->
+          <div class="divider"></div>
+          <div style="font-size:10px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:8px">DHCP Option 43 — Cisco AP Presets</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="tkOpt43Preset('catalyst')">📡 CW917X → Catalyst WLC</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="tkOpt43Preset('meraki')">☁ CW917X → Meraki</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="tkOpt43Clear()">✕ Sin Option 43</button>
+          </div>
+          <div id="tkOpt43Panel" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:10px">
+            <div class="form-group" style="margin-bottom:6px">
+              <label class="form-label" id="tkOpt43Label">WLC IP</label>
+              <input class="form-input" id="tkOpt43Ip" placeholder="192.168.1.10" style="font-family:monospace" oninput="tkOpt43Generate()">
+              <div class="field-note" id="tkOpt43Note">Separa múltiples WLCs con coma: 192.168.1.10,192.168.1.11</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:11px;color:var(--text2)">Option 43:</span>
+              <code id="tkOpt43Preview" style="font-family:monospace;font-size:12px;color:var(--cyan);background:var(--bg2);padding:3px 8px;border-radius:2px">—</code>
+              <span id="tkOpt43Mode" style="font-size:10px;color:var(--amber)"></span>
+            </div>
+          </div>
+          <div id="tkOpt43MerakiMsg" style="display:none;background:rgba(33,150,243,.06);border:1px solid rgba(33,150,243,.2);border-radius:var(--radius);padding:10px;margin-bottom:10px;font-size:11px;color:var(--text2)">
+            ☁ <strong style="color:var(--blue-b)">Meraki</strong>: el AP detecta Meraki automáticamente si tiene acceso a internet.
+            Solo usa este preset para forzar modo Meraki en red aislada.
+          </div>
+          <input type="hidden" id="tkOpt43Value" value="">
+
           <div style="display:flex;gap:8px;margin-bottom:10px">
             <button class="btn btn-primary btn-sm" id="tkDhcpStartBtn" onclick="tkDhcpToggle()">▶ Start DHCP</button>
             <button class="btn btn-ghost btn-sm" style="border-color:var(--red);color:var(--red);opacity:.4;pointer-events:none" id="tkDhcpStopBtn" onclick="tkDhcpStop()">■ Stop</button>
@@ -12825,14 +12851,80 @@ function tkInit(){
 
 // ── DHCP ─────────────────────────────────
 var _tkDhcpPoll = null;
+// ── Option 43 preset helpers ──
+var _tkOpt43Mode = 0; // 0=none, 2=catalyst, 1=meraki
+
+function tkOpt43Preset(type){
+  var panel   = document.getElementById('tkOpt43Panel');
+  var meraki  = document.getElementById('tkOpt43MerakiMsg');
+  var label   = document.getElementById('tkOpt43Label');
+  var note    = document.getElementById('tkOpt43Note');
+  var modeEl  = document.getElementById('tkOpt43Mode');
+  if(type === 'catalyst'){
+    _tkOpt43Mode = 2;
+    if(panel)  panel.style.display = '';
+    if(meraki) meraki.style.display = 'none';
+    if(label)  label.textContent = 'WLC IP (Catalyst)';
+    if(note)   note.textContent = 'Separa múltiples WLCs con coma';
+    if(modeEl) modeEl.textContent = '· Catalyst (02)';
+    tkOpt43Generate();
+  } else if(type === 'meraki'){
+    _tkOpt43Mode = 1;
+    if(panel)  panel.style.display = '';
+    if(meraki) meraki.style.display = '';
+    if(label)  label.textContent = 'WLC IP (Meraki)';
+    if(note)   note.textContent = 'Solo necesario en red aislada sin internet';
+    if(modeEl) modeEl.textContent = '· Meraki (01)';
+    tkOpt43Generate();
+  }
+}
+
+function tkOpt43Clear(){
+  _tkOpt43Mode = 0;
+  var panel  = document.getElementById('tkOpt43Panel');
+  var meraki = document.getElementById('tkOpt43MerakiMsg');
+  var hidden = document.getElementById('tkOpt43Value');
+  if(panel)  panel.style.display = 'none';
+  if(meraki) meraki.style.display = 'none';
+  if(hidden) hidden.value = '';
+}
+
+function tkOpt43Generate(){
+  var ip   = (document.getElementById('tkOpt43Ip')||{}).value || '';
+  var prev = document.getElementById('tkOpt43Preview');
+  var hidden = document.getElementById('tkOpt43Value');
+  if(!ip.trim()){ if(prev) prev.textContent = '—'; if(hidden) hidden.value = ''; return; }
+  // Client-side hex generation (same logic as backend)
+  var ips = ip.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  var hexParts = [];
+  var valid = true;
+  ips.forEach(function(addr){
+    var p = addr.split('.');
+    if(p.length !== 4){ valid = false; return; }
+    hexParts.push(p.map(function(o){ var n = parseInt(o); return (n<16?'0':'')+n.toString(16); }).join(''));
+  });
+  if(!valid || !hexParts.length){
+    if(prev) prev.textContent = '(IP inválida)';
+    if(hidden) hidden.value = '';
+    return;
+  }
+  var size = (ips.length * 4 + 1).toString(16);
+  if(size.length < 2) size = '0' + size;
+  var hex = 'f3' + size + hexParts.join('') + (_tkOpt43Mode === 1 ? '01' : '02');
+  if(prev) prev.textContent = hex;
+  if(hidden) hidden.value = hex;
+}
+
 function tkDhcpToggle(){
+  var opt43 = (document.getElementById('tkOpt43Value')||{}).value || '';
   fetchAPI('/api/toolkit/dhcp/start?iface='+
     encodeURIComponent(document.getElementById('tkDhcpIface').value)+
     '&start_ip='+encodeURIComponent(document.getElementById('tkDhcpStart').value)+
     '&end_ip='+encodeURIComponent(document.getElementById('tkDhcpEnd').value)+
     '&lease='+encodeURIComponent(document.getElementById('tkDhcpLease').value)+
     '&gateway='+encodeURIComponent(document.getElementById('tkDhcpGw').value||'')+
-    '&dns='+encodeURIComponent(document.getElementById('tkDhcpDns').value),
+    '&dns='+encodeURIComponent(document.getElementById('tkDhcpDns').value)+
+    (opt43 ? '&option43='+encodeURIComponent(opt43) : ''),
     {method:'POST'}
   ).then(function(d){
     if(d && (d.ok || d.running)){
