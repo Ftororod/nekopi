@@ -840,6 +840,9 @@ input,select,textarea { font-family:inherit; }
     <button class="nav-item" data-page="kismet" style="padding-left:28px">
       <span class="nav-icon">&#128737;</span><span class="nav-label">&#8627; Kismet IDS</span>
     </button>
+    <button class="nav-item" data-page="ota" style="padding-left:28px">
+      <span class="nav-icon">📡</span><span class="nav-label">&#8627; OTA Capture</span>
+    </button>
     <button class="nav-item" data-page="wired">
       <span class="nav-icon">🔌</span><span class="nav-label">Wired / LAN</span>
     </button>
@@ -3941,6 +3944,120 @@ input,select,textarea { font-family:inherit; }
        SETTINGS
   ═══════════════════════════════ -->
   <!-- ═══════════════════════════════
+       OTA CAPTURE — passive WiFi pcap in monitor mode
+  ═══════════════════════════════ -->
+  <div class="page" id="page-ota">
+    <div class="section-title">📡 OTA Capture</div>
+    <div class="section-sub">Captura pasiva WiFi · monitor mode · análisis con IA</div>
+
+    <div class="two-col" style="margin-bottom:14px">
+      <!-- LEFT: Config -->
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">⚙ Capture Config</div>
+            <span class="status-badge sb-idle" id="otaStatus"><span class="sb-dot"></span>Idle</span>
+          </div>
+          <div class="card-body">
+            <div class="form-row" style="margin-bottom:10px">
+              <div class="form-group">
+                <label class="form-label">Interfaz (monitor mode)</label>
+                <select class="form-input form-select" id="otaIface">
+                  <option value="wlan1">wlan1</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Canal</label>
+                <select class="form-input form-select" id="otaChanMode">
+                  <option value="hop">Hopping (todos)</option>
+                  <option value="smart">Smart (detectar SSID)</option>
+                  <option value="fixed">Fijo</option>
+                </select>
+              </div>
+            </div>
+            <div id="otaChanFixed" style="display:none" class="form-group">
+              <label class="form-label">Canal fijo</label>
+              <input class="form-input" id="otaChanNum" type="number" min="1" max="165" value="6" style="width:80px">
+            </div>
+            <div class="form-group">
+              <label class="form-label">SSID objetivo (opcional — activa Smart mode)</label>
+              <input class="form-input" id="otaSsid" placeholder="CORP-WLAN">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Filtro MAC (opcional)</label>
+              <input class="form-input" id="otaMac" placeholder="aa:bb:cc:dd:ee:ff" style="font-family:monospace">
+            </div>
+            <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px;margin-top:8px">Tipos de frame</div>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px">
+              <label class="toggle-wrap"><input type="checkbox" id="otaFiltMgmt" checked><span class="toggle-lbl">Management</span></label>
+              <label class="toggle-wrap"><input type="checkbox" id="otaFiltData" checked><span class="toggle-lbl">Data</span></label>
+              <label class="toggle-wrap"><input type="checkbox" id="otaFiltCtrl"><span class="toggle-lbl">Control</span></label>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Duración</label>
+              <select class="form-input form-select" id="otaDuration" style="width:160px">
+                <option value="30">30 segundos</option>
+                <option value="60" selected>1 minuto</option>
+                <option value="120">2 minutos</option>
+                <option value="300">5 minutos</option>
+                <option value="0">Manual (stop manual)</option>
+              </select>
+            </div>
+            <div class="divider"></div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-primary" id="otaStartBtn" onclick="otaStart(event)">▶ Iniciar Captura</button>
+              <button class="btn btn-danger btn-sm" id="otaStopBtn" onclick="otaStop()" style="display:none">⏹ Detener</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" id="otaLiveCard" style="display:none">
+          <div class="card-header"><div class="card-title">📊 Captura en vivo</div></div>
+          <div class="card-body">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+              <div style="background:var(--bg3);border-radius:var(--radius);padding:8px;text-align:center">
+                <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px">Tiempo</div>
+                <div style="font-size:20px;color:var(--white);font-weight:700" id="otaElapsed">0s</div>
+              </div>
+              <div style="background:var(--bg3);border-radius:var(--radius);padding:8px;text-align:center">
+                <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px">Canal</div>
+                <div style="font-size:20px;color:var(--cyan);font-weight:700" id="otaChanLive">—</div>
+              </div>
+              <div style="background:var(--bg3);border-radius:var(--radius);padding:8px;text-align:center">
+                <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px">Tamaño</div>
+                <div style="font-size:20px;color:var(--blue-b);font-weight:700" id="otaSizeLive">0 KB</div>
+              </div>
+            </div>
+            <div style="font-size:11px;color:var(--text2);padding:6px 0">
+              ℹ wlan1 entra en monitor mode durante la captura. La conexión WiFi del NekoPi (wlan0) no se interrumpe.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Files + Analysis -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">📂 Archivos Capturados</div>
+          <button class="btn btn-ghost btn-sm" onclick="otaRefreshFiles()">↻</button>
+        </div>
+        <div class="card-body">
+          <div id="otaFileList" style="max-height:380px;overflow-y:auto;font-size:11px">
+            <div class="t-muted" style="padding:16px;text-align:center">Sin capturas. Inicia una captura OTA.</div>
+          </div>
+          <div id="otaAiPanel" style="display:none;margin-top:10px;padding:10px;background:var(--bg3);border-left:3px solid var(--purple);border-radius:var(--radius)">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <span style="font-size:11px;color:var(--purple);font-weight:700">🧠 Análisis IA · <span id="otaAiName">—</span></span>
+              <button class="btn btn-ghost btn-sm" onclick="document.getElementById('otaAiPanel').style.display='none'">✕</button>
+            </div>
+            <div class="ai-output" id="otaAiOutput"><span class="t-muted">Procesando…</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════
        CONSOLE PUSHER — full serial terminal + config push
   ═══════════════════════════════ -->
   <div class="page" id="page-cpusher">
@@ -5760,6 +5877,9 @@ const pages = {
       }
     }).catch(function(){});
   } },
+  ota:        { title:'OTA Capture',        sub:'Captura pasiva WiFi · monitor mode · Deep Analysis', onload: function(){
+    try { otaRefreshFiles(); otaLoadIfaces(); } catch(e) {}
+  } },
   wifits:     { title:'WiFi Troubleshooter', sub:'Diagnóstico asistido · síntomas + datos reales · por capa', onload: function(){
     wtsInit();
     if(DEMO_MODE){
@@ -5885,6 +6005,11 @@ function goPage(id) {
   if (id !== 'console' && _conHealthIv) {
     clearInterval(_conHealthIv);
     _conHealthIv = null;
+  }
+  // Stop OTA capture polling when leaving ota page
+  if (id !== 'ota' && _otaPollIv) {
+    clearInterval(_otaPollIv);
+    _otaPollIv = null;
   }
   // Stop console pusher polling when leaving cpusher page
   if (id !== 'cpusher' && _cpPollIv) {
@@ -8617,6 +8742,222 @@ function conLogsRefresh(){
 
 // Legacy WebSSH/xterm CLI helpers were removed in the ttyd rebuild — see
 // termSwitchTab / termSshConnect above for the current Terminal logic.
+
+// ═══════════════════════════════════════
+//  OTA CAPTURE — passive WiFi pcap
+// ═══════════════════════════════════════
+var _otaPollIv = null;
+
+function otaLoadIfaces(){
+  fetchAPI('/api/wifi/interfaces').then(function(d){
+    var sel = document.getElementById('otaIface');
+    if(!sel || !d) return;
+    var ifs = (d.interfaces || []).filter(function(i){ return i.monitor; });
+    if(ifs.length){
+      sel.innerHTML = ifs.map(function(i){
+        return '<option value="'+i.name+'">'+i.name+' (monitor capable)</option>';
+      }).join('');
+    }
+  });
+}
+
+// Toggle fixed-channel input
+document.addEventListener('change', function(e){
+  if(e.target && e.target.id === 'otaChanMode'){
+    var fx = document.getElementById('otaChanFixed');
+    if(fx) fx.style.display = e.target.value === 'fixed' ? '' : 'none';
+    if(e.target.value === 'smart'){
+      var ssid = document.getElementById('otaSsid');
+      if(ssid) ssid.focus();
+    }
+  }
+});
+
+function otaStart(ev){
+  var btn = ev && ev.currentTarget;
+  var iface = (document.getElementById('otaIface')||{}).value || 'wlan1';
+  var mode  = (document.getElementById('otaChanMode')||{}).value || 'hop';
+  var ssid  = (document.getElementById('otaSsid')||{}).value || '';
+  var mac   = (document.getElementById('otaMac')||{}).value || '';
+  var dur   = parseInt((document.getElementById('otaDuration')||{}).value) || 0;
+  var body = {
+    iface: iface,
+    hop:   mode !== 'fixed',
+    channel: mode === 'fixed' ? parseInt((document.getElementById('otaChanNum')||{}).value) || 6 : null,
+    ssid: mode === 'smart' ? ssid : (ssid || ''),
+    filter_mgmt: (document.getElementById('otaFiltMgmt')||{checked:true}).checked,
+    filter_data: (document.getElementById('otaFiltData')||{checked:true}).checked,
+    filter_ctrl: (document.getElementById('otaFiltCtrl')||{checked:false}).checked,
+    duration: dur,
+    mac_filter: mac,
+  };
+
+  if(DEMO_MODE){
+    _otaDemoRun(dur || 10);
+    return;
+  }
+
+  if(btn){ btn.disabled = true; btn.textContent = '⌛ Iniciando…'; }
+  fetch(API_BASE + '/api/ota/start', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if(d && d.ok){
+      var st = document.getElementById('otaStatus');
+      if(st){ st.className='status-badge sb-run'; st.innerHTML='<span class="sb-dot"></span>CAPTURANDO'; }
+      var stop = document.getElementById('otaStopBtn');
+      if(stop) stop.style.display = '';
+      if(btn) btn.style.display = 'none';
+      var live = document.getElementById('otaLiveCard');
+      if(live) live.style.display = '';
+      showToast('✓ Captura OTA iniciada: '+d.file);
+      _otaPollIv = setInterval(otaPollStatus, 1500);
+    } else {
+      showToast('✗ '+(d&&d.error||'failed'));
+    }
+  }).catch(function(e){ showToast('✗ '+e.message); })
+    .finally(function(){
+      if(btn){ btn.disabled = false; btn.textContent = '▶ Iniciar Captura'; }
+    });
+}
+
+function otaStop(){
+  fetch(API_BASE + '/api/ota/stop', {method:'POST'}).then(function(r){ return r.json(); })
+    .then(function(d){
+      _otaResetUI();
+      if(d) showToast('Captura detenida: '+(d.frames||0)+' frames · '+_bytesFmt(d.size||0));
+      otaRefreshFiles();
+    });
+}
+
+function _otaResetUI(){
+  clearInterval(_otaPollIv);
+  var st = document.getElementById('otaStatus');
+  if(st){ st.className='status-badge sb-idle'; st.innerHTML='<span class="sb-dot"></span>Idle'; }
+  var stop = document.getElementById('otaStopBtn');
+  if(stop) stop.style.display = 'none';
+  var start = document.getElementById('otaStartBtn');
+  if(start){ start.style.display = ''; start.disabled = false; start.textContent = '▶ Iniciar Captura'; }
+  var live = document.getElementById('otaLiveCard');
+  if(live) live.style.display = 'none';
+}
+
+function otaPollStatus(){
+  fetchAPI('/api/ota/status').then(function(d){
+    if(!d) return;
+    if(!d.running){
+      _otaResetUI();
+      otaRefreshFiles();
+      return;
+    }
+    var el = document.getElementById('otaElapsed');
+    if(el) el.textContent = (d.elapsed||0)+'s';
+    var ch = document.getElementById('otaChanLive');
+    if(ch) ch.textContent = d.channel || '—';
+    var sz = document.getElementById('otaSizeLive');
+    if(sz) sz.textContent = _bytesFmt(d.size_bytes||0);
+  });
+}
+
+function otaRefreshFiles(){
+  var box = document.getElementById('otaFileList');
+  if(!box) return;
+  if(DEMO_MODE){
+    box.innerHTML = '<div class="t-muted" style="padding:8px;text-align:center">Modo DEMO — sin archivos reales</div>';
+    return;
+  }
+  fetch(API_BASE + '/api/ota/files').then(function(r){ return r.json(); })
+    .then(function(d){
+      var files = (d && d.files) || [];
+      if(!files.length){
+        box.innerHTML = '<div class="t-muted" style="padding:16px;text-align:center">Sin capturas OTA.</div>';
+        return;
+      }
+      box.innerHTML = files.map(function(f){
+        var when = new Date(f.mtime*1000).toLocaleString();
+        return '<div style="display:flex;align-items:center;gap:6px;padding:6px;border-bottom:1px solid var(--border)">'
+          +'<span style="flex:1;font-family:monospace;font-size:10px;color:var(--white);overflow:hidden;text-overflow:ellipsis">'+f.name+'</span>'
+          +'<span style="font-size:10px;color:var(--text2)">'+_bytesFmt(f.size)+'</span>'
+          +'<a class="btn btn-ghost btn-sm" style="padding:1px 6px;font-size:10px" '
+          +'href="'+API_BASE+'/api/ota/download/'+encodeURIComponent(f.name)+'">⬇</a>'
+          +'<button class="btn btn-primary btn-sm" data-ai-btn '
+          +'style="padding:1px 6px;font-size:10px" '
+          +'onclick="otaAnalyze(\''+f.name+'\',event)">🔬 IA</button>'
+          +'<button class="btn btn-ghost btn-sm" style="padding:1px 6px;font-size:10px;color:var(--red)" '
+          +'onclick="otaDelete(\''+f.name+'\')">🗑</button>'
+          +'</div>';
+      }).join('');
+      refreshAIButtons();
+    });
+}
+
+function otaDelete(name){
+  fetch(API_BASE + '/api/ota/files/'+encodeURIComponent(name), {method:'DELETE'})
+    .then(function(){ otaRefreshFiles(); showToast('Archivo eliminado'); });
+}
+
+function otaAnalyze(name, ev){
+  var panel = document.getElementById('otaAiPanel');
+  var out   = document.getElementById('otaAiOutput');
+  var label = document.getElementById('otaAiName');
+  var btn   = ev && ev.currentTarget;
+  if(!panel || !out) return;
+  panel.style.display = '';
+  if(label) label.textContent = name;
+  out.innerHTML = '<div class="ai-thinking">⏳ Análisis profundo OTA…</div>';
+  if(btn){ btn.disabled = true; btn._old = btn.textContent; btn.textContent = '⌛'; }
+  fetch(API_BASE + '/api/ota/analyze/'+encodeURIComponent(name), {method:'POST'})
+    .then(function(r){ return r.json().then(function(d){ return {http:r.ok, data:d}; }); })
+    .then(function(res){
+      var d = res.data || {};
+      if(!res.http || !d.ok){
+        out.innerHTML = '<div style="color:var(--red);padding:8px">✗ '+(d.error||'failed')+'</div>';
+        return;
+      }
+      var anon = (d.summary && d.summary.anon_map) || {};
+      var html =
+        '<div style="margin-bottom:8px">'+_aiBackendBadge(d.backend, d.model)+'</div>'
+        + _aiFormatResponse(d.response)
+        + _aiAnonMapHTML(anon);
+      _aiTypewriter(out, html);
+    })
+    .catch(function(e){
+      out.innerHTML = '<div style="color:var(--red);padding:8px">✗ '+e.message+'</div>';
+    })
+    .finally(function(){
+      if(btn){ btn.disabled = false; btn.textContent = btn._old || '🔬 IA'; delete btn._old; }
+    });
+}
+
+// Demo capture simulation
+function _otaDemoRun(dur){
+  var st = document.getElementById('otaStatus');
+  if(st){ st.className='status-badge sb-run'; st.innerHTML='<span class="sb-dot"></span>CAPTURANDO (DEMO)'; }
+  var stop = document.getElementById('otaStopBtn');
+  if(stop) stop.style.display = '';
+  var start = document.getElementById('otaStartBtn');
+  if(start) start.style.display = 'none';
+  var live = document.getElementById('otaLiveCard');
+  if(live) live.style.display = '';
+  var elapsed = 0;
+  var channels = [1,6,11,36,44,149];
+  _otaPollIv = setInterval(function(){
+    elapsed++;
+    var el = document.getElementById('otaElapsed');
+    if(el) el.textContent = elapsed+'s';
+    var ch = document.getElementById('otaChanLive');
+    if(ch) ch.textContent = channels[elapsed % channels.length];
+    var sz = document.getElementById('otaSizeLive');
+    if(sz) sz.textContent = (elapsed * 8.4).toFixed(0)+' KB';
+    if(elapsed >= dur){
+      _otaResetUI();
+      showToast('Captura DEMO completa: ~847 frames');
+    }
+  }, 1000);
+}
+
+// Stop OTA poll when leaving page
+// (added to goPage — search for _otaPollIv in goPage)
 
 // ═══════════════════════════════════════
 //  CONSOLE PUSHER — ttyd serial terminal + config push

@@ -7187,6 +7187,361 @@ async def system_logs(unit: str = "nekopi", lines: int = 200):
     out = run_cmd(cmd, timeout=8)
     return {"unit": unit or "system", "lines": out.splitlines() if out else []}
 
+# ═══════════════════════════════════════════════════════════════
+#  OTA CAPTURE — passive WiFi pcap in monitor mode
+# ═══════════════════════════════════════════════════════════════
+OTA_DIR = BASE_DIR / "data" / "ota"
+OTA_DIR.mkdir(parents=True, exist_ok=True)
+OTA_MAX_FILES = 10
+
+_OTA_PROC:  subprocess.Popen | None = None
+_OTA_HOP:   _threading.Event | None = None
+_OTA_TIMER: _threading.Timer | None = None
+_OTA_STATUS = {
+    "running": False, "frames": 0, "elapsed": 0,
+    "channel": None, "file": None, "size_bytes": 0,
+    "iface": "", "start_ts": 0,
+}
+
+def _ota_cleanup_old():
+    files = sorted(OTA_DIR.glob("ota-*.pcap"), key=lambda f: f.stat().st_mtime)
+    while len(files) > OTA_MAX_FILES:
+        files[0].unlink(missing_ok=True)
+        files.pop(0)
+
+def _ota_frame_count(path: Path) -> int:
+    if not path.exists():
+        return 0
+    try:
+        r = subprocess.run(["tcpdump", "-r", str(path), "-n", "--count"],
+                           capture_output=True, text=True, timeout=4)
+        m = re.search(r"(\d+)\s+packet", r.stderr + r.stdout)
+        return int(m.group(1)) if m else 0
+    except Exception:
+        return 0
+
+def _ota_build_filter(mgmt: bool, data: bool, ctrl: bool, mac: str) -> str:
+    parts: list[str] = []
+    ftypes: list[str] = []
+    if mgmt: ftypes.append("type mgt")
+    if data: ftypes.append("type data")
+    if ctrl: ftypes.append("type ctl")
+    if ftypes:
+        parts.append("(" + " or ".join(ftypes) + ")")
+    if mac and re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", mac.strip()):
+        parts.append(f"ether host {mac.strip()}")
+    return " and ".join(parts) if parts else ""
+
+
+@app.post("/api/ota/start")
+async def ota_start(request: Request):
+    global _OTA_PROC, _OTA_HOP, _OTA_TIMER
+    if _OTA_STATUS["running"]:
+        return {"ok": False, "error": "capture already running"}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    iface      = (body.get("iface") or "wlan1").strip()
+    channel    = body.get("channel")      # int or None
+    hop        = body.get("hop", False)
+    ssid       = (body.get("ssid") or "").strip()
+    filt_mgmt  = body.get("filter_mgmt", True)
+    filt_data  = body.get("filter_data", True)
+    filt_ctrl  = body.get("filter_ctrl", False)
+    duration   = int(body.get("duration") or 0)
+    mac_filter = (body.get("mac_filter") or "").strip()
+
+    if not re.match(r"^[a-zA-Z0-9]+$", iface):
+        return JSONResponse({"ok": False, "error": "invalid iface"}, status_code=400)
+
+    # Disconnect NM / wpa_supplicant
+    run_cmd(["sudo", "nmcli", "device", "disconnect", iface])
+    run_cmd(["sudo", "pkill", "-f", f"wpa_supplicant.*{iface}"])
+    time.sleep(0.3)
+
+    # Smart mode: scan before monitor
+    ssid_channels: list[int] = []
+    if ssid:
+        run_cmd(["sudo", "ip", "link", "set", iface, "up"])
+        time.sleep(0.3)
+        ssid_channels = _get_ssid_channels(iface, ssid)
+
+    # Enter monitor mode
+    run_cmd(["sudo", "ip", "link", "set", iface, "down"])
+    r = subprocess.run(["sudo", "iw", "dev", iface, "set", "type", "monitor"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return JSONResponse({"ok": False, "error": f"monitor failed: {r.stderr[:80]}"},
+                            status_code=500)
+    run_cmd(["sudo", "ip", "link", "set", iface, "up"])
+    time.sleep(0.3)
+
+    # Set channel or start hopping
+    channels_list: list[int] = []
+    _OTA_HOP = _threading.Event()
+    if ssid and ssid_channels:
+        channels_list = ssid_channels
+        hop = True
+    elif channel and not hop:
+        run_cmd(["sudo", "iw", "dev", iface, "set", "channel", str(int(channel))])
+    else:
+        hop = True
+        channels_list = [1, 6, 11, 36, 40, 44, 48, 149, 153, 157, 161]
+
+    if hop and channels_list:
+        def _hop_loop():
+            idx = 0
+            while not _OTA_HOP.is_set():
+                ch = channels_list[idx % len(channels_list)]
+                subprocess.run(["sudo", "iw", "dev", iface, "set", "channel", str(ch)],
+                               capture_output=True)
+                _OTA_STATUS["channel"] = ch
+                idx += 1
+                _OTA_HOP.wait(0.3)
+        _threading.Thread(target=_hop_loop, daemon=True).start()
+    elif channel:
+        _OTA_STATUS["channel"] = int(channel)
+
+    # Build filename + filter
+    ch_label = "hop" if hop else str(channel or "auto")
+    fname = f"ota-{int(time.time())}-ch{ch_label}.pcap"
+    fpath = OTA_DIR / fname
+    bpf = _ota_build_filter(filt_mgmt, filt_data, filt_ctrl, mac_filter)
+    cmd = ["sudo", "tcpdump", "-i", iface, "-w", str(fpath), "-U"]
+    if bpf:
+        cmd += bpf.split()
+
+    try:
+        _OTA_PROC = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.PIPE, text=True)
+    except Exception as e:
+        _ota_restore(iface)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    time.sleep(0.5)
+    if _OTA_PROC.poll() is not None:
+        err = ""
+        try: err = (_OTA_PROC.stderr.read() or "")[-200:]
+        except: pass
+        _ota_restore(iface)
+        return JSONResponse({"ok": False, "error": f"tcpdump exited: {err}"}, status_code=500)
+
+    _OTA_STATUS.update({
+        "running": True, "frames": 0, "elapsed": 0,
+        "file": fname, "size_bytes": 0, "iface": iface,
+        "start_ts": int(time.time()),
+    })
+
+    # Auto-stop timer
+    if duration > 0:
+        def _auto_stop():
+            import asyncio as _aio
+            _ota_stop_inner()
+        _OTA_TIMER = _threading.Timer(duration, _auto_stop)
+        _OTA_TIMER.daemon = True
+        _OTA_TIMER.start()
+
+    _ota_cleanup_old()
+    return {"ok": True, "file": fname, "channel": ch_label, "iface": iface}
+
+
+def _ota_restore(iface: str):
+    for vif in (f"{iface}mon", "mon0"):
+        run_cmd(["sudo", "iw", "dev", vif, "del"])
+    run_cmd(["sudo", "ip", "link", "set", iface, "down"])
+    run_cmd(["sudo", "iw", "dev", iface, "set", "type", "managed"])
+    run_cmd(["sudo", "ip", "link", "set", iface, "up"])
+    run_cmd(["sudo", "nmcli", "device", "connect", iface])
+
+
+def _ota_stop_inner():
+    global _OTA_PROC, _OTA_HOP, _OTA_TIMER
+    if _OTA_HOP:
+        _OTA_HOP.set()
+    if _OTA_TIMER:
+        _OTA_TIMER.cancel()
+        _OTA_TIMER = None
+    if _OTA_PROC and _OTA_PROC.poll() is None:
+        try: _OTA_PROC.terminate()
+        except: pass
+        try: _OTA_PROC.wait(timeout=3)
+        except:
+            try: _OTA_PROC.kill()
+            except: pass
+    _OTA_PROC = None
+    iface = _OTA_STATUS.get("iface") or "wlan1"
+    _ota_restore(iface)
+    # Final frame count + size
+    fname = _OTA_STATUS.get("file")
+    if fname:
+        fpath = OTA_DIR / fname
+        if fpath.exists():
+            _OTA_STATUS["size_bytes"] = fpath.stat().st_size
+            _OTA_STATUS["frames"] = _ota_frame_count(fpath)
+    _OTA_STATUS["running"] = False
+
+
+@app.post("/api/ota/stop")
+async def ota_stop():
+    _ota_stop_inner()
+    return {"ok": True, "file": _OTA_STATUS.get("file"),
+            "frames": _OTA_STATUS.get("frames"),
+            "size": _OTA_STATUS.get("size_bytes")}
+
+
+@app.get("/api/ota/status")
+async def ota_status():
+    st = dict(_OTA_STATUS)
+    if st["running"]:
+        st["elapsed"] = int(time.time()) - st.get("start_ts", 0)
+        fname = st.get("file")
+        if fname:
+            fpath = OTA_DIR / fname
+            if fpath.exists():
+                st["size_bytes"] = fpath.stat().st_size
+    return st
+
+
+@app.get("/api/ota/files")
+async def ota_files():
+    files = []
+    for p in sorted(OTA_DIR.glob("ota-*.pcap"), key=lambda f: f.stat().st_mtime, reverse=True):
+        files.append({
+            "name":  p.name,
+            "size":  p.stat().st_size,
+            "mtime": int(p.stat().st_mtime),
+        })
+    return {"files": files[:OTA_MAX_FILES]}
+
+
+@app.get("/api/ota/download/{filename}")
+async def ota_download(filename: str):
+    if not re.match(r"^ota-[\w.-]+\.pcap$", filename):
+        return JSONResponse({"error": "invalid filename"}, status_code=400)
+    p = OTA_DIR / filename
+    if not p.exists():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(str(p), media_type="application/vnd.tcpdump.pcap",
+                        filename=filename)
+
+
+@app.delete("/api/ota/files/{filename}")
+async def ota_delete(filename: str):
+    if not re.match(r"^ota-[\w.-]+\.pcap$", filename):
+        return JSONResponse({"error": "invalid filename"}, status_code=400)
+    p = OTA_DIR / filename
+    p.unlink(missing_ok=True)
+    return {"ok": True}
+
+
+@app.post("/api/ota/analyze/{filename}")
+async def ota_analyze(filename: str):
+    """Runs the Deep Analysis pipeline on an OTA capture with a WiFi-specific
+    prompt that focuses on SSIDs, retransmissions, deauth frames, data rates."""
+    if not re.match(r"^ota-[\w.-]+\.pcap$", filename):
+        return JSONResponse({"ok": False, "error": "invalid filename"}, status_code=400)
+    p = OTA_DIR / filename
+    if not p.exists():
+        return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
+
+    s = _pcap_summary(p)
+    if not s.get("ok"):
+        return JSONResponse({"ok": False, "error": s.get("error")}, status_code=500)
+
+    # OTA-specific tshark queries
+    extra = {}
+    try:
+        # Retransmissions
+        retx = subprocess.run(
+            ["tshark", "-r", str(p), "-Y", "wlan.fc.retry==1", "-T", "fields", "-e", "frame.number"],
+            capture_output=True, text=True, timeout=15)
+        extra["retransmissions"] = len([l for l in (retx.stdout or "").splitlines() if l.strip()])
+        # Deauth/disassoc
+        deauth = subprocess.run(
+            ["tshark", "-r", str(p), "-Y", "wlan.fc.type_subtype==0x0c or wlan.fc.type_subtype==0x0a",
+             "-T", "fields", "-e", "frame.number"],
+            capture_output=True, text=True, timeout=10)
+        extra["deauth_frames"] = len([l for l in (deauth.stdout or "").splitlines() if l.strip()])
+        # SSIDs
+        ssids = subprocess.run(
+            ["tshark", "-r", str(p), "-Y", "wlan.ssid", "-T", "fields",
+             "-e", "wlan.ssid", "-e", "wlan.bssid", "-e", "wlan.channel", "-e", "radiotap.dbm_antsignal"],
+            capture_output=True, text=True, timeout=15)
+        ssid_set: dict[str, dict] = {}
+        for line in (ssids.stdout or "").splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 1 and parts[0].strip():
+                name = parts[0].strip()
+                if name not in ssid_set:
+                    ssid_set[name] = {
+                        "bssid": parts[1].strip() if len(parts) > 1 else "",
+                        "channel": parts[2].strip() if len(parts) > 2 else "",
+                        "rssi": parts[3].strip() if len(parts) > 3 else "",
+                    }
+        extra["ssids"] = list(ssid_set.items())[:20]
+    except Exception:
+        pass
+
+    summary = {"name": filename, "size": p.stat().st_size, "ext": "pcap", "pcap": s}
+    anon = _make_anonymizer()
+
+    # Build OTA-specific prompt
+    ssid_lines = "\n".join(
+        f"  {anon(name)} BSSID={anon(info.get('bssid',''))} ch={info.get('channel','')} RSSI={info.get('rssi','')}"
+        for name, info in extra.get("ssids", [])
+    ) or "  (sin SSIDs detectados)"
+    retx_count = extra.get("retransmissions", 0)
+    deauth_count = extra.get("deauth_frames", 0)
+    prompt = (
+        "Eres experto en análisis de tráfico WiFi enterprise.\n"
+        "Analiza esta captura OTA (Over The Air):\n\n"
+        f"SSIDs detectados:\n{ssid_lines}\n\n"
+        f"Retransmisiones: {retx_count} frames\n"
+        f"Deauth/Disassoc frames: {deauth_count}\n\n"
+        f"=== I/O STAT ===\n{anon(s.get('io_stat',''))}\n\n"
+        f"=== TOP CONVERSATIONS ===\n{anon(s.get('top_conv',''))}\n\n"
+        f"=== PROTOCOLS ===\n{s.get('protocols','')}\n\n"
+        "¿Qué patrones observas? ¿Hay indicios de problemas de RF, "
+        "interferencia, clientes problemáticos o comportamiento anormal? "
+        "Sugiere qué verificar en sitio."
+    )
+
+    summary["anon_map"] = {
+        "ips": len(anon.seen_ips), "macs": len(anon.seen_macs),
+        "ip_map": {v: k for k, v in anon.seen_ips.items()},
+        "mac_map": {v: k for k, v in anon.seen_macs.items()},
+    }
+
+    # Dispatch to Gemini or Ollama
+    cfg = _settings_load()
+    gemini_key = cfg.get("gemini_key") or ""
+    ollama_url = cfg.get("ollama_url") or ""
+    backend = response = model = None
+    error = None
+    if gemini_key:
+        try:
+            response, model = _ai_call_gemini(prompt, gemini_key,
+                                              cfg.get("gemini_model") or "gemini-2.5-flash")
+            backend = "gemini"
+        except Exception as e:
+            error = str(e)
+    if not response and ollama_url:
+        try:
+            response, model = _ai_call_ollama(prompt, ollama_url)
+            backend = "ollama"
+            error = None
+        except Exception as e:
+            error = (error + " · " if error else "") + str(e)
+    if not response:
+        return JSONResponse({"ok": False, "error": error or "no AI backend"},
+                            status_code=502)
+    return {
+        "ok": True, "backend": backend, "model": model,
+        "response": response, "summary": summary, "extra": extra,
+    }
+
+
 @app.get("/api/settings")
 async def settings_get():
     s = _settings_load()
