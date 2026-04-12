@@ -4011,6 +4011,98 @@ def _np_log(msg: str):
     if len(_NP["job"]["log"]) > 500:
         _NP["job"]["log"] = _NP["job"]["log"][-500:]
 
+def _np_classify_model(model: str) -> str:
+    """Returns a human-readable device type based on the Cisco model string.
+    Covers the most common field gear; anything unrecognised → "Device"."""
+    m = model.upper()
+    if "C9800" in m or "9800" in m:           return "WLC"
+    if "C9300" in m or "C9200" in m or "C9500" in m: return "Switch"
+    if "C9400" in m or "C9410" in m or "C9606" in m or "C9407" in m: return "Switch Chasis"
+    if "C3850" in m or "C3650" in m:          return "Switch"
+    if "2960" in m or "3560" in m or "3750" in m: return "Switch"
+    if "ISR4" in m or "ISR 4" in m or "4331" in m or "4351" in m or "4431" in m: return "Router"
+    if "ISR" in m or "2901" in m or "2911" in m or "3925" in m: return "Router"
+    if "ASR" in m:                            return "Router"
+    if "AIR-" in m or "C9120" in m or "C9130" in m or "C9136" in m: return "AP Autónomo"
+    if "NEXUS" in m or "N9K" in m or "N5K" in m: return "Nexus Switch"
+    if "FIREPOWER" in m or "FTD" in m:        return "Firewall"
+    if "ASA" in m:                            return "Firewall"
+    if "WS-C" in m or "C2960" in m:           return "Switch"
+    return "Device"
+
+
+def _np_parse_show_version(sv: str) -> dict:
+    """Extracts OS type, version, model, hostname and device type from the
+    output of 'show version'. Handles IOS-XE, IOS classic, and NX-OS.
+
+    Returns:
+      os_type   — "IOS-XE" | "IOS" | "NX-OS" | "Unknown"
+      version   — e.g. "17.06.03" or "15.2(7)E3"
+      platform  — full string e.g. "IOS-XE 17.06.03"
+      model     — e.g. "C9300-48P"
+      hostname  — from "uptime" line
+      dev_type  — e.g. "Switch", "Router", "WLC"
+    """
+    out: dict = {
+        "os_type":  "Unknown",
+        "version":  "",
+        "platform": "",
+        "model":    "",
+        "hostname": "",
+        "dev_type": "",
+    }
+    if not sv:
+        return out
+
+    # Hostname from "XXXX uptime is ..." line
+    hn_m = re.search(r"^(\S+)\s+uptime", sv, re.M)
+    if hn_m:
+        out["hostname"] = hn_m.group(1)
+
+    # IOS-XE detection (must come before generic IOS check)
+    xe_m = re.search(r"Cisco IOS.XE Software.*?Version\s+([\d\w.()]+)", sv, re.I)
+    if xe_m:
+        out["os_type"] = "IOS-XE"
+        out["version"] = xe_m.group(1)
+        out["platform"] = f"IOS-XE {out['version']}"
+    else:
+        # Classic IOS
+        ios_m = re.search(r"Cisco IOS Software.*?Version\s+([\d\w.()]+)", sv, re.I)
+        if ios_m:
+            out["os_type"] = "IOS"
+            out["version"] = ios_m.group(1)
+            out["platform"] = f"IOS {out['version']}"
+        else:
+            # NX-OS
+            nxos_m = re.search(r"(?:Cisco Nexus|NX-OS).*?[Vv]ersion\s+([\d\w.()]+)", sv, re.I)
+            if nxos_m:
+                out["os_type"] = "NX-OS"
+                out["version"] = nxos_m.group(1)
+                out["platform"] = f"NX-OS {out['version']}"
+            else:
+                # Last-resort: any "Version X.X.X" token
+                gen_m = re.search(r"Version\s+([\d\w.()]+)", sv)
+                if gen_m:
+                    out["version"] = gen_m.group(1)
+                    out["platform"] = out["version"]
+
+    # Model detection — look for "Model Number" field or the hardware line
+    model_m = re.search(r"[Mm]odel\s*[Nn]umber\s*:\s*(\S+)", sv)
+    if model_m:
+        out["model"] = model_m.group(1)
+    else:
+        # "cisco WS-C2960X-48FPD-L" / "cisco C9300-48P"
+        # Use findall to skip "Cisco IOS" / "Cisco Internetwork" / "Cisco Systems"
+        _skip = {"IOS", "SYSTEMS", "INTERNETWORK", "NEXUS"}
+        for candidate in re.findall(r"[Cc]isco\s+([\w/-]+)", sv):
+            if candidate.upper() not in _skip and len(candidate) > 3:
+                out["model"] = candidate
+                break
+
+    out["dev_type"] = _np_classify_model(out["model"]) if out["model"] else ""
+    return out
+
+
 def _np_ssh(ip: str, username: str, password: str, enable: str,
             commands: list, port: int = 22, timeout: int = 10) -> dict:
     """Open SSH to a Cisco device, optionally enter enable, run commands.
@@ -4089,14 +4181,15 @@ def _np_ssh(ip: str, username: str, password: str, enable: str,
         # Extract show version info if available
         if "show version" in " ".join(commands).lower() or not commands:
             shell.send("show version\n")
-            sv = _read(1.5)
+            sv = _read(2.0)
             full_output += f"\n! show version\n{sv}"
-            ver_m    = _r.search(r"Version\s+([\d\w.()]+)", sv)
-            plat_m   = _r.search(r"^(Cisco .+?)[,\n]", sv, _r.M)
-            hostname_m = _r.search(r"(\S+)\s+uptime", sv)
-            result["version"]  = ver_m.group(1)    if ver_m    else ""
-            result["platform"] = plat_m.group(1)   if plat_m   else ""
-            result["hostname"] = hostname_m.group(1) if hostname_m else hostname
+            parsed = _np_parse_show_version(sv)
+            result["version"]   = parsed["version"]
+            result["platform"]  = parsed["platform"]
+            result["hostname"]  = parsed["hostname"] or hostname
+            result["os_type"]   = parsed["os_type"]
+            result["model"]     = parsed["model"]
+            result["dev_type"]  = parsed["dev_type"]
 
         result["hostname"] = result["hostname"] or hostname
         result["ok"]       = True
@@ -4160,18 +4253,24 @@ async def netpush_discover(
                              [], port=port, timeout=5)
             with lock:
                 status = "reachable" if result["ok"] else "unreachable"
+                plat = result.get("platform", "")
+                dev_type = result.get("dev_type", "")
                 _NP["devices"][ip] = {
                     "ip":       ip,
                     "hostname": result.get("hostname", ip),
                     "version":  result.get("version", ""),
-                    "platform": result.get("platform", ""),
+                    "platform": plat,
+                    "os_type":  result.get("os_type", ""),
+                    "model":    result.get("model", ""),
+                    "dev_type": dev_type,
                     "status":   status,
                     "error":    result.get("error", ""),
                     "selected": result["ok"],
                 }
                 _NP["job"]["progress"] += 1
                 icon = "✓" if result["ok"] else "✗"
-                _np_log(f"{icon} {ip} — {result.get('hostname','')} {result.get('version','') or result.get('error','')[:40]}")
+                label = f"{plat} · {dev_type}" if dev_type else plat
+                _np_log(f"{icon} {ip} — {result.get('hostname','')} {label or result.get('error','')[:40]}")
 
         # Parallel — max 20 threads
         from concurrent.futures import ThreadPoolExecutor

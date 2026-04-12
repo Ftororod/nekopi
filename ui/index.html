@@ -2637,8 +2637,8 @@ input,select,textarea { font-family:inherit; }
                 <th style="width:36px"></th>
                 <th style="min-width:110px">IP</th>
                 <th>Hostname</th>
-                <th>IOS Version</th>
                 <th>Platform</th>
+                <th>Type · Model</th>
                 <th style="width:100px">Status</th>
               </tr>
             </thead>
@@ -11965,16 +11965,17 @@ function npLoadCSV(input){
 
 // ── Demo data ─────────────────────────
 var _NP_DEMO_DEVICES = [
-  {ip:'10.0.0.1',  hostname:'CORE-SW-01',   version:'16.9.4',  platform:'Cisco Catalyst 9300-48P', status:'reachable', selected:true,  error:''},
-  {ip:'10.0.0.2',  hostname:'DIST-SW-01',   version:'16.9.3',  platform:'Cisco Catalyst 9300-24P', status:'reachable', selected:true,  error:''},
-  {ip:'10.0.0.3',  hostname:'DIST-SW-02',   version:'16.9.3',  platform:'Cisco Catalyst 9300-24P', status:'reachable', selected:true,  error:''},
-  {ip:'10.0.0.11', hostname:'ACC-SW-01',    version:'15.2(7)E3',platform:'Cisco Catalyst 2960X-48',status:'reachable', selected:false, error:''},
-  {ip:'10.0.0.12', hostname:'ACC-SW-02',    version:'15.2(7)E3',platform:'Cisco Catalyst 2960X-48',status:'reachable', selected:false, error:''},
-  {ip:'10.0.0.13', hostname:'ACC-SW-03',    version:'15.2(7)E2',platform:'Cisco Catalyst 2960X-24',status:'reachable', selected:false, error:''},
-  {ip:'10.0.0.14', hostname:'ACC-SW-04',    version:'15.2(7)E2',platform:'Cisco Catalyst 2960X-24',status:'reachable', selected:false, error:''},
-  {ip:'10.0.0.21', hostname:'RTR-WAN-01',   version:'17.3.4',  platform:'Cisco ISR 4351',          status:'reachable', selected:true,  error:''},
-  {ip:'10.0.0.50', hostname:'',             version:'',         platform:'',                        status:'unreachable',selected:false,error:'Connection refused'},
-  {ip:'10.0.0.51', hostname:'',             version:'',         platform:'',                        status:'unreachable',selected:false,error:'No route to host'},
+  {ip:'10.0.0.1',  hostname:'CORE-SW-01',   version:'17.06.03', platform:'IOS-XE 17.06.03', os_type:'IOS-XE', model:'C9300-48P', dev_type:'Switch',  status:'reachable', selected:true,  error:''},
+  {ip:'10.0.0.2',  hostname:'DIST-SW-01',   version:'17.06.03', platform:'IOS-XE 17.06.03', os_type:'IOS-XE', model:'C9300-24P', dev_type:'Switch',  status:'reachable', selected:true,  error:''},
+  {ip:'10.0.0.3',  hostname:'DIST-SW-02',   version:'17.06.03', platform:'IOS-XE 17.06.03', os_type:'IOS-XE', model:'C9300-24P', dev_type:'Switch',  status:'reachable', selected:true,  error:''},
+  {ip:'10.0.0.11', hostname:'ACC-SW-01',    version:'15.2(7)E3',platform:'IOS 15.2(7)E3',   os_type:'IOS',    model:'WS-C2960X-48FPD-L',dev_type:'Switch', status:'reachable', selected:false, error:''},
+  {ip:'10.0.0.12', hostname:'ACC-SW-02',    version:'15.2(7)E3',platform:'IOS 15.2(7)E3',   os_type:'IOS',    model:'WS-C2960X-48FPD-L',dev_type:'Switch', status:'reachable', selected:false, error:''},
+  {ip:'10.0.0.13', hostname:'ACC-SW-03',    version:'15.2(7)E2',platform:'IOS 15.2(7)E2',   os_type:'IOS',    model:'WS-C2960X-24TD-L', dev_type:'Switch', status:'reachable', selected:false, error:''},
+  {ip:'10.0.0.14', hostname:'ACC-SW-04',    version:'15.2(7)E2',platform:'IOS 15.2(7)E2',   os_type:'IOS',    model:'WS-C2960X-24TD-L', dev_type:'Switch', status:'reachable', selected:false, error:''},
+  {ip:'10.0.0.21', hostname:'RTR-WAN-01',   version:'17.03.04', platform:'IOS-XE 17.03.04', os_type:'IOS-XE', model:'ISR4351/K9',        dev_type:'Router', status:'reachable', selected:true,  error:''},
+  {ip:'10.0.0.30', hostname:'WLC-MAIN',     version:'17.09.02', platform:'IOS-XE 17.09.02', os_type:'IOS-XE', model:'C9800-L-F-K9',      dev_type:'WLC',    status:'reachable', selected:true,  error:''},
+  {ip:'10.0.0.50', hostname:'',             version:'',         platform:'',                 os_type:'',       model:'',                   dev_type:'',       status:'unreachable',selected:false,error:'Connection refused'},
+  {ip:'10.0.0.51', hostname:'',             version:'',         platform:'',                 os_type:'',       model:'',                   dev_type:'',       status:'unreachable',selected:false,error:'No route to host'},
 ];
 
 var _NP_DEMO_SHOW_OUTPUT = {
@@ -12171,11 +12172,34 @@ function _npRenderDevTable(devices){
   if(!tbody) return;
   var reach=devices.filter(function(d){return d.status==='reachable';}).length;
   if(count) count.textContent=reach+' reachable / '+devices.length+' total';
+  var _typeIcon = {'Switch':'🔀','Router':'🌐','WLC':'📡','AP Autónomo':'📶',
+                   'Switch Chasis':'🗄','Nexus Switch':'🔀','Firewall':'🛡','Device':'⬜'};
   tbody.innerHTML=devices.map(function(d){
     var ok=d.status==='reachable';
-    var chk=d.selected?'<span style="color:var(--cyan);cursor:pointer;font-size:16px" onclick="npToggle(\''+d.ip+'\')">☑</span>':'<span style="color:var(--text2);cursor:pointer;font-size:16px" onclick="npToggle(\''+d.ip+'\')">☐</span>';
-    var badge=ok?'<span class="status-badge sb-ok"><span class="sb-dot"></span>reachable</span>':'<span class="status-badge sb-fail"><span class="sb-dot"></span>unreachable</span>';
-    return '<tr style="opacity:'+(ok?'1':'0.5')+'">'+'<td style="text-align:center">'+(ok?chk:'')+'</td>'+'<td style="font-family:monospace;font-size:11px">'+d.ip+'</td>'+'<td style="color:var(--cyan)">'+d.hostname+'</td>'+'<td style="font-family:monospace;font-size:10px;color:var(--text2)">'+d.version+'</td>'+'<td style="font-size:10px;color:var(--text2)">'+d.platform+'</td>'+'<td>'+badge+'</td>'+'</tr>';
+    var chk=d.selected
+      ?'<span style="color:var(--cyan);cursor:pointer;font-size:16px" onclick="npToggle(\''+d.ip+'\')">☑</span>'
+      :'<span style="color:var(--text2);cursor:pointer;font-size:16px" onclick="npToggle(\''+d.ip+'\')">☐</span>';
+    var badge=ok
+      ?'<span class="status-badge sb-ok"><span class="sb-dot"></span>reachable</span>'
+      :'<span class="status-badge sb-fail"><span class="sb-dot"></span>unreachable</span>';
+    // Platform column: "IOS-XE 17.06.03" or "IOS 15.2(7)E3"
+    var platHtml = d.platform
+      ? '<span style="color:var(--white)">'+d.platform+'</span>'
+      : '<span style="color:var(--text2)">—</span>';
+    // Type + Model column: "Switch · C9300-48P"
+    var icon = _typeIcon[d.dev_type] || '';
+    var typeHtml = d.dev_type
+      ? '<span style="color:var(--amber)">'+icon+' '+d.dev_type+'</span>'
+        + (d.model ? '<br><span style="font-family:monospace;font-size:9px;color:var(--text2)">'+d.model+'</span>' : '')
+      : (d.model ? '<span style="font-family:monospace;font-size:10px;color:var(--text2)">'+d.model+'</span>' : '—');
+    return '<tr style="opacity:'+(ok?'1':'0.5')+'">'
+      +'<td style="text-align:center">'+(ok?chk:'')+'</td>'
+      +'<td style="font-family:monospace;font-size:11px">'+d.ip+'</td>'
+      +'<td style="color:var(--cyan)">'+d.hostname+'</td>'
+      +'<td style="font-size:10px">'+platHtml+'</td>'
+      +'<td style="font-size:10px">'+typeHtml+'</td>'
+      +'<td>'+badge+'</td>'
+      +'</tr>';
   }).join('');
 }
 
