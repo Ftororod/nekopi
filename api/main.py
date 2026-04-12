@@ -4719,6 +4719,32 @@ async def wifits_scan(iface: str = "wlan0"):
     result["phy_mode"]     = None
     result["bandwidth"]    = None
     result["beacon_int"]   = None
+    result["ap_phy_mode"]  = None  # what the AP advertises (may be higher than link)
+
+    # Detect the adapter's own capabilities so we can cap the displayed PHY
+    # to what the link actually negotiates (AP may be WiFi6 but adapter WiFi5)
+    _phy_rank = {"WiFi7": 7, "WiFi6": 6, "WiFi5": 5, "WiFi4": 4, "legacy": 0}
+    adapter_phy = "legacy"
+    try:
+        info_out = run_cmd(["iw", "dev", iface, "info"])
+        phy_m = re.search(r"wiphy\s+(\d+)", info_out)
+        if phy_m:
+            phy_out = run_cmd(["iw", "phy", f"phy{phy_m.group(1)}", "info"])
+            if re.search(r"EHT Phy Cap|EHT MAC Cap", phy_out, re.I):
+                adapter_phy = "WiFi7"
+            elif re.search(r"HE Phy Cap|HE MAC Cap|HE.*capabilities", phy_out, re.I):
+                adapter_phy = "WiFi6"
+            elif re.search(r"VHT Capabilities", phy_out, re.I):
+                adapter_phy = "WiFi5"
+            elif re.search(r"HT TX/RX MCS", phy_out, re.I):
+                adapter_phy = "WiFi4"
+        # Also grab real bandwidth from iw dev info (more reliable than scan)
+        bw_m = re.search(r"width:\s*(\d+)\s*MHz", info_out)
+        if bw_m:
+            result["bandwidth"] = int(bw_m.group(1))
+    except Exception:
+        pass
+
     try:
         scan_out = run_cmd(["sudo", "iw", "dev", iface, "scan"], timeout=20)
         current_ch    = result.get("channel")
@@ -4733,13 +4759,19 @@ async def wifits_scan(iface: str = "wlan0"):
             ssid_m= re.search(r"SSID:\s*(.+)", block)
             bss_m = re.search(r"^([\w:]{17})", block.strip())
             beacon_m = re.search(r"beacon interval:\s*(\d+)", block, re.IGNORECASE)
-            phy = _wifi_phy_from_caps(block)
-            bw  = _wifi_bw_from_caps(block)
-            bssid = (bss_m.group(1).lower() if bss_m else "")
+            ap_phy = _wifi_phy_from_caps(block)
+            bw     = _wifi_bw_from_caps(block)
+            bssid  = (bss_m.group(1).lower() if bss_m else "")
             if current_bssid and bssid == current_bssid:
-                # Capabilities of the AP we are associated to
-                result["phy_mode"]   = phy
-                result["bandwidth"]  = bw
+                result["ap_phy_mode"] = ap_phy
+                # The actual link PHY is min(AP, adapter) — e.g. if AP is
+                # WiFi6 but adapter is WiFi5, the link runs at WiFi5.
+                if _phy_rank.get(ap_phy, 0) > _phy_rank.get(adapter_phy, 0):
+                    result["phy_mode"] = adapter_phy
+                else:
+                    result["phy_mode"] = ap_phy
+                if result["bandwidth"] is None:
+                    result["bandwidth"] = bw
                 if beacon_m:
                     try:
                         result["beacon_int"] = int(beacon_m.group(1))
@@ -4752,13 +4784,16 @@ async def wifits_scan(iface: str = "wlan0"):
                     "ssid":    ssid_m.group(1).strip() if ssid_m else "",
                     "signal":  float(sig_m.group(1)) if sig_m else -99,
                     "channel": int(ch_m.group(1)),
-                    "phy":     phy,
+                    "phy":     ap_phy,
                     "bw":      bw,
                 })
         result["co_channel_aps"] = same_ch
         result["total_aps_seen"] = total
     except Exception as e:
         result["scan_error"] = str(e)
+    # If scan failed but we have adapter info, use adapter phy as fallback
+    if result["phy_mode"] is None and adapter_phy != "legacy":
+        result["phy_mode"] = adapter_phy
 
     # 5. SNR (real noise floor if available, else -95 default)
     if result.get("rssi") is not None:
