@@ -12137,11 +12137,25 @@ function npDiscover(){
   });
 }
 
+var _NP_PHASE_LABELS = {
+  ping: 'Fase 1/3 · Ping sweep',
+  port: 'Fase 2/3 · Port check',
+  auth: 'Fase 3/3 · SSH auth',
+  done: 'Completo',
+};
+
 function _npPoll(){
   fetchAPI('/api/netpush/status').then(function(d){
     if(!d) return;
     _npRenderLog('npDiscLog',d.log); _npRenderLog('npShowLog',d.log); _npRenderLog('npPushLog',d.log);
-    if(d.total>0){var pct=Math.round(d.progress/d.total*100);['npDiscStatus','npShowStatus','npPushStatus'].forEach(function(id){var el=document.getElementById(id);if(el&&d.running)el.innerHTML='<span class="sb-dot"></span>'+pct+'%';});}
+    if(d.total>0 && d.running){
+      var pct = Math.round(d.progress/d.total*100);
+      var phaseLabel = _NP_PHASE_LABELS[d.phase] || d.phase || '';
+      ['npDiscStatus','npShowStatus','npPushStatus'].forEach(function(id){
+        var el=document.getElementById(id);
+        if(el) el.innerHTML='<span class="sb-dot"></span>'+phaseLabel+' · '+pct+'%';
+      });
+    }
     if(d.devices&&d.devices.length&&_npMode==='discover') _npRenderDevTable(d.devices);
     if(!d.running){
       clearInterval(_npPollIv);
@@ -12160,7 +12174,16 @@ function _npPoll(){
         var st2=document.getElementById('npPushStatus');if(st2){st2.className='status-badge '+(errN>0?'sb-warn':'sb-ok');st2.innerHTML='<span class="sb-dot"></span>Done';}
         ['npTestBtn','npPush1Btn','npPushAllBtn'].forEach(function(id){var b=document.getElementById(id);if(b){b.style.opacity='1';b.style.pointerEvents='auto';}});
       }
-      if(_npMode==='discover'){var st3=document.getElementById('npDiscStatus');if(st3){var r=d.devices?d.devices.filter(function(x){return x.status==='reachable';}).length:0;st3.className='status-badge sb-ok';st3.innerHTML='<span class="sb-dot"></span>'+r+' found';}}
+      if(_npMode==='discover'){
+        var st3=document.getElementById('npDiscStatus');
+        if(st3){
+          var devs = d.devices || [];
+          var auth  = devs.filter(function(x){return x.status==='reachable';}).length;
+          var alive = devs.filter(function(x){return x.status!=='unreachable';}).length;
+          st3.className='status-badge sb-ok';
+          st3.innerHTML='<span class="sb-dot"></span>'+auth+' auth · '+alive+' vivos';
+        }
+      }
       npUpdateSelectedCount();
     }
   });
@@ -12170,8 +12193,9 @@ function _npRenderDevTable(devices){
   var tbody=document.getElementById('npDevBody');
   var count=document.getElementById('npDevCount');
   if(!tbody) return;
-  var reach=devices.filter(function(d){return d.status==='reachable';}).length;
-  if(count) count.textContent=reach+' reachable / '+devices.length+' total';
+  var auth  = devices.filter(function(d){return d.status==='reachable';}).length;
+  var alive = devices.filter(function(d){return d.status!=='unreachable';}).length;
+  if(count) count.textContent=auth+' autenticados · '+alive+' vivos / '+devices.length+' total';
   var _typeIcon = {'Switch':'🔀','Router':'🌐','WLC':'📡','AP Autónomo':'📶',
                    'Switch Chasis':'🗄','Nexus Switch':'🔀','Firewall':'🛡','Device':'⬜'};
   tbody.innerHTML=devices.map(function(d){
@@ -12179,9 +12203,15 @@ function _npRenderDevTable(devices){
     var chk=d.selected
       ?'<span style="color:var(--cyan);cursor:pointer;font-size:16px" onclick="npToggle(\''+d.ip+'\')">☑</span>'
       :'<span style="color:var(--text2);cursor:pointer;font-size:16px" onclick="npToggle(\''+d.ip+'\')">☐</span>';
-    var badge=ok
-      ?'<span class="status-badge sb-ok"><span class="sb-dot"></span>reachable</span>'
-      :'<span class="status-badge sb-fail"><span class="sb-dot"></span>unreachable</span>';
+    var badge;
+    if(d.status==='reachable')
+      badge='<span class="status-badge sb-ok"><span class="sb-dot"></span>autenticado</span>';
+    else if(d.status==='auth-fail')
+      badge='<span class="status-badge sb-warn"><span class="sb-dot"></span>auth fail</span>';
+    else if(d.status==='alive-no-ssh')
+      badge='<span class="status-badge sb-idle"><span class="sb-dot"></span>sin SSH</span>';
+    else
+      badge='<span class="status-badge sb-fail"><span class="sb-dot"></span>unreachable</span>';
     // Platform column: "IOS-XE 17.06.03" or "IOS 15.2(7)E3"
     var platHtml = d.platform
       ? '<span style="color:var(--white)">'+d.platform+'</span>'

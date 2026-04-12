@@ -4201,7 +4201,7 @@ def _np_ssh(ip: str, username: str, password: str, enable: str,
     return result
 
 
-# ── Discovery ─────────────────────────────────────────────────
+# ── Discovery — 3-phase: ping sweep → port check → SSH auth ──
 @app.post("/api/netpush/discover")
 async def netpush_discover(
     targets:  str = "",   # "192.168.1.0/24" or "192.168.1.1,192.168.1.2" or "192.168.1.1-10"
@@ -4214,17 +4214,15 @@ async def netpush_discover(
         return {"ok": False, "error": "Job already running"}
 
     # Parse targets
-    ips = []
+    ips: list[str] = []
     for part in targets.replace(" ", "").split(","):
         part = part.strip()
         if not part: continue
         try:
             if "/" in part:
-                # CIDR
                 net = _np_ip.ip_network(part, strict=False)
                 ips += [str(h) for h in net.hosts()]
             elif "-" in part.split(".")[-1]:
-                # Range like 192.168.1.1-20
                 base = ".".join(part.split(".")[:3])
                 rng  = part.split(".")[-1].split("-")
                 ips += [f"{base}.{i}" for i in range(int(rng[0]), int(rng[1])+1)]
@@ -4232,28 +4230,93 @@ async def netpush_discover(
                 ips.append(part)
         except Exception:
             pass
-
     if not ips:
         return {"ok": False, "error": "No valid targets"}
 
-    # Store creds (in-memory only, never persisted)
-    _NP["creds"] = {"username": username, "password": password,
-                    "enable": enable, "port": port}
+    _NP["creds"]   = {"username": username, "password": password,
+                      "enable": enable, "port": port}
     _NP["devices"] = {}
-    _NP["job"] = {"type": "discover", "running": True, "results": {},
-                  "progress": 0, "total": len(ips), "log": []}
+    _NP["job"]     = {"type": "discover", "running": True, "results": {},
+                      "progress": 0, "total": len(ips), "log": [],
+                      "phase": "ping"}
 
-    _np_log(f"▶ Discovery started — {len(ips)} targets")
+    _np_log(f"▶ Discovery started — {len(ips)} IPs in range")
 
     def _run():
+        from concurrent.futures import ThreadPoolExecutor
         lock = _np_th.Lock()
+
+        # ── Phase 1: Ping sweep (fast, parallel, filters 90%+ of dead IPs) ──
+        _NP["job"]["phase"] = "ping"
+        _np_log("─── Fase 1/3 · Ping sweep ───")
+
+        def _ping(ip):
+            r = subprocess.run(["ping", "-c", "1", "-W", "1", ip],
+                               capture_output=True)
+            return ip if r.returncode == 0 else None
+
+        with ThreadPoolExecutor(max_workers=50) as ex:
+            alive = [ip for ip in ex.map(_ping, ips) if ip]
+            _NP["job"]["progress"] = len(ips)  # phase 1 complete
+
+        dead_count = len(ips) - len(alive)
+        _np_log(f"✓ Ping: {len(alive)} vivos · {dead_count} sin respuesta")
+
+        if not alive:
+            _np_log("■ No hosts alive — discovery aborted")
+            _NP["job"]["running"] = False
+            return
+
+        # ── Phase 2: Port check (only alive hosts) ──
+        _NP["job"]["phase"] = "port"
+        _NP["job"]["progress"] = 0
+        _NP["job"]["total"]    = len(alive)
+        _np_log(f"─── Fase 2/3 · SSH port check ({port}) ───")
+
+        def _check_port(ip):
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(1.5)
+                s.connect((ip, port))
+                s.close()
+                return ip
+            except Exception:
+                return None
+
+        with ThreadPoolExecutor(max_workers=30) as ex:
+            ssh_open = [ip for ip in ex.map(_check_port, alive) if ip]
+            _NP["job"]["progress"] = len(alive)
+
+        no_ssh = len(alive) - len(ssh_open)
+        _np_log(f"✓ Port {port}: {len(ssh_open)} abiertos · {no_ssh} cerrados/filtrados")
+
+        # Register non-SSH alive hosts as "no SSH" so the table still shows them
+        for ip in alive:
+            if ip not in ssh_open:
+                _NP["devices"][ip] = {
+                    "ip": ip, "hostname": ip, "version": "", "platform": "",
+                    "os_type": "", "model": "", "dev_type": "",
+                    "status": "alive-no-ssh", "error": f"port {port} closed",
+                    "selected": False,
+                }
+
+        if not ssh_open:
+            _np_log(f"■ No SSH open — skipping auth phase")
+            _NP["job"]["running"] = False
+            return
+
+        # ── Phase 3: SSH auth + show version (only hosts with open SSH) ──
+        _NP["job"]["phase"] = "auth"
+        _NP["job"]["progress"] = 0
+        _NP["job"]["total"]    = len(ssh_open)
+        _np_log(f"─── Fase 3/3 · SSH auth + show version ({len(ssh_open)} hosts) ───")
 
         def _probe(ip):
             result = _np_ssh(ip, username, password, enable,
-                             [], port=port, timeout=5)
+                             [], port=port, timeout=8)
             with lock:
-                status = "reachable" if result["ok"] else "unreachable"
-                plat = result.get("platform", "")
+                status = "reachable" if result["ok"] else "auth-fail"
+                plat     = result.get("platform", "")
                 dev_type = result.get("dev_type", "")
                 _NP["devices"][ip] = {
                     "ip":       ip,
@@ -4270,15 +4333,16 @@ async def netpush_discover(
                 _NP["job"]["progress"] += 1
                 icon = "✓" if result["ok"] else "✗"
                 label = f"{plat} · {dev_type}" if dev_type else plat
-                _np_log(f"{icon} {ip} — {result.get('hostname','')} {label or result.get('error','')[:40]}")
+                _np_log(f"{icon} {ip} — {result.get('hostname','')} "
+                        f"{label or result.get('error','')[:50]}")
 
-        # Parallel — max 20 threads
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=20) as ex:
-            list(ex.map(_probe, ips))
+        with ThreadPoolExecutor(max_workers=15) as ex:
+            list(ex.map(_probe, ssh_open))
 
         reachable = sum(1 for d in _NP["devices"].values() if d["status"] == "reachable")
-        _np_log(f"■ Discovery complete — {reachable}/{len(ips)} reachable")
+        total_dev = len(_NP["devices"])
+        _np_log(f"■ Discovery complete — {reachable} autenticados / {total_dev} detectados / {len(ips)} escaneados")
+        _NP["job"]["phase"]   = "done"
         _NP["job"]["running"] = False
 
     _np_th.Thread(target=_run, daemon=True).start()
@@ -4421,6 +4485,7 @@ async def netpush_status():
         "type":     _NP["job"]["type"],
         "progress": _NP["job"]["progress"],
         "total":    _NP["job"]["total"],
+        "phase":    _NP["job"].get("phase", ""),
         "log":      _NP["job"]["log"][-100:],
         "results":  _NP["job"]["results"],
         "devices":  list(_NP["devices"].values()),
