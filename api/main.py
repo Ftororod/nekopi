@@ -6763,33 +6763,51 @@ async def terminal_sessions():
 
 
 # ═══════════════════════════════════════════════════════════════
-#  CONSOLE PUSHER — serial port config push via FTDI/USB console
+#  CONSOLE PUSHER — serial terminal (ttyd + socat) + config push
 # ═══════════════════════════════════════════════════════════════
+# Two parallel paths to the serial port:
+#
+# 1. TERMINAL (interactive): ttyd → socat → /dev/ttyUSBx
+#    The engineer sees a full VT100 terminal in an iframe, types
+#    commands, reads output, navigates IOS menus — same experience
+#    as sitting in front of the switch with a cable.
+#
+# 2. CONFIG PUSH (programmatic): pyserial opens the same port
+#    AFTER the ttyd session is torn down (or on a second port if
+#    available) and injects lines with delay + prompt wait. This
+#    path runs server-side and reports progress + IOS errors to
+#    the frontend via the push response.
 import serial as _serial_mod
 import serial.tools.list_ports as _serial_list
 
-_CONSOLE_SER   = None     # serial.Serial instance
-_CONSOLE_OUT   = ""       # accumulated output buffer
-_CONSOLE_PUSH  = {}       # last push status {ok, total, sent, errors, …}
-_CONSOLE_LOCK  = _threading.Lock()
+_CP_TTYD_PROC: subprocess.Popen | None = None
+_CP_TTYD_PORT = 7682
+_CP_SERIAL_PORT = ""
+_CP_SERIAL_BAUD = 9600
+
 
 @app.get("/api/console/ports")
 async def console_ports():
     """Lists available serial ports with chipset info."""
     ports = []
     for p in _serial_list.comports():
+        # Filter out non-USB pseudo-ports (ttyAMA0 etc.)
+        if not p.device.startswith("/dev/ttyUSB") and not p.device.startswith("/dev/ttyACM"):
+            continue
         ports.append({
             "port":        p.device,
             "description": p.description or "",
             "hwid":        p.hwid or "",
-            "chipset":     (p.manufacturer or "") + " " + (p.product or ""),
+            "chipset":     ((p.manufacturer or "") + " " + (p.product or "")).strip(),
         })
     return {"ports": ports}
 
 
 @app.post("/api/console/connect")
 async def console_connect(request: Request):
-    global _CONSOLE_SER, _CONSOLE_OUT
+    """Spawns a ttyd process wrapping socat → serial port so the engineer
+    gets a full interactive terminal in an iframe. Returns the ttyd port."""
+    global _CP_TTYD_PROC, _CP_SERIAL_PORT, _CP_SERIAL_BAUD
     try:
         body = await request.json()
     except Exception:
@@ -6798,62 +6816,68 @@ async def console_connect(request: Request):
     baud = int(body.get("baud") or 9600)
     if not re.match(r"^/dev/[A-Za-z0-9._-]+$", port):
         return JSONResponse({"ok": False, "error": "invalid port path"}, status_code=400)
-    if _CONSOLE_SER and _CONSOLE_SER.is_open:
-        return {"ok": True, "note": "already connected", "port": _CONSOLE_SER.port}
+    if not Path(port).exists():
+        return JSONResponse({"ok": False, "error": f"port {port} not found"}, status_code=404)
+    # Kill any prior session
+    if _CP_TTYD_PROC and _CP_TTYD_PROC.poll() is None:
+        try: _CP_TTYD_PROC.terminate()
+        except Exception: pass
+        try: _CP_TTYD_PROC.wait(timeout=2)
+        except Exception:
+            try: _CP_TTYD_PROC.kill()
+            except Exception: pass
+    # socat gives us a clean raw bidirectional pipe — no escape-key issues
+    # from screen/minicom, and ttyd's -W flag allows writing back into it.
+    cmd = [
+        TTYD_BIN, "-p", str(_CP_TTYD_PORT), "-W",
+        "socat", f"file:{port},b{baud},raw,echo=0,crnl", "-,raw,echo=0",
+    ]
     try:
-        _CONSOLE_SER = _serial_mod.Serial(port, baud, timeout=0.5)
-        _CONSOLE_OUT = ""
-        # Start a background reader so output arrives continuously
-        def _reader():
-            global _CONSOLE_OUT
-            while _CONSOLE_SER and _CONSOLE_SER.is_open:
-                try:
-                    chunk = _CONSOLE_SER.read(256)
-                    if chunk:
-                        with _CONSOLE_LOCK:
-                            _CONSOLE_OUT += chunk.decode("utf-8", "replace")
-                            if len(_CONSOLE_OUT) > 64_000:
-                                _CONSOLE_OUT = _CONSOLE_OUT[-48_000:]
-                except Exception:
-                    break
-        _threading.Thread(target=_reader, daemon=True).start()
-        # Send a newline to wake the console and show the initial prompt
-        _CONSOLE_SER.write(b"\r\n")
-        time.sleep(0.3)
-        return {"ok": True, "port": port, "baud": baud}
-    except _serial_mod.SerialException as e:
+        _CP_TTYD_PROC = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    time.sleep(0.8)
+    if _CP_TTYD_PROC.poll() is not None:
+        try: err = (_CP_TTYD_PROC.stderr.read() or "")[-300:]
+        except: err = ""
+        return JSONResponse({"ok": False, "error": f"ttyd exited: {err.strip()}"},
+                            status_code=500)
+    _CP_SERIAL_PORT = port
+    _CP_SERIAL_BAUD = baud
+    return {"ok": True, "port": port, "baud": baud, "ttyd_port": _CP_TTYD_PORT}
 
 
 @app.post("/api/console/disconnect")
 async def console_disconnect():
-    global _CONSOLE_SER, _CONSOLE_OUT
-    if _CONSOLE_SER and _CONSOLE_SER.is_open:
-        try:
-            _CONSOLE_SER.close()
+    global _CP_TTYD_PROC
+    if _CP_TTYD_PROC and _CP_TTYD_PROC.poll() is None:
+        try: _CP_TTYD_PROC.terminate()
+        except Exception: pass
+        try: _CP_TTYD_PROC.wait(timeout=3)
         except Exception:
-            pass
-    _CONSOLE_SER = None
+            try: _CP_TTYD_PROC.kill()
+            except Exception: pass
+    _CP_TTYD_PROC = None
     return {"ok": True}
 
 
-@app.get("/api/console/output")
-async def console_output(since: int = 0):
-    """Returns accumulated serial output. `since` is a character offset so
-    the frontend can poll for only new data."""
-    with _CONSOLE_LOCK:
-        total = len(_CONSOLE_OUT)
-        if since >= total:
-            return {"output": "", "offset": total, "connected": bool(_CONSOLE_SER and _CONSOLE_SER.is_open)}
-        return {"output": _CONSOLE_OUT[since:], "offset": total,
-                "connected": bool(_CONSOLE_SER and _CONSOLE_SER.is_open)}
+@app.get("/api/console/status")
+async def console_status():
+    running = bool(_CP_TTYD_PROC and _CP_TTYD_PROC.poll() is None)
+    return {
+        "connected": running,
+        "port":      _CP_SERIAL_PORT if running else "",
+        "baud":      _CP_SERIAL_BAUD if running else 0,
+        "ttyd_port": _CP_TTYD_PORT if running else 0,
+    }
 
 
 @app.post("/api/console/push")
 async def console_push(request: Request):
-    """Pushes config lines one by one to the serial port with optional prompt
-    detection and mode-aware delays. Returns a summary with any IOS errors."""
-    global _CONSOLE_PUSH
+    """Config push via pyserial. The ttyd terminal must be DISCONNECTED first
+    because the port can only have one owner. The frontend calls disconnect →
+    push → reconnect to hand the port between interactive and programmatic."""
     try:
         body = await request.json()
     except Exception:
@@ -6861,87 +6885,112 @@ async def console_push(request: Request):
     lines      = body.get("lines") or []
     delay_ms   = max(50, min(1000, int(body.get("delay_ms") or 150)))
     wait_prompt = body.get("wait_prompt", True)
+    port       = body.get("port") or _CP_SERIAL_PORT or "/dev/ttyUSB0"
+    baud       = int(body.get("baud") or _CP_SERIAL_BAUD or 9600)
 
-    if not _CONSOLE_SER or not _CONSOLE_SER.is_open:
-        return JSONResponse({"ok": False, "error": "not connected"}, status_code=400)
     if not lines:
         return JSONResponse({"ok": False, "error": "empty lines"}, status_code=400)
+    if not Path(port).exists():
+        return JSONResponse({"ok": False, "error": f"port {port} not found"}, status_code=404)
+    # Ensure the ttyd session is down so we can own the port
+    if _CP_TTYD_PROC and _CP_TTYD_PROC.poll() is None:
+        return JSONResponse({"ok": False, "error": "disconnect the terminal first"},
+                            status_code=409)
 
     mode_cmds = ("conf t", "configure terminal", "interface", "router",
                  "vlan", "line vty", "line con", "ip route")
     errors: list[dict] = []
     sent = 0
+    buf  = ""
 
-    for i, raw_line in enumerate(lines):
-        line = raw_line.strip()
-        if not line or line.startswith("!"):
-            continue
+    try:
+        ser = _serial_mod.Serial(port, baud, timeout=0.5)
+    except _serial_mod.SerialException as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
-        if wait_prompt:
-            # Wait up to 5s for a # or > prompt before sending the next line
-            deadline = time.time() + 5
-            while time.time() < deadline:
-                with _CONSOLE_LOCK:
-                    tail = _CONSOLE_OUT[-200:] if _CONSOLE_OUT else ""
-                if tail.rstrip().endswith("#") or tail.rstrip().endswith(">"):
-                    break
-                time.sleep(0.1)
+    try:
+        ser.write(b"\r\n")
+        time.sleep(0.4)
 
-        _CONSOLE_SER.write((line + "\r\n").encode())
-        sent += 1
-        time.sleep(delay_ms / 1000)
+        for i, raw_line in enumerate(lines):
+            line = raw_line.strip()
+            if not line or line.startswith("!"):
+                continue
 
-        # Extra pause on mode-change commands
-        if any(cmd in line.lower() for cmd in mode_cmds):
-            time.sleep(0.5)
+            if wait_prompt:
+                deadline = time.time() + 5
+                while time.time() < deadline:
+                    chunk = ser.read(256)
+                    if chunk:
+                        buf += chunk.decode("utf-8", "replace")
+                    if buf.rstrip().endswith("#") or buf.rstrip().endswith(">"):
+                        break
+                    time.sleep(0.05)
 
-        # Read back output and check for IOS error markers (lines starting with %)
-        time.sleep(0.15)
-        with _CONSOLE_LOCK:
-            tail = _CONSOLE_OUT[-500:] if _CONSOLE_OUT else ""
-        for t in tail.splitlines():
-            if t.strip().startswith("%"):
-                errors.append({"line_num": i, "line": line, "error": t.strip()})
+            ser.write((line + "\r\n").encode())
+            sent += 1
+            time.sleep(delay_ms / 1000)
 
-    _CONSOLE_PUSH = {"ok": len(errors) == 0, "total": len(lines), "sent": sent,
-                     "errors": errors}
-    return _CONSOLE_PUSH
+            if any(cmd in line.lower() for cmd in mode_cmds):
+                time.sleep(0.5)
+
+            # Read back and check for IOS error markers
+            time.sleep(0.15)
+            chunk = ser.read(1024)
+            if chunk:
+                text = chunk.decode("utf-8", "replace")
+                buf += text
+                for t in text.splitlines():
+                    if t.strip().startswith("%"):
+                        errors.append({"line_num": i, "line": line, "error": t.strip()})
+    finally:
+        ser.close()
+
+    return {"ok": len(errors) == 0, "total": len(lines), "sent": sent,
+            "errors": errors, "output": buf[-2000:]}
 
 
 @app.post("/api/console/validate")
 async def console_validate(request: Request):
-    """Sends 'show running-config' then compares each template line against
-    the response. Returns matched/missing/partial lists."""
+    """Opens the serial port, runs 'show running-config', and compares each
+    template line against the output. The ttyd terminal must be disconnected
+    so we can own the port."""
     try:
         body = await request.json()
     except Exception:
         body = {}
     template_lines = body.get("template_lines") or []
-    if not _CONSOLE_SER or not _CONSOLE_SER.is_open:
-        return JSONResponse({"ok": False, "error": "not connected"}, status_code=400)
+    port = body.get("port") or _CP_SERIAL_PORT or "/dev/ttyUSB0"
+    baud = int(body.get("baud") or _CP_SERIAL_BAUD or 9600)
 
-    # Save current offset so we can grab ONLY the show run output
-    with _CONSOLE_LOCK:
-        start_offset = len(_CONSOLE_OUT)
+    if not template_lines:
+        return JSONResponse({"ok": False, "error": "empty template"}, status_code=400)
+    if _CP_TTYD_PROC and _CP_TTYD_PROC.poll() is None:
+        return JSONResponse({"ok": False, "error": "disconnect the terminal first"},
+                            status_code=409)
+    try:
+        ser = _serial_mod.Serial(port, baud, timeout=0.5)
+    except _serial_mod.SerialException as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
-    _CONSOLE_SER.write(b"show running-config\r\n")
-    time.sleep(3)  # wait for the full config to scroll
-    # Keep reading until we see the trailing # prompt or timeout
-    deadline = time.time() + 10
-    while time.time() < deadline:
-        with _CONSOLE_LOCK:
-            tail = _CONSOLE_OUT[start_offset:]
-        if tail.rstrip().endswith("#"):
-            break
-        time.sleep(0.5)
-
-    with _CONSOLE_LOCK:
-        running = _CONSOLE_OUT[start_offset:]
+    try:
+        ser.write(b"\r\nshow running-config\r\n")
+        running = ""
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            chunk = ser.read(4096)
+            if chunk:
+                running += chunk.decode("utf-8", "replace")
+            if running.rstrip().endswith("#"):
+                break
+            time.sleep(0.3)
+    finally:
+        ser.close()
 
     running_lower = running.lower()
-    matched  = []
-    missing  = []
-    partial  = []
+    matched: list[str] = []
+    missing: list[str] = []
+    partial: list[str] = []
     for tl in template_lines:
         tl_strip = tl.strip()
         if not tl_strip or tl_strip.startswith("!"):
@@ -6950,7 +6999,6 @@ async def console_validate(request: Request):
         if tl_lower in running_lower:
             matched.append(tl_strip)
         else:
-            # Check partial — at least the first token matches a line
             first_token = tl_lower.split()[0] if tl_lower.split() else ""
             if first_token and any(first_token in rl.lower() for rl in running.splitlines()):
                 partial.append(tl_strip)
