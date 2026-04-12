@@ -907,6 +907,9 @@ input,select,textarea { font-family:inherit; }
     <button class="nav-item" data-page="tools">
       <span class="nav-icon">🔧</span><span class="nav-label">Tools</span>
     </button>
+    <button class="nav-item" data-page="cpusher">
+      <span class="nav-icon">🔌</span><span class="nav-label">Console Pusher</span>
+    </button>
   </div>
 
   <div class="nav-group">
@@ -3897,9 +3900,17 @@ input,select,textarea { font-family:inherit; }
           <iframe id="conCockpitIframe" src="about:blank"
             style="width:100%;height:640px;border:none;display:block;background:#000"
             allow="clipboard-read; clipboard-write"></iframe>
-          <div id="conCockpitFallback" style="display:none;padding:14px;color:var(--text2);font-size:11px">
-            ⚠ Cockpit no responde en :9090. Para activarlo:
-            <code style="color:var(--amber)">sudo systemctl enable --now cockpit.socket</code>
+          <div id="conCockpitFallback" style="display:none;padding:14px;color:var(--text2);font-size:11px;background:rgba(255,193,7,.06);border-top:1px solid rgba(255,193,7,.2);line-height:1.7">
+            💡 Cockpit usa <strong style="color:var(--amber)">HTTPS con certificado self-signed</strong>.
+            El navegador puede bloquear el iframe la primera vez.
+            <strong>Solución:</strong> abre Cockpit en nueva pestaña, acepta el certificado, y regresa.
+            <div style="margin-top:8px">
+              <button class="btn btn-primary btn-sm" onclick="conCockpitOpenNewTab()">🔗 Abrir Cockpit en pestaña nueva</button>
+              <button class="btn btn-ghost btn-sm" onclick="conCockpitReload()" style="margin-left:6px">↻ Reintentar iframe</button>
+            </div>
+            <div style="margin-top:6px;font-size:10px;color:var(--text2)">
+              Si Cockpit no está activo: <code style="color:var(--amber)">sudo systemctl enable --now cockpit.socket</code>
+            </div>
           </div>
         </div>
       </div>
@@ -3929,6 +3940,102 @@ input,select,textarea { font-family:inherit; }
   <!-- ═══════════════════════════════
        SETTINGS
   ═══════════════════════════════ -->
+  <!-- ═══════════════════════════════
+       CONSOLE PUSHER — serial config push via USB console cable
+  ═══════════════════════════════ -->
+  <div class="page" id="page-cpusher">
+    <div class="section-title">🔌 Console Pusher</div>
+    <div class="section-sub">Serial config push · Cisco IOS · FTDI/USB · validación post-push</div>
+
+    <div class="two-col" style="margin-bottom:14px">
+      <!-- Card 1: Conexión Serial -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">🔌 Conexión Serial</div>
+          <span class="status-badge sb-idle" id="cpStatus"><span class="sb-dot"></span>Desconectado</span>
+        </div>
+        <div class="card-body">
+          <div class="form-row" style="margin-bottom:10px">
+            <div class="form-group">
+              <label class="form-label">Puerto</label>
+              <select class="form-input form-select" id="cpPort" style="font-family:monospace">
+                <option value="/dev/ttyUSB0">/dev/ttyUSB0</option>
+              </select>
+              <button class="btn btn-ghost btn-sm" style="margin-top:4px;font-size:10px" onclick="cpRefreshPorts()">↻ Detectar</button>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Baud Rate</label>
+              <select class="form-input form-select" id="cpBaud">
+                <option value="9600" selected>9600 (Cisco default)</option>
+                <option value="19200">19200</option>
+                <option value="38400">38400</option>
+                <option value="115200">115200</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary" id="cpConnBtn" onclick="cpConnect(event)">🔌 Conectar</button>
+            <button class="btn btn-ghost btn-sm" id="cpDiscBtn" onclick="cpDisconnect()" style="display:none">⏹ Desconectar</button>
+          </div>
+          <div class="divider"></div>
+          <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Terminal Serial (read-only)</div>
+          <pre id="cpTerminal" style="margin:0;padding:8px 10px;background:#000;color:#9aa;font-size:11px;max-height:200px;overflow:auto;font-family:monospace;border-radius:var(--radius);border:1px solid var(--border);min-height:100px">Pulsa "Conectar" para iniciar sesión serial…</pre>
+        </div>
+      </div>
+
+      <!-- Card 2: Config Template -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">📝 Config Template</div>
+          <span id="cpPushStatus" style="font-size:11px;color:var(--text2)"></span>
+        </div>
+        <div class="card-body">
+          <div class="form-group">
+            <label class="form-label">Configuración IOS (una línea por comando)</label>
+            <textarea class="form-input" id="cpConfig" rows="10" placeholder="conf t&#10;interface GigabitEthernet0/1&#10; description NekoPi-managed&#10; no shutdown&#10;end" style="font-family:monospace;font-size:11px;resize:vertical"></textarea>
+          </div>
+          <div class="form-row" style="margin-bottom:10px">
+            <div class="form-group">
+              <label class="form-label">Delay entre líneas</label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="range" id="cpDelay" min="50" max="500" value="150" style="flex:1" oninput="document.getElementById('cpDelayVal').textContent=this.value+'ms'">
+                <span id="cpDelayVal" style="font-size:11px;color:var(--text2);min-width:42px">150ms</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" style="margin-bottom:8px">Opciones</label>
+              <label class="toggle-wrap"><input type="checkbox" id="cpWaitPrompt" checked><span class="toggle-lbl">Esperar prompt (#/>) antes de cada línea</span></label>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-primary" id="cpPushBtn" onclick="cpPush(event)">▶ Push Config</button>
+            <div id="cpProgress" style="flex:1;display:none">
+              <div style="background:var(--bg3);border-radius:2px;height:8px;overflow:hidden">
+                <div id="cpProgressBar" style="width:0%;height:100%;background:var(--blue);transition:width .3s"></div>
+              </div>
+              <div id="cpProgressText" style="font-size:10px;color:var(--text2);margin-top:2px">0 / 0 líneas</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 3: Validación Post-Push -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header">
+        <div class="card-title">🔍 Validación Post-Push</div>
+      </div>
+      <div class="card-body">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+          <button class="btn btn-primary btn-sm" onclick="cpValidate(event)">🔍 Validar Config</button>
+          <span style="font-size:11px;color:var(--text2)">Ejecuta "show running-config" y compara contra el template</span>
+        </div>
+        <div id="cpValidateResult" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-size:11px;max-height:300px;overflow-y:auto">
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="page" id="page-settings">
     <div class="section-title">⚙️ Settings</div>
     <div class="section-sub">Red · IA · Sondas · Dispositivo</div>
@@ -5680,6 +5787,9 @@ const pages = {
   console:    { title:'System Console',    sub:'Cockpit (:9090) · system logs', onload: function(){
     try { conSwitchTab('health'); } catch(e) {}
   } },
+  cpusher:    { title:'Console Pusher',  sub:'Serial config push · Cisco IOS · FTDI/USB', onload: function(){
+    try { cpRefreshPorts(); cpPollStart(); } catch(e) {}
+  } },
   settings:   { title:'Settings',          sub:'NekoPi Field Unit v1.0', onload: function(){ try{ initProbeConfigUI(); initWifiScanIntervalUI(); loadAISettings(); }catch(e){} } },
   about:      { title:'About',             sub:'NekoPi Field Unit v1.0.0 · hardware · software · credits' },
 };
@@ -5742,6 +5852,11 @@ function goPage(id) {
   if (id !== 'console' && _conHealthIv) {
     clearInterval(_conHealthIv);
     _conHealthIv = null;
+  }
+  // Stop console pusher polling when leaving cpusher page
+  if (id !== 'cpusher' && _cpPollIv) {
+    clearInterval(_cpPollIv);
+    _cpPollIv = null;
   }
   // Stop sensor capture when leaving sensor page (on-demand pktvisord only)
   if (id !== 'sensor' && sensorRunning) {
@@ -8424,9 +8539,9 @@ function conSwitchTab(which){
 }
 
 function _cockpitUrl(){
-  // Use the same hostname the user is browsing — they reach the RPi via
-  // its actual IP, so cockpit on :9090 sits on the same address.
-  return window.location.protocol + '//' + window.location.hostname + ':9090/';
+  // Cockpit listens on HTTPS :9090 with a self-signed cert. The browser
+  // will prompt the user to accept it once — that's expected on a field unit.
+  return 'https://' + window.location.hostname + ':9090/';
 }
 
 function conCockpitReload(){
@@ -8434,12 +8549,23 @@ function conCockpitReload(){
   var label = document.getElementById('conCockpitUrl');
   if(label) label.textContent = url;
   var iframe = document.getElementById('conCockpitIframe');
+  var fb     = document.getElementById('conCockpitFallback');
+  if(fb) fb.style.display = 'none';
   if(iframe) iframe.src = url;
-  // Probe the URL — if it fails, show a fallback message.
-  fetch(url, {mode:'no-cors', cache:'no-store'}).catch(function(){
-    var fb = document.getElementById('conCockpitFallback');
+  // Cockpit's self-signed cert will often block the iframe on strict browsers.
+  // After 4s, if the iframe is still blank, surface the fallback note with a
+  // "open in new tab" call-to-action so the engineer can accept the cert.
+  setTimeout(function(){
+    try {
+      // Cross-origin iframes throw on contentDocument access — if Cockpit
+      // loaded successfully we'd still get an exception, so instead we
+      // check if the iframe has rendered anything by looking at its height.
+      var loaded = iframe && iframe.contentWindow && iframe.clientHeight > 0;
+      // Can't reliably detect cross-origin load; always surface fallback as
+      // an option after the timeout so the user isn't stuck.
+    } catch(e) {}
     if(fb) fb.style.display = '';
-  });
+  }, 4000);
 }
 
 function conCockpitOpenNewTab(){ window.open(_cockpitUrl(), '_blank'); }
@@ -8458,6 +8584,224 @@ function conLogsRefresh(){
 
 // Legacy WebSSH/xterm CLI helpers were removed in the ttyd rebuild — see
 // termSwitchTab / termSshConnect above for the current Terminal logic.
+
+// ═══════════════════════════════════════
+//  CONSOLE PUSHER — serial config push
+// ═══════════════════════════════════════
+var _cpPollIv = null;
+var _cpOffset = 0;
+var _cpConnected = false;
+
+function cpRefreshPorts(){
+  fetchAPI('/api/console/ports').then(function(d){
+    if(!d) return;
+    var sel = document.getElementById('cpPort');
+    if(!sel) return;
+    var ports = d.ports || [];
+    if(!ports.length){
+      sel.innerHTML = '<option value="">(sin puerto serial detectado)</option>';
+      return;
+    }
+    sel.innerHTML = ports.map(function(p){
+      var label = p.port + (p.description ? ' — ' + p.description : '');
+      return '<option value="'+p.port+'">'+label+'</option>';
+    }).join('');
+  });
+}
+
+function cpConnect(ev){
+  var port = (document.getElementById('cpPort')||{}).value || '';
+  var baud = parseInt((document.getElementById('cpBaud')||{}).value) || 9600;
+  var btn  = ev && ev.currentTarget;
+  if(!port){ showToast('Selecciona un puerto serial'); return; }
+
+  if(DEMO_MODE){
+    _cpConnected = true;
+    _cpOffset = 0;
+    var st = document.getElementById('cpStatus');
+    if(st){ st.className='status-badge sb-ok'; st.innerHTML='<span class="sb-dot"></span>Conectado (DEMO)'; }
+    var cb = document.getElementById('cpConnBtn'), db = document.getElementById('cpDiscBtn');
+    if(cb) cb.style.display = 'none'; if(db) db.style.display = '';
+    var term = document.getElementById('cpTerminal');
+    if(term) term.textContent = 'SW-DEMO#\n';
+    showToast('Conectado (DEMO) a Cisco IOS SW-DEMO');
+    return;
+  }
+
+  if(btn){ btn.disabled = true; btn.textContent = '⌛ Conectando…'; }
+  fetch(API_BASE + '/api/console/connect', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({port: port, baud: baud}),
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if(d && d.ok){
+      _cpConnected = true;
+      _cpOffset = 0;
+      var st = document.getElementById('cpStatus');
+      if(st){ st.className='status-badge sb-ok'; st.innerHTML='<span class="sb-dot"></span>Conectado · '+d.port+' @ '+d.baud; }
+      var cb = document.getElementById('cpConnBtn'), db = document.getElementById('cpDiscBtn');
+      if(cb) cb.style.display = 'none'; if(db) db.style.display = '';
+      showToast('✓ Conectado a '+d.port);
+      cpPollStart();
+    } else {
+      showToast('✗ '+(d&&d.error||'failed'));
+    }
+  }).catch(function(e){ showToast('✗ '+e.message); })
+    .finally(function(){ if(btn){ btn.disabled = false; btn.textContent = '🔌 Conectar'; } });
+}
+
+function cpDisconnect(){
+  if(DEMO_MODE){
+    _cpConnected = false;
+    var st = document.getElementById('cpStatus');
+    if(st){ st.className='status-badge sb-idle'; st.innerHTML='<span class="sb-dot"></span>Desconectado'; }
+    var cb = document.getElementById('cpConnBtn'), db = document.getElementById('cpDiscBtn');
+    if(cb) cb.style.display = ''; if(db) db.style.display = 'none';
+    return;
+  }
+  fetch(API_BASE + '/api/console/disconnect', {method:'POST'}).then(function(){
+    _cpConnected = false;
+    var st = document.getElementById('cpStatus');
+    if(st){ st.className='status-badge sb-idle'; st.innerHTML='<span class="sb-dot"></span>Desconectado'; }
+    var cb = document.getElementById('cpConnBtn'), db = document.getElementById('cpDiscBtn');
+    if(cb) cb.style.display = ''; if(db) db.style.display = 'none';
+    showToast('Desconectado');
+  });
+}
+
+function cpPollStart(){
+  if(_cpPollIv) clearInterval(_cpPollIv);
+  _cpPollIv = setInterval(cpPollOutput, 500);
+}
+
+function cpPollOutput(){
+  if(DEMO_MODE) return;
+  fetch(API_BASE + '/api/console/output?since='+_cpOffset)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d) return;
+      _cpOffset = d.offset || 0;
+      if(d.output){
+        var term = document.getElementById('cpTerminal');
+        if(term){
+          term.textContent += d.output;
+          term.scrollTop = term.scrollHeight;
+        }
+      }
+      if(!d.connected && _cpConnected){
+        _cpConnected = false;
+        var st = document.getElementById('cpStatus');
+        if(st){ st.className='status-badge sb-fail'; st.innerHTML='<span class="sb-dot"></span>Conexión perdida'; }
+      }
+    });
+}
+
+function cpPush(ev){
+  var btn  = ev && ev.currentTarget;
+  var text = (document.getElementById('cpConfig')||{}).value || '';
+  var lines = text.split('\n').filter(function(l){ return l.trim(); });
+  var delay = parseInt((document.getElementById('cpDelay')||{}).value) || 150;
+  var waitP = (document.getElementById('cpWaitPrompt')||{checked:true}).checked;
+  if(!lines.length){ showToast('Pega la config primero'); return; }
+
+  var prog    = document.getElementById('cpProgress');
+  var progBar = document.getElementById('cpProgressBar');
+  var progTxt = document.getElementById('cpProgressText');
+  if(prog) prog.style.display = '';
+
+  if(DEMO_MODE){
+    if(btn){ btn.disabled = true; }
+    var i = 0;
+    var demoLines = lines.slice(0, 5);
+    var term = document.getElementById('cpTerminal');
+    var iv = setInterval(function(){
+      if(i >= demoLines.length){
+        clearInterval(iv);
+        if(progBar) progBar.style.width = '100%';
+        if(progTxt) progTxt.textContent = demoLines.length+' / '+demoLines.length+' líneas ✓';
+        if(btn){ btn.disabled = false; }
+        var ps = document.getElementById('cpPushStatus');
+        if(ps) ps.innerHTML = '<span style="color:var(--green)">✓ Push DEMO completo</span>';
+        showToast('Push DEMO completo');
+        return;
+      }
+      if(term) term.textContent += 'SW-DEMO(config)# '+demoLines[i]+'\n';
+      i++;
+      if(progBar) progBar.style.width = Math.round(i/demoLines.length*100)+'%';
+      if(progTxt) progTxt.textContent = i+' / '+demoLines.length+' líneas';
+    }, delay);
+    return;
+  }
+
+  if(!_cpConnected){ showToast('Conecta primero al equipo'); return; }
+  if(btn){ btn.disabled = true; btn.textContent = '⌛ Pushing…'; }
+  if(progBar) progBar.style.width = '10%';
+  if(progTxt) progTxt.textContent = '0 / '+lines.length+' líneas';
+
+  fetch(API_BASE + '/api/console/push', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({lines: lines, delay_ms: delay, wait_prompt: waitP}),
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if(progBar) progBar.style.width = '100%';
+    if(progTxt) progTxt.textContent = (d.sent||0)+' / '+(d.total||0)+' líneas';
+    var ps = document.getElementById('cpPushStatus');
+    if(d.ok){
+      if(ps) ps.innerHTML = '<span style="color:var(--green)">✓ Push completo: '+(d.sent||0)+' líneas</span>';
+      showToast('✓ Config push completo');
+    } else {
+      var errs = (d.errors||[]).map(function(e){return '❌ L'+e.line_num+': '+e.error;}).join('\n');
+      if(ps) ps.innerHTML = '<span style="color:var(--red)">⚠ Errores IOS detectados</span>';
+      showToast('Push con errores — ver terminal');
+      var term = document.getElementById('cpTerminal');
+      if(term) term.textContent += '\n--- ERRORES IOS ---\n'+errs+'\n';
+    }
+  }).catch(function(e){ showToast('✗ '+e.message); })
+    .finally(function(){ if(btn){ btn.disabled = false; btn.textContent = '▶ Push Config'; } });
+}
+
+function cpValidate(ev){
+  var text = (document.getElementById('cpConfig')||{}).value || '';
+  var lines = text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
+  if(!lines.length){ showToast('Pega el template primero'); return; }
+  var result = document.getElementById('cpValidateResult');
+  if(!result) return;
+  result.style.display = '';
+
+  if(DEMO_MODE){
+    result.innerHTML =
+      '<div style="color:var(--green);margin:4px 0">✅ interface GigabitEthernet0/1</div>'
+      +'<div style="color:var(--green);margin:4px 0">✅ description NekoPi-managed</div>'
+      +'<div style="color:var(--green);margin:4px 0">✅ no shutdown</div>'
+      +'<div style="color:var(--green);margin:4px 0">✅ ip address 192.168.1.100 255.255.255.0</div>'
+      +'<div style="color:var(--red);margin:4px 0">❌ spanning-tree portfast — NO encontrado en running-config</div>'
+      +'<div style="margin-top:8px;color:var(--text2)">4/5 líneas coinciden · 1 faltante</div>';
+    return;
+  }
+
+  if(!_cpConnected){ showToast('Conecta primero'); return; }
+  result.innerHTML = '<div class="ai-thinking">▶ Ejecutando show running-config…</div>';
+  fetch(API_BASE + '/api/console/validate', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({template_lines: lines}),
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if(!d || !d.ok){
+      result.innerHTML = '<div style="color:var(--red)">✗ '+(d&&d.error||'failed')+'</div>';
+      return;
+    }
+    var html = '';
+    (d.matched||[]).forEach(function(l){ html += '<div style="color:var(--green);margin:3px 0">✅ '+l+'</div>'; });
+    (d.partial||[]).forEach(function(l){ html += '<div style="color:var(--amber);margin:3px 0">⚠️ '+l+' — parcialmente coincidente</div>'; });
+    (d.missing||[]).forEach(function(l){ html += '<div style="color:var(--red);margin:3px 0">❌ '+l+' — NO encontrado en running-config</div>'; });
+    var total = (d.matched||[]).length + (d.partial||[]).length + (d.missing||[]).length;
+    html += '<div style="margin-top:8px;color:var(--text2)">'
+      +(d.matched||[]).length+'/'+total+' líneas coinciden'
+      +((d.missing||[]).length ? ' · '+(d.missing||[]).length+' faltantes':'')
+      +((d.partial||[]).length ? ' · '+(d.partial||[]).length+' parciales':'')
+      +'</div>';
+    result.innerHTML = html;
+  }).catch(function(e){
+    result.innerHTML = '<div style="color:var(--red)">✗ '+e.message+'</div>';
+  });
+}
 
 // ═══════════════════════════════════════
 //  EDGE AI — INLINE TYPEWRITER
