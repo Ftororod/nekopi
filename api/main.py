@@ -5701,7 +5701,21 @@ def _settings_save(d: dict) -> None:
 
 # Shared posture/safety preamble — applied to every module call so the
 # assistant never replaces the on-site engineer's judgement.
-AI_POSTURE_PROMPT = (
+_AI_POSTURE_EN = (
+    "You are a network diagnostics assistant for field engineers. "
+    "Your role is to SUGGEST and GUIDE, NOT replace the engineer's judgement.\n\n"
+    "Strict rules:\n"
+    "- USE phrases like: 'this could indicate', 'a possible cause is', "
+    "'I suggest verifying', 'this might be due to'.\n"
+    "- AVOID: 'the problem IS', 'the cause IS', absolute statements without "
+    "physical verification.\n"
+    "- Always end with a line: 'To confirm, verify on-site: ...'.\n"
+    "- If the data is insufficient, say so and ask for the missing "
+    "information. Never invent data not present in the received context.\n"
+    "- Maximum 4 paragraphs, direct and technical."
+)
+
+_AI_POSTURE_ES = (
     "Eres un asistente de diagnóstico de redes para ingenieros de campo. "
     "Tu rol es SUGERIR y ORIENTAR, NO reemplazar el criterio del ingeniero.\n\n"
     "Reglas estrictas:\n"
@@ -5712,8 +5726,22 @@ AI_POSTURE_PROMPT = (
     "- Siempre termina con una línea: 'Para confirmar, verifica en sitio: ...'.\n"
     "- Si los datos no son suficientes para orientar, indícalo y pide la "
     "información faltante. No inventes datos que no están en el contexto recibido.\n"
-    "- Responde SIEMPRE en español, máximo 4 párrafos, directo y técnico."
+    "- Máximo 4 párrafos, directo y técnico."
 )
+
+_AI_LANG_SUFFIX = {
+    "en":   "\n\nAlways respond in English.",
+    "es":   "\n\nResponde siempre en español.",
+    "auto": "\n\nRespond in the same language the user writes in.",
+}
+
+def _ai_posture_prompt() -> str:
+    """Build the AI system prompt with the configured language."""
+    s = _settings_load()
+    lang = s.get("ai_language", "en")
+    base = _AI_POSTURE_ES if lang == "es" else _AI_POSTURE_EN
+    suffix = _AI_LANG_SUFFIX.get(lang, _AI_LANG_SUFFIX["en"])
+    return base + suffix
 
 def _gemini_endpoint(model: str) -> str:
     return ("https://generativelanguage.googleapis.com/v1beta/"
@@ -5728,7 +5756,7 @@ def _ai_call_gemini(prompt: str, key: str, model: str) -> tuple[str, str]:
     # field-diagnosis tool we want speed + direct answers, not chain-of-thought,
     # so we disable thinking entirely via thinkingBudget=0.
     body = json.dumps({
-        "contents": [{"role": "user", "parts": [{"text": f"{AI_POSTURE_PROMPT}\n\n{prompt}"}]}],
+        "contents": [{"role": "user", "parts": [{"text": f"{_ai_posture_prompt()}\n\n{prompt}"}]}],
         "generationConfig": {
             "temperature":     0.2,
             "maxOutputTokens": 1024,
@@ -5778,7 +5806,7 @@ def _ai_call_ollama(prompt: str, base_url: str) -> tuple[str, str]:
     model = models[0]
     body = json.dumps({
         "model": model,
-        "prompt": f"{AI_POSTURE_PROMPT}\n\n{prompt}",
+        "prompt": f"{_ai_posture_prompt()}\n\n{prompt}",
         "stream": False,
         "options": {"temperature": 0.2, "num_predict": 512, "num_ctx": 2048},
     }).encode()
@@ -5917,7 +5945,7 @@ async def ai_test_gemini(request: Request):
     if not key:
         return JSONResponse({"ok": False, "error": "missing key"}, status_code=400)
     try:
-        text, used = _ai_call_gemini("Responde solo: ok", key, model)
+        text, used = _ai_call_gemini("Reply only: ok", key, model)
         return {"ok": True, "model": used, "response": text}
     except _ai_err.HTTPError as e:
         return JSONResponse({"ok": False, "error": f"HTTP {e.code}: {e.reason}"},
@@ -8141,7 +8169,8 @@ async def settings_get():
         "ollama_url":   s.get("ollama_url",   ""),
         "gemini_key":   "••••••••" if s.get("gemini_key") else "",
         "gemini_model": s.get("gemini_model", "gemini-2.5-flash"),
-        "ui_lang":      s.get("ui_lang", "es"),
+        "ui_language":  s.get("ui_language", "en"),
+        "ai_language":  s.get("ai_language", "en"),
         "client_name":  s.get("client_name", ""),
         "engineer":     s.get("engineer", ""),
         "device_name":  s.get("device_name", ""),
@@ -8155,7 +8184,8 @@ async def settings_set(request: Request):
         body = {}
     cur = _settings_load()
     for k in ("ollama_url", "gemini_model",
-              "ui_lang", "client_name", "engineer", "device_name"):
+              "ui_language", "ai_language",
+              "client_name", "engineer", "device_name"):
         if k in body and body[k] is not None:
             cur[k] = str(body[k]).strip()
     # gemini_key only updated when caller sends a non-mask value
@@ -8165,7 +8195,12 @@ async def settings_set(request: Request):
             cur["gemini_key"] = v
         elif v == "":
             cur.pop("gemini_key", None)
-    # Drop the legacy radio field if present
+    # Drop legacy fields
     cur.pop("ai_backend", None)
+    # Migrate legacy ui_lang → ui_language
+    if "ui_lang" in cur and "ui_language" not in cur:
+        cur["ui_language"] = cur.pop("ui_lang")
+    elif "ui_lang" in cur:
+        cur.pop("ui_lang")
     _settings_save(cur)
     return {"ok": True}
