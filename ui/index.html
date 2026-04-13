@@ -6039,6 +6039,7 @@ const pages = {
   cli:        { title:'Terminal',          sub:'ttyd embebido · bash local · SSH remoto', onload: function(){
     try { termSwitchTab('local'); } catch(e) {}
   } },
+  connection: { title:'Connection',        sub:'Interfaces · IPs · Access URLs · QR', onload: function(){ try { refreshConnection(); } catch(e){} } },
   console:    { title:'System Console',    sub:'Cockpit (:9090) · system logs', onload: function(){
     try { conSwitchTab('health'); } catch(e) {}
   } },
