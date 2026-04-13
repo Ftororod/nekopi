@@ -10725,7 +10725,7 @@ function aiTestOllama(ev){
     return;
   }
   if(/^https?:\/\/(localhost|127\.0\.0\.1)/i.test(url)){
-    statusEl.innerHTML = '<span style="color:var(--amber)">⚠ The RPi never hosts Ollama — use your remote agent's IP</span>';
+    statusEl.innerHTML = '<span style="color:var(--amber)">⚠ The RPi never hosts Ollama — use your remote agent\u0027s IP</span>';
     return;
   }
   if(btn){ btn.disabled = true; btn.textContent = '⌛ Testing…'; }
