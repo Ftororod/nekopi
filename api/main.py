@@ -1582,6 +1582,125 @@ async def profiler_status():
         running = bool(out.strip())
     return {"running": running}
 
+def _profiler_compute_rates(feat: dict) -> dict:
+    """Computes supported rates, max PHY rate, MCS index, NSS, and an RRM
+    recommendation from the profiler feature flags. The profiler doesn't give
+    us the raw Supported Rates IE — it parses the Association Request into
+    higher-level dot11* flags. We derive the rate details from those."""
+    rates: dict = {
+        "basic_rates":    "6,12,24",       # standard OFDM basic rates
+        "extended_rates": "9,18,36,48,54", # standard extended
+        "ht_detail":  None,
+        "vht_detail": None,
+        "he_detail":  None,
+        "be_detail":  None,
+        "max_phy_mbps": 0,
+        "max_mcs":      0,
+        "nss":          1,
+        "summary":      "",
+        "rrm":          "",
+    }
+
+    nss = 1
+    max_rate = 54  # legacy baseline
+
+    # HT (WiFi 4)
+    if feat.get("dot11n") == 1:
+        ht_nss = feat.get("dot11n_nss") or 1
+        nss = max(nss, ht_nss)
+        max_mcs_ht = ht_nss * 8 - 1  # 1SS→7, 2SS→15, 3SS→23
+        # Max HT rate: 2SS 40MHz SGI = 300 Mbps
+        ht_rates = {(1, 20): 72, (1, 40): 150, (2, 20): 144, (2, 40): 300, (3, 40): 450}
+        ht_max = ht_rates.get((ht_nss, 40), ht_rates.get((ht_nss, 20), 72))
+        max_rate = max(max_rate, ht_max)
+        rates["ht_detail"] = f"HT MCS 0-{max_mcs_ht} ({ht_nss}x{ht_nss})"
+        rates["max_mcs"] = max_mcs_ht
+
+    # VHT (WiFi 5)
+    if feat.get("dot11ac") == 1:
+        vht_nss = feat.get("dot11ac_nss") or 1
+        nss = max(nss, vht_nss)
+        vht_mcs_str = feat.get("dot11ac_mcs") or "0-9"
+        vht_mcs_max = 9
+        try:
+            vht_mcs_max = max(int(x) for x in vht_mcs_str.replace("-", ",").split(",") if x.strip().isdigit())
+        except Exception:
+            pass
+        has_160 = feat.get("dot11ac_160_mhz", 0) == 1
+        # Max VHT rate: 2SS 80MHz MCS9 = 867, 160MHz = 1733
+        vht_rates = {
+            (1, 80): 433, (1, 160): 866,
+            (2, 80): 867, (2, 160): 1733,
+            (3, 80): 1300, (4, 80): 1733,
+        }
+        bw = 160 if has_160 else 80
+        vht_max = vht_rates.get((vht_nss, bw), vht_rates.get((vht_nss, 80), 433))
+        max_rate = max(max_rate, vht_max)
+        rates["vht_detail"] = f"VHT MCS 0-{vht_mcs_max} NSS:{vht_nss} {bw}MHz → max {vht_max} Mbps"
+        rates["max_mcs"] = max(rates["max_mcs"], vht_mcs_max)
+
+    # HE (WiFi 6)
+    if feat.get("dot11ax") == 1:
+        he_nss = feat.get("dot11ax_nss") or 1
+        nss = max(nss, he_nss)
+        he_mcs_str = feat.get("dot11ax_mcs") or "0-11"
+        he_mcs_max = 11
+        try:
+            he_mcs_max = max(int(x) for x in he_mcs_str.replace("-", ",").split(",") if x.strip().isdigit())
+        except Exception:
+            pass
+        has_160 = feat.get("dot11ax_160_mhz", 0) == 1
+        he_rates = {
+            (1, 80): 600, (1, 160): 1200,
+            (2, 80): 1200, (2, 160): 2400,
+            (3, 80): 1800, (4, 80): 2400,
+        }
+        bw = 160 if has_160 else 80
+        he_max = he_rates.get((he_nss, bw), he_rates.get((he_nss, 80), 600))
+        max_rate = max(max_rate, he_max)
+        rates["he_detail"] = f"HE MCS 0-{he_mcs_max} NSS:{he_nss} {bw}MHz → max {he_max} Mbps"
+        rates["max_mcs"] = max(rates["max_mcs"], he_mcs_max)
+
+    # BE (WiFi 7)
+    if feat.get("dot11be") == 1:
+        be_nss = feat.get("dot11be_nss") or 1
+        nss = max(nss, be_nss)
+        be_mcs_str = feat.get("dot11be_mcs") or "0-13"
+        has_320 = feat.get("dot11be_320_mhz", 0) == 1
+        be_max = 2880 if has_320 else 1440
+        if be_nss >= 2:
+            be_max *= 2
+        max_rate = max(max_rate, be_max)
+        rates["be_detail"] = f"EHT MCS {be_mcs_str} NSS:{be_nss} {'320' if has_320 else '160'}MHz → max {be_max} Mbps"
+
+    rates["nss"] = nss
+    rates["max_phy_mbps"] = max_rate
+    rates["summary"] = f"{max_rate} Mbps · MCS {rates['max_mcs']} · {nss}SS"
+
+    # RRM recommendation
+    rrm_parts = []
+    if max_rate >= 300:
+        rrm_parts.append("BSS min rate: 24 Mbps (deshabilitar 1/2/5.5/11)")
+    elif max_rate >= 54:
+        rrm_parts.append("BSS min rate: 12 Mbps")
+    else:
+        rrm_parts.append("BSS min rate: 6 Mbps (cliente legacy)")
+
+    if feat.get("dot11ax") == 1 or feat.get("dot11ac") == 1:
+        rrm_parts.append("Band steer: preferir 5 GHz (threshold -70 dBm)")
+    if feat.get("dot11k") == 1:
+        rrm_parts.append("802.11k: activar neighbor reports")
+    if feat.get("dot11v") == 1:
+        rrm_parts.append("802.11v: activar BSS transition")
+    if feat.get("dot11r") == 1:
+        rrm_parts.append("802.11r: activar FT (Fast Transition)")
+    elif feat.get("dot11r") == 0:
+        rrm_parts.append("802.11r: NO soportado — legacy roaming")
+
+    rates["rrm"] = " · ".join(rrm_parts)
+    return rates
+
+
 @app.get("/api/profiler/clients")
 async def profiler_clients():
     global _PROFILER_SEEN
@@ -1627,6 +1746,7 @@ async def profiler_clients():
                     mimo = {1:"1x1 SISO",2:"2x2 MIMO",3:"3x3 MIMO",4:"4x4 MIMO"}.get(nss, f"{nss}x{nss}")
                     mcs_str = feat.get("dot11ax_mcs") or feat.get("dot11ac_mcs") or str(feat.get("dot11n_nss",0)*8-1)
 
+                    rates = _profiler_compute_rates(feat)
                     client = {
                         "new":      is_new,
                         "mac":      mac,
@@ -1646,6 +1766,7 @@ async def profiler_clients():
                         "six_ghz":  feat.get("six_ghz_operating_class_supported", 0),
                         "max_power": feat.get("max_power", 0),
                         "channels": feat.get("supported_channels", []),
+                        "rates":    rates,
                         "json":     data,
                         "time":     __import__("datetime").datetime.now().strftime("%H:%M:%S"),
                     }

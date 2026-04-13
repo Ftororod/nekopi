@@ -3515,20 +3515,19 @@ input,select,textarea { font-family:inherit; }
           <thead>
             <tr>
               <th>Time</th>
-              <th>MAC Address</th>
+              <th>MAC</th>
               <th>Vendor</th>
               <th>Standard</th>
-              <th>Bands</th>
               <th>MIMO</th>
-              <th>Max Data Rate</th>
+              <th>Rates</th>
               <th>PMF</th>
-              <th>FT/RRM/BTM</th>
+              <th>FT/k/v</th>
               <th></th>
             </tr>
           </thead>
           <tbody id="profilerHistoryBody">
             <tr id="profilerEmptyRow">
-              <td colspan="10" style="text-align:center;color:var(--text2);padding:20px">
+              <td colspan="9" style="text-align:center;color:var(--text2);padding:20px">
                 No clients profiled yet — start the AP and connect a device
               </td>
             </tr>
@@ -10695,8 +10694,18 @@ function runRoamingAI(ev){
 // ═══════════════════════════════════════
 var profilerHistory=[];
 var mockClients=[
-  {mac:'AA:BB:CC:11:22:33',vendor:'Apple',device:'iPhone 15 Pro',standard:'802.11ax (WiFi 6E)',bands:'2.4 + 5 + 6GHz',mimo:'2\xd72',streams:2,mcs:11,chWidth:160,maxRate:'2402 Mbps',pmf:'Required',ft:'Yes',rrm:'Yes',btm:'Yes',wpa3:'Yes',uapsd:'Yes',mbo:'Yes',supportedRates:['6','9','12','18','24','36','48','54'],htMCS:'MCS 0-15 (2 streams)',vhtMCS:'MCS 0-9 (2 streams)',heMCS:'MCS 0-11 (2 streams)'},
-  {mac:'BB:CC:DD:22:33:44',vendor:'Samsung',device:'Galaxy S24',standard:'802.11ax (WiFi 6)',bands:'2.4 + 5GHz',mimo:'2\xd72',streams:2,mcs:11,chWidth:80,maxRate:'1200 Mbps',pmf:'Capable',ft:'Yes',rrm:'Yes',btm:'Yes',wpa3:'Yes',uapsd:'Yes',mbo:'No',supportedRates:['6','9','12','18','24','36','48','54'],htMCS:'MCS 0-15',vhtMCS:'MCS 0-9 (2 streams)',heMCS:'MCS 0-11 (2 streams)'},
+  {mac:'AA:BB:CC:11:22:33',vendor:'Apple',device:'iPhone 15 Pro',standard:'802.11ax (WiFi 6E)',bands:'2.4 + 5 + 6GHz',mimo:'2\xd72',streams:2,mcs:11,chWidth:160,maxRate:'2402 Mbps',pmf:'Required',ft:'Yes',rrm:'Yes',btm:'Yes',wpa3:'Yes',uapsd:'Yes',mbo:'Yes',
+    rates:{summary:'2402 Mbps · MCS 11 · 2SS',max_phy_mbps:2402,max_mcs:11,nss:2,
+      basic_rates:'6,12,24',extended_rates:'9,18,36,48,54',
+      ht_detail:'HT MCS 0-15 (2x2)',vht_detail:'VHT MCS 0-9 NSS:2 160MHz → max 1733 Mbps',
+      he_detail:'HE MCS 0-11 NSS:2 160MHz → max 2402 Mbps',be_detail:null,
+      rrm:'BSS min rate: 24 Mbps · Band steer: preferir 5 GHz · 802.11k: activar · 802.11v: activar · 802.11r: activar FT'}},
+  {mac:'BB:CC:DD:22:33:44',vendor:'Samsung',device:'Galaxy S24',standard:'802.11ax (WiFi 6)',bands:'2.4 + 5GHz',mimo:'2\xd72',streams:2,mcs:11,chWidth:80,maxRate:'1200 Mbps',pmf:'Capable',ft:'Yes',rrm:'Yes',btm:'Yes',wpa3:'Yes',uapsd:'Yes',mbo:'No',
+    rates:{summary:'1200 Mbps · MCS 11 · 2SS',max_phy_mbps:1200,max_mcs:11,nss:2,
+      basic_rates:'6,12,24',extended_rates:'9,18,36,48,54',
+      ht_detail:'HT MCS 0-15 (2x2)',vht_detail:'VHT MCS 0-9 NSS:2 80MHz → max 867 Mbps',
+      he_detail:'HE MCS 0-11 NSS:2 80MHz → max 1200 Mbps',be_detail:null,
+      rrm:'BSS min rate: 24 Mbps · Band steer: preferir 5 GHz · 802.11k: activar · 802.11v: activar'}},
 ];
 
 function startProfiler(){
@@ -10899,15 +10908,39 @@ function addProfilerHistoryRow(client){
   var tbody=document.getElementById('profilerHistoryBody'); if(!tbody) return;
   var emptyRow=document.getElementById('profilerEmptyRow'); if(emptyRow) emptyRow.remove();
   var tr=document.createElement('tr'); tr.style.cursor='pointer';
-  var ftBtm=[client.ft==='Yes'?'FT':'',client.rrm==='Yes'?'RRM':'',client.btm==='Yes'?'BTM':''].filter(Boolean).join(' · ')||'—';
+  var ftBtm=[client.ft==='Yes'?'FT':'',client.rrm==='Yes'?'RRM':'',client.btm==='Yes'?'BTM':''].filter(Boolean).join('·')||'—';
+  // Rates summary + expandable detail
+  var rates = client.rates || {};
+  var ratesSummary = rates.summary || (client.maxRate || '?');
+  var rateDetail = '';
+  if(rates.ht_detail)  rateDetail += rates.ht_detail + '\n';
+  if(rates.vht_detail) rateDetail += rates.vht_detail + '\n';
+  if(rates.he_detail)  rateDetail += rates.he_detail + '\n';
+  if(rates.be_detail)  rateDetail += rates.be_detail + '\n';
+  rateDetail += 'Basic: ' + (rates.basic_rates || '6,12,24') + ' Mbps\n';
+  rateDetail += 'Extended: ' + (rates.extended_rates || '9,18,36,48,54') + ' Mbps';
+  var rrm = rates.rrm || '';
+
+  var ratesCell = '<div style="color:var(--green);font-weight:600;font-size:11px">'
+    + ratesSummary + '</div>';
+  if(rateDetail) {
+    ratesCell += '<details style="margin-top:2px"><summary style="font-size:9px;color:var(--text2);cursor:pointer">detalle</summary>'
+      + '<pre style="font-size:9px;color:var(--text);margin:2px 0;white-space:pre-wrap;line-height:1.5">'
+      + rateDetail.replace(/</g,'&lt;') + '</pre>';
+    if(rrm) {
+      ratesCell += '<div style="font-size:9px;color:var(--amber);margin-top:3px;border-top:1px solid var(--border);padding-top:3px">'
+        + '📡 RRM: ' + rrm.replace(/</g,'&lt;') + '</div>';
+    }
+    ratesCell += '</details>';
+  }
+
   tr.innerHTML=
     '<td style="color:var(--text2);font-size:10px">'+(client.time||'')+'</td>'+
     '<td style="color:var(--white);font-family:monospace;font-size:10px">'+(client.mac||'')+'</td>'+
     '<td style="color:var(--text2)">'+(client.vendor||'Unknown')+'</td>'+
     '<td><span style="color:var(--cyan);font-size:10px">'+(client.standard||'?')+'</span></td>'+
-    '<td style="color:var(--text2);font-size:10px">'+(client.chWidth||'?')+'MHz</td>'+
     '<td style="color:var(--white)">'+(client.mimo||'?')+'</td>'+
-    '<td style="color:var(--green);font-weight:600">'+(client.maxRate||'?')+'</td>'+
+    '<td>'+ratesCell+'</td>'+
     '<td><span style="color:var(--text2);font-size:10px">'+(client.pmf||'N/A')+'</span></td>'+
     '<td style="color:var(--text2);font-size:10px">'+ftBtm+'</td>'+
     '<td><button class="btn btn-ghost btn-sm" style="font-size:11px">Detail</button></td>';
@@ -10928,7 +10961,7 @@ function showProfilerDetail(client){
 
 function clearProfilerHistory(){
   profilerHistory=[];
-  var tbody=document.getElementById('profilerHistoryBody'); if(tbody) tbody.innerHTML='<tr id="profilerEmptyRow"><td colspan="10" style="text-align:center;color:var(--text2);padding:20px">No clients profiled yet</td></tr>';
+  var tbody=document.getElementById('profilerHistoryBody'); if(tbody) tbody.innerHTML='<tr id="profilerEmptyRow"><td colspan="9" style="text-align:center;color:var(--text2);padding:20px">No clients profiled yet</td></tr>';
   var countEl=document.getElementById('profilerClientCount'); if(countEl) countEl.textContent='0 clients profiled';
   showToast('History cleared');
 }
