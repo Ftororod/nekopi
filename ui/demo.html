@@ -5343,6 +5343,27 @@ function startLiveMetrics() {
       if (tempVal) tempVal.textContent = tempC + '°C';
       if (te)      te.textContent      = 'RPi5 · ' + tempC + '°C';
 
+      // ETH Speed: 0.8-2.1 Gbps — smooth walk
+      var _demoEth = window._demoEth || (window._demoEth = 1.6);
+      _demoEth += (Math.random() - 0.5) * 0.25;
+      if (_demoEth < 0.8) _demoEth = 0.8 + Math.random() * 0.15;
+      if (_demoEth > 2.1) _demoEth = 2.1 - Math.random() * 0.15;
+      window._demoEth = _demoEth;
+
+      // Network Traffic RX: 80-450 Mbps — smooth walk
+      var _demoRx = window._demoRx || (window._demoRx = 180);
+      _demoRx += (Math.random() - 0.5) * 60;
+      if (_demoRx < 80)  _demoRx = 80  + Math.random() * 30;
+      if (_demoRx > 450) _demoRx = 450 - Math.random() * 30;
+      window._demoRx = _demoRx;
+
+      // Network Traffic TX: 45-320 Mbps — smooth walk
+      var _demoTx = window._demoTx || (window._demoTx = 120);
+      _demoTx += (Math.random() - 0.5) * 45;
+      if (_demoTx < 45)  _demoTx = 45  + Math.random() * 20;
+      if (_demoTx > 320) _demoTx = 320 - Math.random() * 20;
+      window._demoTx = _demoTx;
+
       // Dashboard cards
       var mCpu     = document.getElementById('m-cpu');
       var mCpuBdg  = document.getElementById('m-cpu-badge');
@@ -5350,6 +5371,18 @@ function startLiveMetrics() {
       if (mCpu)    mCpu.innerHTML = cpuPct + '<small>%</small>';
       if (mCpuBdg){ mCpuBdg.textContent = tempC + '°C'; mCpuBdg.className = 'metric-badge mb-ok'; }
       if (mRamSub) mRamSub.textContent = 'RAM: ' + ramUsed + ' / ' + ramTotal.toFixed(1) + 'GB';
+
+      var mEth = document.getElementById('m-eth');
+      var mEthBdg = document.getElementById('m-eth-badge');
+      if (mEth) mEth.innerHTML = _demoEth.toFixed(1) + '<small> Gb/s</small>';
+      if (mEthBdg) { mEthBdg.textContent = 'UP'; mEthBdg.className = 'metric-badge mb-ok'; }
+
+      var mRx = document.getElementById('m-rx');
+      var mTx = document.getElementById('m-tx');
+      var mTrafBdg = document.getElementById('m-traffic-badge');
+      if (mRx) mRx.innerHTML = _demoRx.toFixed(1) + '<small> Mb/s</small>';
+      if (mTx) mTx.innerHTML = _demoTx.toFixed(1);
+      if (mTrafBdg) { mTrafBdg.textContent = 'ETH0'; mTrafBdg.className = 'metric-badge mb-ok'; }
       return;
     }
 
@@ -7025,13 +7058,13 @@ function runQcAI(ev) {
     return '- ['+status+'] '+t.name+': '+value+detail;
   }).join('\n');
   var prompt =
-    "Eres asistente de diagnóstico de red revisando un Quick Check de NekoPi.\n"
-    +"Resultado global: "+passed+"/"+tests.length+" tests pasaron.\n\n"
-    +"Detalle de tests (status real + valor medido):\n"+lines+"\n\n"
-    +"Algunos tests pueden marcar PASS pero con valores fuera de rango "
-    +"esperado (ej. DNS >500ms es PASS técnicamente pero lento). Comenta "
-    +"cualquier valor sospechoso y sugiere puntos de verificación específicos "
-    +"para el ingeniero. No inventes datos que no están arriba.";
+    "You are a network diagnostic assistant reviewing a NekoPi Quick Check.\n"
+    +"Overall result: "+passed+"/"+tests.length+" tests passed.\n\n"
+    +"Test details (actual status + measured value):\n"+lines+"\n\n"
+    +"Some tests may show PASS but with values outside expected range "
+    +"(e.g. DNS >500ms is technically PASS but slow). Comment on any "
+    +"suspicious values and suggest specific verification points "
+    +"for the engineer. Do not fabricate data not shown above.";
   callAI(prompt, output, {button: btn, demoKey: 'quickcheck'});
 }
 
@@ -7188,11 +7221,11 @@ function runWifiAI(ev) {
       +' | '+((ap.security||[]).join('+') || 'OPEN');
   }).join('\n');
   var prompt =
-    "Eres analista RF WiFi.\n"
-    +"APs detectados: "+aps.length+" ("+bandSummary+")\n"
-    +"Muestra:\n"+lines+"\n\n"
-    +"¿Qué patrones de uso de canal o cifrado podrían merecer atención? "
-    +"Sugiere ajustes que el ingeniero pueda validar en el controlador.";
+    "You are an RF WiFi analyst.\n"
+    +"APs detected: "+aps.length+" ("+bandSummary+")\n"
+    +"Sample:\n"+lines+"\n\n"
+    +"What channel usage or encryption patterns might deserve attention? "
+    +"Suggest adjustments the engineer can validate on the controller.";
   callAI(prompt, output, { button: ev && ev.currentTarget, demoKey: 'wifi' });
 }
 
@@ -7678,16 +7711,16 @@ function runWiredAI(ev) {
   var dot1x = window._wiredDot1xData || {};
   var dns   = window._wiredDnsData   || {};
   var prompt =
-    "Eres ingeniero de redes revisando un test cableado de NekoPi.\n"
-    +"Herramienta: "+(tool||'general')+" | Interfaz: "+iface+"\n"
+    "You are a network engineer reviewing a NekoPi wired test.\n"
+    +"Tool: "+(tool||'general')+" | Interface: "+iface+"\n"
     +"Link: "+(link.speed||'?')+" "+(link.duplex||'')+" | Carrier: "+(link.carrier||'?')+"\n"
-    +"LLDP vecino: "+(lldp.system_name||lldp.neighbor||'no detectado')
-    +" | Puerto: "+(lldp.port_id||'—')+"\n"
+    +"LLDP neighbor: "+(lldp.system_name||lldp.neighbor||'not detected')
+    +" | Port: "+(lldp.port_id||'—')+"\n"
     +"iPerf3: "+(iperf.throughput_mbps||iperf.bw_mbps||'—')+" Mbps\n"
     +"802.1X: "+(dot1x.state||dot1x.status||'—')+"\n"
     +"DNS bench (avg): "+(dns.avg_ms||'—')+" ms\n\n"
-    +"¿Qué aspectos del enlace cableado podrían merecer atención? Sugiere "
-    +"validaciones específicas en el switch o controlador.";
+    +"What aspects of the wired link might deserve attention? Suggest "
+    +"specific validations on the switch or controller.";
   callAI(prompt, output, {button: (ev&&ev.currentTarget)||null, demoKey:'wired'});
 }
 
@@ -7859,12 +7892,12 @@ function runScanAI(ev){
     return '- '+d.ip+' '+(d.hostname||'')+' ['+(d.vendor||'?')+']';
   }).join('\n');
   var prompt =
-    "Eres asistente de inventario de red.\n"
-    +"Subnet escaneada: "+target+"\n"
-    +"Hosts detectados: "+devices.length+"\n"
-    +"Muestra:\n"+lines+"\n\n"
-    +"¿Qué dispositivos o configuraciones podrían merecer atención? Sugiere "
-    +"qué revisar primero.";
+    "You are a network inventory assistant.\n"
+    +"Scanned subnet: "+target+"\n"
+    +"Hosts detected: "+devices.length+"\n"
+    +"Sample:\n"+lines+"\n\n"
+    +"What devices or configurations might deserve attention? Suggest "
+    +"what to review first.";
   callAI(prompt, output, {button: btn, demoKey: 'network'});
 }
 
@@ -8157,7 +8190,7 @@ function runPathAI(ev){
     var l = parseFloat(loss);
     var cls = '';
     if(!isNaN(n)){
-      cls = n < 5 ? 'excelente' : n < 30 ? 'normal' : 'alto';
+      cls = n < 5 ? 'excellent' : n < 30 ? 'normal' : 'high';
       if(n > maxRtt){ maxRtt = n; maxRttHop = ip; }
       totalRtt += n; hopCount++;
     }
@@ -8169,20 +8202,20 @@ function runPathAI(ev){
   });
   var lossNote = lossyCount === 0 && hopCount > 0
     ? '✓ 0% loss on ALL hops — the path is clean.'
-    : (lossyCount + ' hops con loss > 0%, total acumulado: ' + totalLoss.toFixed(1) + '%');
+    : (lossyCount + ' hops with loss > 0%, cumulative total: ' + totalLoss.toFixed(1) + '%');
   var bottleneckLine = (maxRttHop && hopCount > 0)
-    ? 'Hop con mayor RTT: '+maxRttHop+' ('+maxRtt.toFixed(1)+' ms)'
-    : 'No hay datos suficientes para identificar el cuello de botella.';
+    ? 'Highest RTT hop: '+maxRttHop+' ('+maxRtt.toFixed(1)+' ms)'
+    : 'Not enough data to identify the bottleneck.';
   var prompt =
-    "Eres asistente de troubleshooting de conectividad.\n"
+    "You are a connectivity troubleshooting assistant.\n"
     +"Target: "+target+"\n"
-    +"Hops totales: "+hops.length+" | RTT acumulado: "+(hopCount?totalRtt.toFixed(1):'—')+" ms\n"
+    +"Total hops: "+hops.length+" | Cumulative RTT: "+(hopCount?totalRtt.toFixed(1):'—')+" ms\n"
     +bottleneckLine+"\n"
     +lossNote+"\n\n"
-    +"Detalle por hop (clasificación: excelente <5ms, normal <30ms, alto >30ms):\n"
-    +(hops.join('\n')||'(sin datos)')+"\n\n"
-    +"¿Dónde podría estar el cuello de botella? Sugiere qué validar en cada "
-    +"hop sospechoso. Si hay 0% loss, NO inventes problemas de packet loss.";
+    +"Per-hop detail (classification: excellent <5ms, normal <30ms, high >30ms):\n"
+    +(hops.join('\n')||'(no data)')+"\n\n"
+    +"Where might the bottleneck be? Suggest what to validate at each "
+    +"suspicious hop. If there is 0% loss, do NOT fabricate packet loss issues.";
   callAI(prompt, output, {button: btn, demoKey: 'path'});
 }
 
@@ -9801,77 +9834,76 @@ function _aiAnonMapHTML(anon){
 // interactive without ever touching the network.
 var _AI_DEMO = {
   quickcheck:
-    "El gateway responde con latencia normal y la resolución DNS está dentro de "
-    +"rangos aceptables, así que el enlace básico parece operativo.\n\n"
-    +"Una posible mejora podría ser comparar la latencia hacia Internet contra "
-    +"un segundo destino para descartar congestión local. El jitter reportado "
-    +"sugiere que el medio podría estar limpio.\n\n"
-    +"Para confirmar, verifica en sitio: estado de los puertos del switch, "
-    +"saturación de uplink y reglas QoS en el SVI del gateway.",
+    "The gateway responds with normal latency and DNS resolution is within "
+    +"acceptable ranges, so the basic link appears operational.\n\n"
+    +"A possible improvement would be to compare Internet latency against a "
+    +"second destination to rule out local congestion. The reported jitter "
+    +"suggests the medium may be clean.\n\n"
+    +"To confirm on-site: check switch port status, uplink saturation, "
+    +"and QoS rules on the gateway SVI.",
   network:
-    "El inventario muestra una mezcla típica de equipo de red más algunos "
-    +"endpoints. Algunos hosts podrían tener servicios expuestos que merece "
-    +"la pena revisar.\n\n"
-    +"Te sugiero validar puertos administrativos abiertos (SSH/HTTPS) y la "
-    +"existencia de credenciales por defecto en los equipos de marca conocida.\n\n"
-    +"Para confirmar, verifica en sitio: ACL de management VLAN, banners de "
-    +"login y versiones de firmware reportadas por LLDP.",
+    "The inventory shows a typical mix of network equipment plus some "
+    +"endpoints. Some hosts may have exposed services worth reviewing.\n\n"
+    +"I recommend validating open administrative ports (SSH/HTTPS) and "
+    +"checking for default credentials on known-brand devices.\n\n"
+    +"To confirm on-site: check management VLAN ACLs, login banners, "
+    +"and firmware versions reported by LLDP.",
   wifits:
-    "Los valores RF reportados podrían indicar señal aceptable pero con SNR "
-    +"al límite, lo que típicamente se traduce en throughput bajo y reintentos.\n\n"
-    +"Una posible causa es interferencia co-canal o ancho de canal demasiado "
-    +"amplio para el entorno. También podría deberse a roaming pegajoso del cliente.\n\n"
-    +"Para confirmar, verifica en sitio: vecinos en el mismo canal, potencia "
-    +"TX del AP y métricas de retries en el controlador.",
+    "The reported RF values may indicate acceptable signal but borderline "
+    +"SNR, which typically results in low throughput and retries.\n\n"
+    +"A possible cause is co-channel interference or channel width too "
+    +"wide for the environment. It could also be due to sticky client roaming.\n\n"
+    +"To confirm on-site: check neighbors on the same channel, AP TX power, "
+    +"and retry metrics on the controller.",
   wifi:
-    "El escaneo muestra varios APs en bandas mixtas. La densidad podría estar "
-    +"saturando algunos canales, especialmente en 2.4 GHz.\n\n"
-    +"Te sugiero revisar el plan de canales y reducir el ancho de los APs "
-    +"vecinos donde sea posible.\n\n"
-    +"Para confirmar, verifica en sitio: assignaciones de canal del controlador "
-    +"y medidas de DFS recientes.",
+    "The scan shows several APs across mixed bands. The density may be "
+    +"saturating some channels, especially on 2.4 GHz.\n\n"
+    +"I recommend reviewing the channel plan and reducing channel width "
+    +"on neighboring APs where possible.\n\n"
+    +"To confirm on-site: check controller channel assignments "
+    +"and recent DFS events.",
   security:
-    "Los hallazgos sugieren un score moderado con servicios abiertos que "
-    +"podrían representar exposición innecesaria.\n\n"
-    +"Te sugiero priorizar los puertos administrativos sin TLS y los equipos "
-    +"con CVEs de severidad alta. Las redes WiFi con cifrado débil deberían "
-    +"revisarse en el controlador.\n\n"
-    +"Para confirmar, verifica en sitio: deshabilitar Telnet/HTTP, aplicar "
-    +"WPA3 donde sea posible y validar reglas de firewall.",
+    "The findings suggest a moderate score with open services that "
+    +"may represent unnecessary exposure.\n\n"
+    +"I recommend prioritizing administrative ports without TLS and devices "
+    +"with high-severity CVEs. WiFi networks with weak encryption should "
+    +"be reviewed on the controller.\n\n"
+    +"To confirm on-site: disable Telnet/HTTP, apply WPA3 where possible, "
+    +"and validate firewall rules.",
   path:
-    "El RTT general parece estable, pero un hop intermedio muestra picos "
-    +"que podrían indicar congestión transitoria del proveedor.\n\n"
-    +"Te sugiero correlacionar esos picos con la hora pico del enlace y "
-    +"ejecutar tracerroutes paralelos hacia destinos distintos para aislar "
-    +"si es un problema del path o del destino.\n\n"
-    +"Para confirmar, verifica en sitio: utilización del WAN, estado del "
-    +"túnel/SD-WAN y métricas en el equipo del proveedor.",
+    "Overall RTT appears stable, but an intermediate hop shows spikes "
+    +"that may indicate transient ISP congestion.\n\n"
+    +"I recommend correlating those spikes with peak-hour link usage and "
+    +"running parallel traceroutes to different destinations to isolate "
+    +"whether it's a path or destination issue.\n\n"
+    +"To confirm on-site: check WAN utilization, tunnel/SD-WAN status, "
+    +"and metrics on the ISP edge device.",
   netpush:
-    "Los errores devueltos por IOS podrían indicar diferencias de sintaxis "
-    +"entre versiones o falta de privilegios en la sesión.\n\n"
-    +"Te sugiero validar el modo de configuración (configure terminal) y la "
-    +"capacidad del usuario (privilege 15). En equipos Catalyst recientes, "
-    +"algunos comandos legacy fueron renombrados.\n\n"
-    +"Para confirmar, verifica en sitio: 'show privilege', versión de IOS "
-    +"con 'show version' y permisos AAA del usuario remoto.",
+    "The errors returned by IOS may indicate syntax differences between "
+    +"versions or insufficient privileges in the session.\n\n"
+    +"I recommend validating the configuration mode (configure terminal) and "
+    +"user capability (privilege 15). On recent Catalyst devices, some "
+    +"legacy commands have been renamed.\n\n"
+    +"To confirm on-site: check 'show privilege', IOS version via "
+    +"'show version', and AAA permissions for the remote user.",
   roaming:
-    "Algunos clientes muestran latencias de roaming que podrían superar el "
-    +"umbral aceptable para voz.\n\n"
-    +"Te sugiero revisar si 802.11r está activo en TODOS los APs del SSID "
-    +"y validar el threshold de RSSI mínimo aceptado.\n\n"
-    +"Para confirmar, verifica en sitio: configuración de FT en el controlador "
-    +"y eventos de re-asociación reportados por los APs.",
+    "Some clients show roaming latencies that may exceed the acceptable "
+    +"threshold for voice.\n\n"
+    +"I recommend verifying that 802.11r is active on ALL APs for the SSID "
+    +"and validating the minimum acceptable RSSI threshold.\n\n"
+    +"To confirm on-site: check FT configuration on the controller "
+    +"and re-association events reported by the APs.",
   wired:
-    "El enlace cableado parece operativo, con LLDP reportando vecinos y "
-    +"velocidad esperada. Los benchmarks de iPerf3/DNS están dentro de rangos.\n\n"
-    +"Te sugiero validar postura 802.1X y cualquier asignación dinámica de VLAN "
-    +"si el cliente exige autenticación.\n\n"
-    +"Para confirmar, verifica en sitio: configuración del puerto en el switch "
-    +"y RADIUS logs si aplica.",
+    "The wired link appears operational, with LLDP reporting neighbors and "
+    +"expected speed. iPerf3/DNS benchmarks are within normal ranges.\n\n"
+    +"I recommend validating 802.1X posture and any dynamic VLAN assignment "
+    +"if the client requires authentication.\n\n"
+    +"To confirm on-site: check port configuration on the switch "
+    +"and RADIUS logs if applicable.",
   chat:
-    "Estoy en modo DEMO, así que esta es una respuesta simulada. En producción "
-    +"recibirías un análisis real basado en el contexto que envíes.\n\n"
-    +"Para confirmar, verifica en sitio: configuración del backend de IA en Settings."
+    "I'm in DEMO mode, so this is a simulated response. In production "
+    +"you would receive a real analysis based on the context you provide.\n\n"
+    +"To confirm on-site: check AI backend configuration in Settings."
 };
 
 /**
@@ -9940,7 +9972,7 @@ function callAI(prompt, outputElementId, opts){
       .then(function(r){ return r.json().then(function(d){ return {http:r.ok, data:d}; }); })
       .then(function(res){
         if(!res.http || !res.data || res.data.ok === false){
-          var msg = (res.data && res.data.error) || 'Error en análisis profundo';
+          var msg = (res.data && res.data.error) || 'Error in deep analysis';
           outputEl.innerHTML = '<div style="color:var(--red);font-size:11px;padding:8px">✗ '+msg+'</div>';
           return;
         }
@@ -10047,7 +10079,7 @@ function aiChatClear(){
     box.innerHTML =
       '<div class="t-muted" style="text-align:center;font-size:11px;padding:30px 0">'
       +'Pregunta al asistente sobre redes — RF, troubleshooting, configuración, comandos.<br>'
-      +'Las respuestas son orientativas: el ingeniero valida en sitio.</div>';
+      +'Responses are advisory: the engineer validates on-site.</div>';
   }
 }
 
@@ -10095,12 +10127,12 @@ function aiChatSend(ev){
   box.scrollTop = box.scrollHeight;
   // Last 10 turns provide rolling context to the model
   var hist = _aiChatHistory.slice(-10).map(function(m){
-    return (m.role === 'user' ? 'INGENIERO: ' : 'ASISTENTE: ') + m.text;
+    return (m.role === 'user' ? 'ENGINEER: ' : 'ASSISTANT: ') + m.text;
   }).join('\n\n');
   var prompt =
-    "Conversación con un ingeniero de redes de campo. Responde a la última "
-    +"pregunta del ingeniero, manteniendo el contexto de los turnos previos.\n\n"
-    +hist+"\n\nASISTENTE:";
+    "Conversation with a field network engineer. Respond to the latest "
+    +"question from the engineer, maintaining context from previous turns.\n\n"
+    +hist+"\n\nASSISTANT:";
   callAI(prompt, placeholder, {
     button: ev && ev.currentTarget,
     demoKey: 'chat',
@@ -10964,30 +10996,30 @@ function runRoamingAI(ev){
     if(events.length === 0){
       // 0 events — be explicit so the model doesn't invent problems
       prompt =
-        "Eres especialista en roaming WiFi revisando una captura de NekoPi.\n"
-        +"Interfaz monitor: "+iface+" | SSID monitoreado: "+ssid+"\n"
-        +"Resultado: NO SE CAPTURARON EVENTOS DE ROAMING.\n\n"
-        +"NO inventes problemas. Explica brevemente las posibles razones de "
-        +"un capture vacío:\n"
-        +"- Sin movimiento real de clientes durante la ventana de captura.\n"
-        +"- Eventos en canales que la radio no estaba escaneando.\n"
-        +"- SSID con poco tráfico o sin asociaciones activas.\n"
-        +"- 802.11r / k / v ausentes (legacy roaming sin frames de re-asoc).\n\n"
-        +"Sugiere qué hacer para una próxima captura más útil "
-        +"(canales fijos, mover un cliente, ventana más larga).";
+        "You are a WiFi roaming specialist reviewing a NekoPi capture.\n"
+        +"Monitor interface: "+iface+" | Monitored SSID: "+ssid+"\n"
+        +"Result: NO ROAMING EVENTS CAPTURED.\n\n"
+        +"Do NOT fabricate problems. Briefly explain possible reasons for "
+        +"an empty capture:\n"
+        +"- No actual client movement during the capture window.\n"
+        +"- Events on channels the radio was not scanning.\n"
+        +"- SSID with low traffic or no active associations.\n"
+        +"- 802.11r / k / v absent (legacy roaming without re-assoc frames).\n\n"
+        +"Suggest what to do for a more useful next capture "
+        +"(fixed channels, move a client, longer capture window).";
     } else {
       var sample = events.slice(-15).map(function(e){
         return '- t='+(e.t||e.ts||'?')+' '+(e.kind||e.type||'evt')
           +' mac='+(e.mac||'?')+' rssi='+(e.rssi||'?');
       }).join('\n');
       prompt =
-        "Eres especialista en roaming WiFi.\n"
-        +"SSID monitoreado: "+ssid+" | Interfaz: "+iface+"\n"
-        +"Eventos capturados: "+events.length+" | Clientes únicos: "+(clients.length||Object.keys(clients).length||0)+"\n"
+        "You are a WiFi roaming specialist.\n"
+        +"Monitored SSID: "+ssid+" | Interface: "+iface+"\n"
+        +"Captured events: "+events.length+" | Unique clients: "+(clients.length||Object.keys(clients).length||0)+"\n"
         +"Stats: "+JSON.stringify(stats)+"\n\n"
-        +"Últimos eventos:\n"+sample+"\n\n"
-        +"¿Qué patrones de roaming podrían merecer atención? Comenta latencias "
-        +"de roaming, deauths, sticky-clients. Sugiere ajustes del controlador.";
+        +"Recent events:\n"+sample+"\n\n"
+        +"What roaming patterns might deserve attention? Comment on roaming "
+        +"latencies, deauths, sticky clients. Suggest controller adjustments.";
     }
     callAI(prompt, output, {button: btn, demoKey: 'roaming'});
   };
@@ -11538,32 +11570,32 @@ function runSecurityAI(ev){
         +(h.hostname?' '+h.hostname:'')
         +(ports?' ports:'+ports:'')
         +(h.os?' os:'+h.os:'');
-    }).join('\n') || '(sin hosts)';
+    }).join('\n') || '(no hosts)';
     // CVEs with software context: each finding can carry a `software` field
     var cveLines = findings.filter(function(f){
       return (f.cve || (f.title||'').indexOf('CVE-') >= 0);
     }).slice(0,15).map(function(f){
       return '- ['+(f.severity||'?').toUpperCase()+'] '
-        +(f.cve||f.title)+' · afecta: '+(f.software||f.product||'(sin software identificado)')
+        +(f.cve||f.title)+' · affects: '+(f.software||f.product||'(no software identified)')
         +(f.host?' · host: '+f.host:'')
         +(f.score?' · CVSS: '+f.score:'');
-    }).join('\n') || '(sin CVEs identificados)';
+    }).join('\n') || '(no CVEs identified)';
     // Other findings (non-CVE)
     var otherLines = findings.filter(function(f){
       return !(f.cve || (f.title||'').indexOf('CVE-') >= 0);
     }).slice(0,15).map(function(f){
       return '- ['+(f.severity||'?').toUpperCase()+'] '
-        +(f.title||f.description||f.detail||'(sin texto)');
-    }).join('\n') || '(sin otros hallazgos)';
+        +(f.title||f.description||f.detail||'(no text)');
+    }).join('\n') || '(no other findings)';
     var prompt =
-      "Eres asistente de análisis de seguridad de red.\n"
-      +"Hosts escaneados: "+hosts.length+" | Score global: "+score+"/100\n\n"
-      +"=== Hosts (con vendor por OUI) ===\n"+hostLines+"\n\n"
-      +"=== CVEs detectados ===\n"+cveLines+"\n\n"
-      +"=== Otros hallazgos ===\n"+otherLines+"\n\n"
-      +"¿Qué aspectos podrían representar mayor riesgo? Prioriza por severidad "
-      +"y por exposición real. Para cada CVE, comenta el software afectado y "
-      +"qué versión/parche revisar. El ingeniero validará en sitio.";
+      "You are a network security analysis assistant.\n"
+      +"Hosts scanned: "+hosts.length+" | Overall score: "+score+"/100\n\n"
+      +"=== Hosts (with OUI vendor) ===\n"+hostLines+"\n\n"
+      +"=== CVEs detected ===\n"+cveLines+"\n\n"
+      +"=== Other findings ===\n"+otherLines+"\n\n"
+      +"What aspects might represent the greatest risk? Prioritize by severity "
+      +"and real exposure. For each CVE, comment on affected software and "
+      +"which version/patch to check. The engineer will validate on-site.";
     callAI(prompt, out, {button: btn, demoKey: 'security'});
   };
   fetchAPI('/api/security/results').then(build).catch(function(){ build({}); });
@@ -12429,59 +12461,59 @@ function wtsDiagnose(){
 
     // RF findings always present in demo
     if(d.rssi < -70)
-      addF('RF','warning','RSSI marginal ('+d.rssi+' dBm) — límite enterprise',
-           'Considerar agregar AP o ajustar potencia de transmisión', 15);
+      addF('RF','warning','Marginal RSSI ('+d.rssi+' dBm) — enterprise threshold',
+           'Consider adding an AP or adjusting TX power', 15);
     if(d.co_channel_aps > 2)
-      addF('RF','warning', d.co_channel_aps+' APs co-canal detectados — interferencia CCI',
-           'Cambiar canal del AP a 1 u 11, o migrar a 5GHz', 10);
+      addF('RF','warning', d.co_channel_aps+' co-channel APs detected — CCI interference',
+           'Change AP channel to 1 or 11, or migrate to 5GHz', 10);
     if(d.band === '2.4GHz' && (symptoms.indexOf('slow')>=0))
-      addF('RF','info','Cliente en 2.4GHz — capacidad limitada',
-           'Forzar cliente a 5GHz o activar Band Steering', 10);
+      addF('RF','info','Client on 2.4GHz — limited capacity',
+           'Force client to 5GHz or enable Band Steering', 10);
 
     // Symptom-driven findings
     if(symptoms.indexOf('no_internet')>=0 || symptoms.indexOf('no_connect')>=0){
-      addF('Network','critical','Sin conectividad a internet — gateway alcanzable pero WAN no responde',
-           'Verificar uplink del router, ISP y configuración NAT', 35);
+      addF('Network','critical','No internet connectivity — gateway reachable but WAN not responding',
+           'Check router uplink, ISP, and NAT configuration', 35);
     }
     if(symptoms.indexOf('no_ip')>=0){
-      addF('Wired/AP','critical','Cliente no obtiene IP — posible falla en DHCP del AP o VLAN incorrecta',
-           'Verificar servidor DHCP, scope disponible y configuración de VLAN en el puerto del AP', 30);
+      addF('Wired/AP','critical','Client not obtaining IP — possible DHCP failure on AP or incorrect VLAN',
+           'Check DHCP server, available scope, and VLAN configuration on AP port', 30);
     }
     if(symptoms.indexOf('auth_fail')>=0){
-      addF('Auth','warning','Fallas de autenticación reportadas',
-           'Revisar credenciales, PSK o certificados RADIUS — verificar logs del controlador', 20);
+      addF('Auth','warning','Authentication failures reported',
+           'Check credentials, PSK or RADIUS certificates — verify controller logs', 20);
     }
     if(symptoms.indexOf('high_latency')>=0 || symptoms.indexOf('video_issues')>=0){
-      addF('Network','warning','Latencia alta detectada — impacto en aplicaciones en tiempo real',
-           'Verificar QoS en el AP y priorización de tráfico de voz/video', 15);
+      addF('Network','warning','High latency detected — impact on real-time applications',
+           'Check QoS on the AP and voice/video traffic prioritization', 15);
     }
     if(symptoms.indexOf('roaming')>=0 || symptoms.indexOf('roaming_drops')>=0){
-      addF('Roaming','warning','Problemas de roaming — posible sticky client o falta de 802.11r',
-           'Verificar 802.11r/k/v en el AP — usar módulo Roaming Analyzer para capturar eventos', 10);
+      addF('Roaming','warning','Roaming issues — possible sticky client or missing 802.11r',
+           'Check 802.11r/k/v on the AP — use Roaming Analyzer module to capture events', 10);
     }
     if(symptoms.indexOf('drops')>=0){
-      addF('RF','warning','Drops intermitentes — posible interferencia o DFS event en 5GHz',
-           'Monitorear canal con Path Analyzer — considerar deshabilitar canales DFS', 10);
+      addF('RF','warning','Intermittent drops — possible interference or DFS event on 5GHz',
+           'Monitor channel with Path Analyzer — consider disabling DFS channels', 10);
     }
     if(symptoms.indexOf('one_device')>=0){
-      addF('Auth','info','Afecta solo 1 dispositivo — problema en el cliente, no en la infraestructura',
-           'Verificar driver WiFi, olvidar red y reconectar, revisar IP estática configurada', 5);
+      addF('Auth','info','Affects only 1 device — client-side issue, not infrastructure',
+           'Check WiFi driver, forget network and reconnect, verify static IP settings', 5);
     }
     if(symptoms.indexOf('all_devices')>=0){
-      addF('Wired/AP','warning','Afecta todos los dispositivos — problema en AP o uplink compartido',
-           'Verificar estado del AP, puerto del switch y VLAN', 20);
+      addF('Wired/AP','warning','Affects all devices — AP or shared uplink issue',
+           'Check AP status, switch port, and VLAN', 20);
     }
 
     if(!findings.length)
-      addF('RF','info','Sin problemas críticos detectados — verificar métricas en tiempo real',
-           'Ejecutar scan real en el NekoPi para datos precisos', 0);
+      addF('RF','info','No critical issues detected — verify metrics in real time',
+           'Run a real scan on the NekoPi for precise data', 0);
 
     // Sort by severity
     var order = {critical:0, warning:1, info:2};
     findings.sort(function(a,b){ return (order[a.severity]||2)-(order[b.severity]||2); });
 
     var verdict = score>=85?'healthy':score>=60?'degraded':score>=35?'poor':'critical';
-    var vtxt    = score>=85?'Red WiFi saludable':score>=60?'Rendimiento degradado':score>=35?'Conectividad deficiente':'Problema crítico';
+    var vtxt    = score>=85?'Healthy WiFi network':score>=60?'Degraded performance':score>=35?'Poor connectivity':'Critical issue';
     var vcol    = score>=85?'green':score>=60?'amber':score>=35?'orange':'red';
 
     setTimeout(function(){
@@ -12605,7 +12637,7 @@ function wtsAI(ev){
   // engineer picks the AP vendor. This is the spec's "vendor selector first"
   // requirement for WiFi Troubleshooter.
   if(!_wtsScanData){
-    showToast('Ejecuta el scan primero');
+    showToast('Run the scan first');
     return;
   }
   var ai = document.getElementById('wtsAiCard');
@@ -12615,43 +12647,43 @@ function wtsAI(ev){
 }
 
 function wtsRunAI(ev){
-  if(!_wtsScanData){ showToast('Ejecuta el scan primero'); return; }
+  if(!_wtsScanData){ showToast('Run the scan first'); return; }
   var out = document.getElementById('wtsAiOutput');
   if(!out) return;
   var symptoms = [];
   document.querySelectorAll('#wtsSymptoms input[type=checkbox]:checked').forEach(function(cb){
     symptoms.push(cb.value);
   });
-  var vendor = (document.getElementById('wtsApVendor')||{}).value || 'No sé';
+  var vendor = (document.getElementById('wtsApVendor')||{}).value || 'Unknown';
   var s = _wtsScanData;
 
   // Resolve numeric values + qualitative judgement against enterprise thresholds
   var rssi = s.rssi;
   var rssiTxt = (rssi != null && rssi !== '—')
     ? rssi + ' dBm ('
-      + (rssi >= -55 ? 'excelente'
-        : rssi >= -67 ? 'bueno'
+      + (rssi >= -55 ? 'excellent'
+        : rssi >= -67 ? 'good'
         : rssi >= -75 ? 'marginal'
-        : 'malo')
-      + ', umbral mínimo enterprise: -67 dBm)'
-    : 'no medido';
+        : 'poor')
+      + ', minimum enterprise threshold: -67 dBm)'
+    : 'not measured';
   var snr = s.snr;
   var snrTxt = (snr != null && snr !== '—')
     ? snr + ' dB ('
-      + (snr >= 40 ? 'excelente'
-        : snr >= 25 ? 'bueno'
+      + (snr >= 40 ? 'excellent'
+        : snr >= 25 ? 'good'
         : snr >= 15 ? 'marginal'
-        : 'malo')
-      + ', mínimo: 25 dB)'
-    : 'no medido';
+        : 'poor')
+      + ', minimum: 25 dB)'
+    : 'not measured';
   var txr = s.txrate;
   var txTxt = (txr != null && txr !== '—')
-    ? txr + ' Mbps' + (txr < 50 ? ' (muy bajo)' : txr < 150 ? ' (bajo)' : '')
-    : 'no medido';
+    ? txr + ' Mbps' + (txr < 50 ? ' (very low)' : txr < 150 ? ' (low)' : '')
+    : 'not measured';
   var pingMs   = (s.ping_gw && s.ping_gw.avg_ms  != null) ? s.ping_gw.avg_ms.toFixed(1) : '—';
   var pingLoss = (s.ping_gw && s.ping_gw.loss_pct != null) ? s.ping_gw.loss_pct : '—';
   var dnsTxt   = (s.dns_ms != null && s.dns_ms !== '—')
-    ? s.dns_ms + ' ms'+(s.dns_ms > 100 ? ' (alto)' : '')
+    ? s.dns_ms + ' ms'+(s.dns_ms > 100 ? ' (high)' : '')
     : '—';
 
   // Quick numeric "score" so the AI sees a global posture
@@ -12663,21 +12695,21 @@ function wtsRunAI(ev){
   if (score < 0) score = 0;
 
   var prompt =
-    "Eres experto en redes WiFi enterprise revisando un troubleshoot real.\n"
-    +"Vendor AP: "+vendor+"\n"
-    +"Score automático: "+score+"/100\n\n"
-    +"=== Métricas RF (con umbrales de referencia) ===\n"
+    "You are an enterprise WiFi expert reviewing a real troubleshoot.\n"
+    +"AP Vendor: "+vendor+"\n"
+    +"Automated score: "+score+"/100\n\n"
+    +"=== RF Metrics (with reference thresholds) ===\n"
     +"RSSI:    "+rssiTxt+"\n"
     +"SNR:     "+snrTxt+"\n"
     +"TX Rate: "+txTxt+"\n"
-    +"Banda: "+(s.band||'—')+" | Canal: "+(s.channel||'—')+" | APs co-canal: "+(s.co_channel_aps||0)+"\n\n"
-    +"=== Conectividad ===\n"
+    +"Band: "+(s.band||'—')+" | Channel: "+(s.channel||'—')+" | Co-channel APs: "+(s.co_channel_aps||0)+"\n\n"
+    +"=== Connectivity ===\n"
     +"Ping GW: "+pingMs+" ms | Loss: "+pingLoss+"% | DNS: "+dnsTxt+"\n\n"
-    +"=== Síntomas reportados ===\n"
-    +(symptoms.length ? symptoms.join(', ') : '(ninguno seleccionado)')+"\n\n"
-    +"Basándote en estos datos, ¿qué podría estar causando el problema? "
-    +"Comenta valores sospechosos contra los umbrales mostrados. Si los datos "
-    +"son insuficientes, dilo. No asegures diagnósticos, guía al ingeniero.";
+    +"=== Reported Symptoms ===\n"
+    +(symptoms.length ? symptoms.join(', ') : '(none selected)')+"\n\n"
+    +"Based on this data, what might be causing the issue? "
+    +"Comment on suspicious values against the thresholds shown. If the data "
+    +"is insufficient, say so. Do not assert diagnoses — guide the engineer.";
   callAI(prompt, out, {button:(ev&&ev.currentTarget)||null, demoKey:'wifits'});
 }
 
@@ -13092,15 +13124,15 @@ function runNpAI(ev){
     });
     var cmds = (document.getElementById('npConfigCmds')||{}).value || '';
     var prompt =
-      "Eres asistente de configuración Cisco IOS/IOS-XE.\n"
-      +"Dispositivos objetivo: "+devices.length+" | Exitosos: "+ok+" | Errores: "+errs+"\n"
-      +"Comandos enviados:\n"+cmds.slice(0,800)+"\n\n"
-      +"Errores IOS detectados (líneas con %):\n"+(errLines.join('\n')||'(ninguno)')+"\n\n"
-      +"¿Qué podrían indicar estos errores? Sugiere la sintaxis correcta y "
-      +"qué verificar.";
+      "You are a Cisco IOS/IOS-XE configuration assistant.\n"
+      +"Target devices: "+devices.length+" | Successful: "+ok+" | Errors: "+errs+"\n"
+      +"Commands sent:\n"+cmds.slice(0,800)+"\n\n"
+      +"IOS errors detected (lines with %):\n"+(errLines.join('\n')||'(none)')+"\n\n"
+      +"What might these errors indicate? Suggest the correct syntax and "
+      +"what to verify.";
     callAI(prompt, out, {button: btn, demoKey: 'netpush'});
   }).catch(function(){
-    callAI("Sin datos de NetPush disponibles.", out, {button: btn, demoKey: 'netpush'});
+    callAI("No NetPush data available.", out, {button: btn, demoKey: 'netpush'});
   });
 }
 
@@ -13845,11 +13877,12 @@ function initAbout() { loadAboutPage(); }
 // ═══════════════════════════════════════
 function refreshConnection() {
   if (DEMO_MODE) {
-    // DEMO: interfaces fijas
+    // DEMO: simulated interface data
     var ifaces = [
-      {id:'eth0',  ipEl:'conn-eth0-ip',   stEl:null,               ip:'192.168.42.1', st:'sb-ok',   stTxt:'UP'},
-      {id:'eth1',  ipEl:'conn-eth1-ip',   stEl:'conn-eth1-status', ip:'—',            st:'sb-idle', stTxt:'Ready'},
-      {id:'wlan0', ipEl:'conn-wlan0-ip',  stEl:'conn-wlan0-status',ip:'—',            st:'sb-idle', stTxt:'Ready'},
+      {id:'eth0',  ipEl:'conn-eth0-ip',   stEl:null,               ip:'192.168.1.56',  st:'sb-ok',   stTxt:'UP · 2.5GbE'},
+      {id:'eth1',  ipEl:'conn-eth1-ip',   stEl:'conn-eth1-status', ip:'192.168.99.1',  st:'sb-ok',   stTxt:'UP · MGMT'},
+      {id:'wlan0', ipEl:'conn-wlan0-ip',  stEl:'conn-wlan0-status',ip:'192.168.1.120', st:'sb-ok',   stTxt:'UP · 5GHz'},
+      {id:'wlan1', ipEl:'conn-wlan1-ip',  stEl:'conn-wlan1-status',ip:'—',             st:'sb-idle', stTxt:'Standby'},
     ];
     ifaces.forEach(function(iface) {
       var ipEl = document.getElementById(iface.ipEl);
@@ -13859,6 +13892,13 @@ function refreshConnection() {
         if (stEl) stEl.innerHTML = '<span class="status-badge '+iface.st+'"><span class="sb-dot"></span>'+iface.stTxt+'</span>';
       }
     });
+    // WAN / NAT / Captive portal info on dashboard
+    var dPub = document.getElementById('d-public-ip');
+    var dGw  = document.getElementById('d-gateway');
+    var dDns = document.getElementById('d-dns');
+    if (dPub) dPub.textContent = '181.52.' + (100 + Math.floor(Math.random()*55)) + '.' + Math.floor(Math.random()*254);
+    if (dGw)  dGw.textContent  = '192.168.1.1 (Cisco Systems)';
+    if (dDns) dDns.textContent = '8.8.8.8 (Google DNS)';
     generateQR();
     showToast('Connection info refreshed (DEMO)');
     return;
