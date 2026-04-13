@@ -8,3 +8,63 @@ __pycache__/
 bin/pktvisord
 bin/pktvisor-cli
 bin/pktvisor-reader
+# Kismet captures
+*.kismet
+*.kismet-journal
+captures/
+
+# Logs
+logs/
+*.log
+
+# SSL certs
+ssl/
+
+# Data (settings, tokens)
+data/
+
+# Temp files
+J
+*.tmp
+*.bak
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Reports generados
+reports/
+
+# OTA captures
+ui/assets/ota/
+# Kismet captures
+*.kismet
+*.kismet-journal
+captures/
+
+# Logs
+logs/
+*.log
+
+# SSL certs
+ssl/
+
+# Data (settings, tokens)
+data/
+
+# Temp files
+J
+*.tmp
+*.bak
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Reports generados
+reports/
+
+# OTA captures
+ui/assets/ota/
