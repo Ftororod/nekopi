@@ -879,18 +879,18 @@ input,select,textarea { font-family:inherit; }
   </div>
 
   <div class="nav-group">
-    <div class="nav-group-label">Main</div>
+    <div class="nav-group-label" data-i18n="main">Main</div>
     <button class="nav-item active" data-page="dashboard">
-      <span class="nav-icon">⚡</span><span class="nav-label">Dashboard</span>
+      <span class="nav-icon">⚡</span><span class="nav-label" data-i18n="dashboard">Dashboard</span>
     </button>
     <button class="nav-item" data-page="quickcheck">
-      <span class="nav-icon">🔎</span><span class="nav-label">Quick Check</span>
+      <span class="nav-icon">🔎</span><span class="nav-label" data-i18n="quick_check">Quick Check</span>
       <span class="nav-badge nb-run">30s</span>
     </button>
   </div>
 
   <div class="nav-group">
-    <div class="nav-group-label">Modules</div>
+    <div class="nav-group-label" data-i18n="modules">Modules</div>
     <button class="nav-item" data-page="wifi">
       <span class="nav-icon">&#128246;</span><span class="nav-label">WiFi Analysis</span>
     </button>
@@ -965,34 +965,34 @@ input,select,textarea { font-family:inherit; }
       <span class="nav-icon">💻</span><span class="nav-label">Terminal</span>
     </button>
     <button class="nav-item" data-page="tools">
-      <span class="nav-icon">🔧</span><span class="nav-label">Tools</span>
+      <span class="nav-icon">🔧</span><span class="nav-label" data-i18n="tools">Tools</span>
     </button>
   </div>
 
   <div class="nav-group">
-    <div class="nav-group-label">Intelligence</div>
+    <div class="nav-group-label" data-i18n="intelligence">Intelligence</div>
     <button class="nav-item" data-page="ai">
-      <span class="nav-icon">🧠</span><span class="nav-label">Deep Analysis</span>
+      <span class="nav-icon">🧠</span><span class="nav-label" data-i18n="deep_analysis">Deep Analysis</span>
       <span class="nav-badge nb-ai">AI</span>
     </button>
     <button class="nav-item" data-page="reports">
-      <span class="nav-icon">📄</span><span class="nav-label">Reports</span>
+      <span class="nav-icon">📄</span><span class="nav-label" data-i18n="reports">Reports</span>
     </button>
   </div>
 
   <div class="nav-group">
-    <div class="nav-group-label">System</div>
+    <div class="nav-group-label" data-i18n="system">System</div>
     <button class="nav-item" data-page="connection">
-      <span class="nav-icon">🔗</span><span class="nav-label">Connection</span>
+      <span class="nav-icon">🔗</span><span class="nav-label" data-i18n="connection">Connection</span>
     </button>
     <button class="nav-item" data-page="console">
-      <span class="nav-icon">🖥️</span><span class="nav-label">Console</span>
+      <span class="nav-icon">🖥️</span><span class="nav-label" data-i18n="console">Console</span>
     </button>
     <button class="nav-item" data-page="about">
-      <span class="nav-icon">👋</span><span class="nav-label">About</span>
+      <span class="nav-icon">👋</span><span class="nav-label" data-i18n="about">About</span>
     </button>
     <button class="nav-item" data-page="settings">
-      <span class="nav-icon">⚙️</span><span class="nav-label">Settings</span>
+      <span class="nav-icon">⚙️</span><span class="nav-label" data-i18n="settings">Settings</span>
     </button>
   </div>
 
@@ -4290,8 +4290,8 @@ input,select,textarea { font-family:inherit; }
   </div>
 
   <div class="page" id="page-settings">
-    <div class="section-title">⚙️ Settings</div>
-    <div class="section-sub">Red · IA · Sondas · Dispositivo</div>
+    <div class="section-title">⚙️ <span data-i18n="settings_title">Settings</span></div>
+    <div class="section-sub">Network · AI · Probes · Device</div>
 
     <!-- ───────────────── 1. RED & CONECTIVIDAD ───────────────── -->
     <div class="card" style="margin-bottom:14px">
@@ -4458,22 +4458,41 @@ input,select,textarea { font-family:inherit; }
         <button class="btn btn-primary btn-sm" onclick="saveDeviceSettings()">✓ Save</button>
       </div>
       <div class="card-body">
+        <div class="form-group" style="margin-bottom:14px">
+          <label class="form-label">Device Name</label>
+          <div class="auto-field-wrap">
+            <input class="form-input" id="settingsHostname" placeholder="nekopi-field-01">
+            <span class="auto-badge">auto</span>
+          </div>
+          <div class="field-note">Device name visible on the network.</div>
+        </div>
         <div class="two-col">
           <div class="form-group">
-            <label class="form-label">Device Name</label>
-            <div class="auto-field-wrap">
-              <input class="form-input" id="settingsHostname" placeholder="nekopi-field-01">
-              <span class="auto-badge">auto</span>
+            <label class="form-label" data-i18n="interface_language">Interface Language</label>
+            <div style="display:flex;gap:8px;margin-top:4px">
+              <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text);cursor:pointer">
+                <input type="radio" name="uiLanguage" value="en" checked> English
+              </label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text);cursor:pointer">
+                <input type="radio" name="uiLanguage" value="es"> Español
+              </label>
             </div>
-            <div class="field-note">Nombre visible del dispositivo en la red.</div>
+            <div class="field-note">Changes sidebar, buttons, and labels.</div>
           </div>
           <div class="form-group">
-            <label class="form-label">UI Language</label>
-            <select class="form-input form-select" id="uiLang">
-              <option value="es">Español</option>
-              <option value="en">English</option>
-            </select>
-            <div class="field-note">Idioma de la interfaz y respuestas de IA.</div>
+            <label class="form-label" data-i18n="ai_language">AI Response Language</label>
+            <div style="display:flex;gap:8px;margin-top:4px">
+              <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text);cursor:pointer">
+                <input type="radio" name="aiLanguage" value="en" checked> English
+              </label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text);cursor:pointer">
+                <input type="radio" name="aiLanguage" value="es"> Español
+              </label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text);cursor:pointer">
+                <input type="radio" name="aiLanguage" value="auto"> Auto-detect
+              </label>
+            </div>
+            <div class="field-note">Controls the language AI uses in analysis responses.</div>
           </div>
         </div>
         <div id="settingsDeviceSaveStatus" style="font-size:11px;color:var(--text2);margin-top:6px"></div>
@@ -5089,6 +5108,196 @@ input,select,textarea { font-family:inherit; }
       try { fn.apply(null, a); } catch(e) {}
     }, ms);
   };
+})();
+
+// ═══════════════════════════════════════
+//  I18N — TRANSLATION SYSTEM
+// ═══════════════════════════════════════
+var TRANSLATIONS = {
+  en: {
+    // Sidebar group labels
+    "main": "Main",
+    "modules": "Modules",
+    "intelligence": "Intelligence",
+    "system": "System",
+    // Sidebar items
+    "dashboard": "Dashboard",
+    "quick_check": "Quick Check",
+    "wifi_analysis": "WiFi Analysis",
+    "wifi_troubleshooter": "WiFi Troubleshooter",
+    "roaming": "Roaming",
+    "profiler": "Profiler",
+    "kismet_ids": "Kismet IDS",
+    "ota_capture": "OTA Capture",
+    "wired_lan": "Wired / LAN",
+    "lldp_cdp": "LLDP/CDP",
+    "iperf3": "iperf3",
+    "vlan_probe": "VLAN Probe",
+    "dot1x": "802.1X",
+    "voip_qos": "VoIP / QoS",
+    "dhcp_stress": "DHCP Stress",
+    "dns_benchmark": "DNS Benchmark",
+    "port_blinker": "Port Blinker",
+    "iot_sensors": "IoT & Sensors",
+    "security_audit": "Security Audit",
+    "rescue_toolkit": "Rescue Toolkit",
+    "netpush": "NetPush",
+    "console_pusher": "Console Pusher",
+    "terminal": "Terminal",
+    "path_analyzer": "Path Analyzer",
+    "sensor_mode": "Sensor Mode",
+    "network_scan": "Network Scan",
+    "tools": "Tools",
+    "deep_analysis": "Deep Analysis",
+    "reports": "Reports",
+    "connection": "Connection",
+    "console": "Console",
+    "about": "About",
+    "settings": "Settings",
+    // Buttons
+    "start": "Start",
+    "stop": "Stop",
+    "analyze": "Analyze",
+    "analyze_ai": "AI Analysis",
+    "clear": "Clear",
+    "refresh": "Refresh",
+    "save": "Save",
+    "apply": "Apply",
+    "cancel": "Cancel",
+    "download": "Download",
+    "upload": "Upload",
+    "run_quick_check": "Run Quick Check",
+    "export_pdf": "Export PDF",
+    // States
+    "running": "Running",
+    "stopped": "Stopped",
+    "idle": "Idle",
+    "connecting": "Connecting...",
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    // Settings
+    "interface_language": "Interface Language",
+    "ai_language": "AI Response Language",
+    "ai_lang_auto": "Auto-detect",
+    "save_settings": "Save Settings",
+    "settings_title": "Settings",
+    "net_connectivity": "Network & Connectivity",
+    "ai_backend": "AI Backend",
+    "probes_latency": "Probes & Latency",
+    "device": "Device",
+    // Topbar
+    "live": "LIVE",
+    "demo": "DEMO",
+    // About
+    "certifications": "Certifications",
+    "active_certs": "Active",
+    "in_progress": "In Progress",
+    "skills": "Skills",
+  },
+  es: {
+    // Sidebar group labels
+    "main": "Principal",
+    "modules": "Módulos",
+    "intelligence": "Inteligencia",
+    "system": "Sistema",
+    // Sidebar items — product names stay in English
+    "dashboard": "Dashboard",
+    "quick_check": "Quick Check",
+    "wifi_analysis": "WiFi Analysis",
+    "wifi_troubleshooter": "WiFi Troubleshooter",
+    "roaming": "Roaming",
+    "profiler": "Profiler",
+    "kismet_ids": "Kismet IDS",
+    "ota_capture": "OTA Capture",
+    "wired_lan": "Wired / LAN",
+    "lldp_cdp": "LLDP/CDP",
+    "iperf3": "iperf3",
+    "vlan_probe": "VLAN Probe",
+    "dot1x": "802.1X",
+    "voip_qos": "VoIP / QoS",
+    "dhcp_stress": "DHCP Stress",
+    "dns_benchmark": "DNS Benchmark",
+    "port_blinker": "Port Blinker",
+    "iot_sensors": "IoT & Sensors",
+    "security_audit": "Security Audit",
+    "rescue_toolkit": "Rescue Toolkit",
+    "netpush": "NetPush",
+    "console_pusher": "Console Pusher",
+    "terminal": "Terminal",
+    "path_analyzer": "Path Analyzer",
+    "sensor_mode": "Sensor Mode",
+    "network_scan": "Network Scan",
+    "tools": "Herramientas",
+    "deep_analysis": "Deep Analysis",
+    "reports": "Reportes",
+    "connection": "Conexión",
+    "console": "Consola",
+    "about": "Acerca de",
+    "settings": "Configuración",
+    // Buttons
+    "start": "Iniciar",
+    "stop": "Detener",
+    "analyze": "Analizar",
+    "analyze_ai": "Análisis IA",
+    "clear": "Limpiar",
+    "refresh": "Actualizar",
+    "save": "Guardar",
+    "apply": "Aplicar",
+    "cancel": "Cancelar",
+    "download": "Descargar",
+    "upload": "Subir",
+    "run_quick_check": "Ejecutar Quick Check",
+    "export_pdf": "Exportar PDF",
+    // States
+    "running": "Ejecutando",
+    "stopped": "Detenido",
+    "idle": "Inactivo",
+    "connecting": "Conectando...",
+    "loading": "Cargando...",
+    "error": "Error",
+    "success": "Éxito",
+    // Settings
+    "interface_language": "Idioma de Interfaz",
+    "ai_language": "Idioma de Respuesta IA",
+    "ai_lang_auto": "Auto-detectar",
+    "save_settings": "Guardar Configuración",
+    "settings_title": "Configuración",
+    "net_connectivity": "Red & Conectividad",
+    "ai_backend": "Backend de IA",
+    "probes_latency": "Sondas & Latencia",
+    "device": "Dispositivo",
+    // Topbar
+    "live": "EN VIVO",
+    "demo": "DEMO",
+    // About
+    "certifications": "Certificaciones",
+    "active_certs": "Activas",
+    "in_progress": "En progreso",
+    "skills": "Skills",
+  }
+};
+
+function t(key) {
+  var lang = window._uiLang || 'en';
+  return (TRANSLATIONS[lang] && TRANSLATIONS[lang][key])
+    || TRANSLATIONS['en'][key]
+    || key;
+}
+
+function applyLanguage(lang) {
+  window._uiLang = lang;
+  localStorage.setItem('nekopi_ui_lang', lang);
+  document.querySelectorAll('[data-i18n]').forEach(function(el) {
+    var key = el.getAttribute('data-i18n');
+    el.textContent = t(key);
+  });
+}
+
+// Initialize language from localStorage on load
+(function() {
+  var saved = localStorage.getItem('nekopi_ui_lang') || 'en';
+  window._uiLang = saved;
 })();
 
 // ═══════════════════════════════════════
@@ -10438,26 +10647,38 @@ function loadAISettings(){
     // Device card
     var hn = document.getElementById('settingsHostname');
     if(hn) hn.value = s.device_name || '';
-    var ul = document.getElementById('uiLang');
-    if(ul) ul.value = s.ui_lang || 'es';
+    // Language radios
+    var uiL = s.ui_language || 'en';
+    var aiL = s.ai_language || 'en';
+    var uiR = document.querySelector('input[name="uiLanguage"][value="'+uiL+'"]');
+    if(uiR) uiR.checked = true;
+    var aiR = document.querySelector('input[name="aiLanguage"][value="'+aiL+'"]');
+    if(aiR) aiR.checked = true;
   });
 }
 
 function saveDeviceSettings(){
+  var uiLangEl = document.querySelector('input[name="uiLanguage"]:checked');
+  var aiLangEl = document.querySelector('input[name="aiLanguage"]:checked');
+  var uiLang = uiLangEl ? uiLangEl.value : 'en';
+  var aiLang = aiLangEl ? aiLangEl.value : 'en';
   var body = {
     device_name: (document.getElementById('settingsHostname')||{}).value || '',
-    ui_lang:     (document.getElementById('uiLang')||{}).value || 'es',
+    ui_language: uiLang,
+    ai_language: aiLang,
   };
   var st = document.getElementById('settingsDeviceSaveStatus');
-  if(st) st.innerHTML = '<span style="color:var(--text2)">Guardando…</span>';
+  if(st) st.innerHTML = '<span style="color:var(--text2)">Saving…</span>';
   fetch(API_BASE + '/api/settings', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify(body),
   }).then(function(r){ return r.json(); }).then(function(d){
     if(st) st.innerHTML = (d && d.ok)
-      ? '<span style="color:var(--green)">✓ Guardado</span>'
+      ? '<span style="color:var(--green)">✓ Saved</span>'
       : '<span style="color:var(--red)">✗ Error</span>';
-    showToast('Settings guardadas');
+    // Apply UI language immediately
+    applyLanguage(uiLang);
+    showToast(uiLang === 'es' ? 'Configuración guardada' : 'Settings saved');
   });
 }
 
@@ -13502,6 +13723,17 @@ function nkInit() {
   try { refreshAIButtons(); } catch(e) {}
   // Periodically re-check AI backend so the buttons follow Settings changes
   setInterval(function(){ try { refreshAIButtons(); } catch(e){} }, 30000);
+  // Apply saved UI language
+  try {
+    var savedUiLang = localStorage.getItem('nekopi_ui_lang') || 'en';
+    applyLanguage(savedUiLang);
+    // Also fetch from server in case it was changed on another device
+    fetchAPI('/api/settings').then(function(s) {
+      if (s && s.ui_language && s.ui_language !== savedUiLang) {
+        applyLanguage(s.ui_language);
+      }
+    });
+  } catch(e) {}
 }
 
 // ═══════════════════════════════════════
