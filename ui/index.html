@@ -1920,7 +1920,14 @@ input,select,textarea { font-family:inherit; }
             <div style="font-size:10px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Upload to TFTP root</div>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
               <input type="file" id="tkTftpUploadInput" style="flex:1;font-size:11px">
-              <button class="btn btn-primary btn-sm" onclick="tkTftpUpload()">⤓ Upload</button>
+              <button class="btn btn-primary btn-sm" id="tkTftpUploadBtn" onclick="tkTftpUpload()">⤓ Upload</button>
+              <button class="btn btn-ghost btn-sm" id="tkTftpCancelBtn" onclick="tkTftpCancelUpload()" style="display:none;color:var(--red)">✕ Cancelar</button>
+            </div>
+            <div id="tkTftpUploadProgress" style="display:none;margin-top:8px">
+              <div style="background:var(--bg2);border-radius:2px;height:10px;overflow:hidden;border:1px solid var(--border)">
+                <div id="tkTftpProgressBar" style="width:0%;height:100%;background:var(--blue);transition:width .3s"></div>
+              </div>
+              <div id="tkTftpProgressText" style="font-size:11px;color:var(--text2);margin-top:4px">Preparando…</div>
             </div>
             <div id="tkTftpUploadStatus" style="font-size:11px;color:var(--text2);margin-top:6px"></div>
           </div>
@@ -13017,28 +13024,110 @@ function tkTftpStop(){
   });
 }
 
+var _tftpXhr = null;
+var _tftpUploadStart = 0;
+var _tftpUploadName = '';
+
+function _tftpHumanSize(b){
+  if(b<1024) return b+' B';
+  if(b<1048576) return (b/1024).toFixed(1)+' KB';
+  if(b<1073741824) return (b/1048576).toFixed(1)+' MB';
+  return (b/1073741824).toFixed(2)+' GB';
+}
+
 function tkTftpUpload(){
-  var input = document.getElementById('tkTftpUploadInput');
+  var input  = document.getElementById('tkTftpUploadInput');
   var status = document.getElementById('tkTftpUploadStatus');
+  var prog   = document.getElementById('tkTftpUploadProgress');
+  var bar    = document.getElementById('tkTftpProgressBar');
+  var txt    = document.getElementById('tkTftpProgressText');
+  var upBtn  = document.getElementById('tkTftpUploadBtn');
+  var cnBtn  = document.getElementById('tkTftpCancelBtn');
   if(!input || !input.files || !input.files[0]){
-    if(status) status.innerHTML = '<span style="color:var(--amber)">⚠ Pick a file first</span>';
+    if(status) status.innerHTML = '<span style="color:var(--amber)">⚠ Selecciona un archivo</span>';
     return;
   }
   var f = input.files[0];
-  if(status) status.textContent = 'Uploading ' + f.name + ' (' + Math.round(f.size/1024) + ' KB)…';
-  var fd = new FormData(); fd.append('file', f, f.name);
-  fetch(API_BASE + '/api/toolkit/tftp/upload', { method:'POST', body: fd })
-    .then(function(r){ return r.json(); })
-    .then(function(d){
+  _tftpUploadName = f.name;
+  if(status) status.textContent = '';
+  if(prog)   prog.style.display = '';
+  if(bar)    bar.style.width = '0%';
+  if(txt)    txt.textContent = 'Subiendo '+f.name+' ('+_tftpHumanSize(f.size)+')…';
+  if(upBtn)  upBtn.style.display = 'none';
+  if(cnBtn)  cnBtn.style.display = '';
+
+  var fd = new FormData();
+  fd.append('file', f, f.name);
+  _tftpUploadStart = Date.now();
+
+  var xhr = new XMLHttpRequest();
+  _tftpXhr = xhr;
+
+  xhr.upload.onprogress = function(e){
+    if(!e.lengthComputable) return;
+    var pct     = Math.round(e.loaded / e.total * 100);
+    var elapsed = Math.max(0.1, (Date.now() - _tftpUploadStart) / 1000);
+    var speed   = e.loaded / elapsed;
+    var remain  = e.total - e.loaded;
+    var eta_s   = speed > 0 ? Math.round(remain / speed) : 0;
+    var eta_str = eta_s > 60 ? Math.floor(eta_s/60)+'m '+eta_s%60+'s' : eta_s+'s';
+    if(bar) bar.style.width = pct + '%';
+    if(txt) txt.textContent = _tftpHumanSize(e.loaded)+' / '+_tftpHumanSize(e.total)
+      +' · '+_tftpHumanSize(speed)+'/s · ETA: '+eta_str;
+  };
+
+  xhr.onload = function(){
+    _tftpXhr = null;
+    if(upBtn) upBtn.style.display = '';
+    if(cnBtn) cnBtn.style.display = 'none';
+    if(bar) bar.style.width = '100%';
+    try {
+      var d = JSON.parse(xhr.responseText);
       if(d && d.ok){
-        if(status) status.innerHTML = '<span style="color:var(--green)">✓ Uploaded ' + d.name + ' (' + d.size + ' bytes)</span>';
+        if(prog) prog.style.display = 'none';
+        if(status) status.innerHTML =
+          '<div style="color:var(--green);margin-bottom:4px">✅ Archivo subido correctamente</div>'
+          +'<div style="font-size:11px;color:var(--text)">'+d.name+' · '+d.size_human+'</div>'
+          +'<div style="font-family:monospace;font-size:11px;color:var(--cyan)">MD5: '+d.md5+'</div>'
+          +'<div style="font-size:10px;color:var(--amber);margin-top:4px">⚠ Verifica el MD5 contra el oficial de Cisco antes de usar para upgrade</div>';
         input.value = '';
         if(typeof tkTftpPollFn === 'function') tkTftpPollFn();
       } else {
-        if(status) status.innerHTML = '<span style="color:var(--red)">✗ ' + ((d && d.error) || 'upload failed') + '</span>';
+        if(status) status.innerHTML = '<span style="color:var(--red)">✗ '+((d&&d.error)||'upload failed')+'</span>';
       }
-    })
-    .catch(function(e){ if(status) status.innerHTML = '<span style="color:var(--red)">✗ ' + e.message + '</span>'; });
+    } catch(e){
+      if(status) status.innerHTML = '<span style="color:var(--red)">✗ Parse error</span>';
+    }
+  };
+
+  xhr.onerror = function(){
+    _tftpXhr = null;
+    if(upBtn) upBtn.style.display = '';
+    if(cnBtn) cnBtn.style.display = 'none';
+    if(prog) prog.style.display = 'none';
+    if(status) status.innerHTML = '<span style="color:var(--red)">✗ Error de red durante la subida</span>';
+  };
+
+  xhr.open('POST', API_BASE + '/api/toolkit/tftp/upload');
+  xhr.send(fd);
+}
+
+function tkTftpCancelUpload(){
+  if(_tftpXhr){ _tftpXhr.abort(); _tftpXhr = null; }
+  var prog  = document.getElementById('tkTftpUploadProgress');
+  var status= document.getElementById('tkTftpUploadStatus');
+  var upBtn = document.getElementById('tkTftpUploadBtn');
+  var cnBtn = document.getElementById('tkTftpCancelBtn');
+  if(prog)   prog.style.display = 'none';
+  if(upBtn)  upBtn.style.display = '';
+  if(cnBtn)  cnBtn.style.display = 'none';
+  if(status) status.innerHTML = '<span style="color:var(--amber)">Subida cancelada</span>';
+  // Clean up partial file on the server
+  if(_tftpUploadName){
+    fetch(API_BASE + '/api/toolkit/tftp/upload/'+encodeURIComponent(_tftpUploadName),
+          {method:'DELETE'}).catch(function(){});
+    _tftpUploadName = '';
+  }
 }
 function tkTftpPollFn(){
   fetchAPI('/api/toolkit/tftp/status').then(function(d){

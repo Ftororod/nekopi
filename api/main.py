@@ -3782,27 +3782,66 @@ async def toolkit_tftp_stop():
         _tk_log("tftp", "↺ System tftpd-hpa service restored")
     return {"ok": True}
 
+def _human_size(b: int | float) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if b < 1024:
+            return f"{b:.1f} {unit}"
+        b /= 1024
+    return f"{b:.1f} TB"
+
 @app.post("/api/toolkit/tftp/upload")
 async def toolkit_tftp_upload(file: UploadFile = File(...)):
-    """Receives a file from the web UI and writes it into the active TFTP root."""
+    """Receives a file from the web UI and streams it into the active TFTP root
+    in 1 MB chunks so IOS images (up to 1.5 GB+) don't blow up RAM.
+    Returns the MD5 hash so the engineer can verify against Cisco's official hash."""
+    import hashlib
+    directory = Path(_TK["tftp"].get("dir") or "/opt/nekopi/tftp")
+    directory.mkdir(parents=True, exist_ok=True)
+    name = os.path.basename(file.filename or "upload.bin")
+    if not name or name in (".", "..") or "/" in name:
+        return JSONResponse({"ok": False, "error": "invalid filename"}, status_code=400)
+    dest = directory / name
+    chunk_size = 1024 * 1024  # 1 MB
+    total = 0
     try:
-        directory = _TK["tftp"].get("dir") or "/opt/nekopi/tftp"
-        Path(directory).mkdir(parents=True, exist_ok=True)
-        # Sanitize filename — strip path components, refuse traversal
-        name = os.path.basename(file.filename or "upload.bin")
-        if not name or name in (".", "..") or "/" in name:
-            return {"ok": False, "error": "invalid filename"}
-        dest = Path(directory) / name
-        content = await file.read()
-        if len(content) > 200 * 1024 * 1024:  # 200 MB cap
-            return {"ok": False, "error": "file too large (max 200 MB)"}
-        dest.write_bytes(content)
+        with dest.open("wb") as fh:
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                fh.write(chunk)
+                total += len(chunk)
         try: dest.chmod(0o644)
         except Exception: pass
-        _tk_log("tftp", f"⤓ uploaded {name} ({len(content)} bytes)")
-        return {"ok": True, "name": name, "size": len(content), "path": str(dest)}
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        dest.unlink(missing_ok=True)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    # Post-upload MD5 (also streamed so we don't load the whole file into RAM)
+    md5 = hashlib.md5()
+    with dest.open("rb") as fh:
+        for block in iter(lambda: fh.read(chunk_size), b""):
+            md5.update(block)
+    _tk_log("tftp", f"⤓ uploaded {name} ({_human_size(total)}) md5:{md5.hexdigest()[:12]}…")
+    return {
+        "ok":         True,
+        "name":       name,
+        "size_bytes": total,
+        "size_human": _human_size(total),
+        "md5":        md5.hexdigest(),
+        "path":       str(dest),
+    }
+
+
+@app.delete("/api/toolkit/tftp/upload/{filename}")
+async def toolkit_tftp_delete_upload(filename: str):
+    """Deletes a file from the TFTP root — used to clean up cancelled uploads."""
+    name = os.path.basename(filename)
+    if not name or name in (".", ".."):
+        return JSONResponse({"ok": False, "error": "invalid"}, status_code=400)
+    dest = Path(_TK["tftp"].get("dir") or "/opt/nekopi/tftp") / name
+    dest.unlink(missing_ok=True)
+    _tk_log("tftp", f"🗑 deleted {name}")
+    return {"ok": True}
 
 @app.get("/api/toolkit/tftp/status")
 async def toolkit_tftp_status():
