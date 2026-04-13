@@ -17,7 +17,14 @@ Designed for field engineers who need a powerful, portable, and affordable alter
 
 </div>
 
-> ⚠️ **Active Development** — NekoPi is currently in beta. Some modules may be incomplete. Live mode requires dedicated hardware (Raspberry Pi 5 + WiFi 7 HAT).
+<div align="center">
+
+> 🚧 **This project is in active development and beta testing.**
+> Hardware compatibility and feature stability are not guaranteed.
+> **Do not purchase hardware based solely on this project** until a stable v1.0 release is announced.
+> Some modules may be incomplete, unstable, or change without notice.
+
+</div>
 
 ## 🌐 Live Demo
 
