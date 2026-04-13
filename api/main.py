@@ -5785,7 +5785,7 @@ def _ai_call_gemini(prompt: str, key: str, model: str) -> tuple[str, str]:
         # engineer sees it in journald if it becomes a recurring problem.
         print(f"[gemini] response truncated at MAX_TOKENS for model {model} "
               f"({len(text)} chars)", flush=True)
-        text += "\n\n[⚠ respuesta truncada por MAX_TOKENS]"
+        text += "\n\n[⚠ response truncated by MAX_TOKENS]"
     return text, model
 
 def _ai_call_ollama(prompt: str, base_url: str) -> tuple[str, str]:
@@ -5800,9 +5800,9 @@ def _ai_call_ollama(prompt: str, base_url: str) -> tuple[str, str]:
             tags = json.loads(r.read())
             models = [m.get("name", "") for m in tags.get("models", []) if m.get("name")]
     except Exception as e:
-        raise RuntimeError(f"No se pudo conectar al agente Ollama remoto: {e}")
+        raise RuntimeError(f"Could not connect to remote Ollama agent: {e}")
     if not models:
-        raise RuntimeError("El agente remoto no tiene modelos instalados")
+        raise RuntimeError("The remote agent has no models installed")
     model = models[0]
     body = json.dumps({
         "model": model,

@@ -1204,7 +1204,7 @@ input,select,textarea { font-family:inherit; }
           <table class="data-table">
             <thead><tr><th>SSID</th><th>RSSI</th><th>Band</th><th>Ch</th></tr></thead>
             <tbody id="nearbyApBody">
-              <tr><td colspan="4" style="text-align:center;color:var(--text2);padding:16px;font-size:11px">Cargando...</td></tr>
+              <tr><td colspan="4" style="text-align:center;color:var(--text2);padding:16px;font-size:11px">Loading...</td></tr>
             </tbody>
           </table>
           <div id="nearbyApMore" style="font-size:11px;color:var(--text2);padding:2px 8px 4px;text-align:right"></div>
@@ -1511,7 +1511,7 @@ input,select,textarea { font-family:inherit; }
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label">AP Whitelist (SSIDs autorizados, uno por línea)</label>
+            <label class="form-label">AP Whitelist (authorized SSIDs, one per line)</label>
             <textarea class="form-input" rows="3" placeholder="CORP-MAIN&#10;CORP-VOICE&#10;GUEST-WIFI"></textarea>
           </div>
           <div class="divider"></div>
@@ -1856,7 +1856,7 @@ input,select,textarea { font-family:inherit; }
             <div class="form-group" style="margin-bottom:6px">
               <label class="form-label" id="tkOpt43Label">WLC IP</label>
               <input class="form-input" id="tkOpt43Ip" placeholder="192.168.1.10" style="font-family:monospace" oninput="tkOpt43Generate()">
-              <div class="field-note" id="tkOpt43Note">Separa múltiples WLCs con coma: 192.168.1.10,192.168.1.11</div>
+              <div class="field-note" id="tkOpt43Note">Separate multiple WLCs with commas: 192.168.1.10,192.168.1.11</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px">
               <span style="font-size:11px;color:var(--text2)">Option 43:</span>
@@ -1865,7 +1865,7 @@ input,select,textarea { font-family:inherit; }
             </div>
           </div>
           <div id="tkOpt43MerakiMsg" style="display:none;background:rgba(33,150,243,.06);border:1px solid rgba(33,150,243,.2);border-radius:var(--radius);padding:10px;margin-bottom:10px;font-size:11px;color:var(--text2)">
-            ☁ <strong style="color:var(--blue-b)">Meraki</strong>: el AP detecta Meraki automáticamente si tiene acceso a internet.
+            ☁ <strong style="color:var(--blue-b)">Meraki</strong>: the AP detects Meraki automatically if it has internet access.
             Solo usa este preset para forzar modo Meraki en red aislada.
           </div>
           <input type="hidden" id="tkOpt43Value" value="">
@@ -2412,7 +2412,7 @@ input,select,textarea { font-family:inherit; }
   ═══════════════════════════════ -->
   <div class="page" id="page-sensor">
     <div class="section-title">📊 Sensor Mode</div>
-    <div class="section-sub">Monitoreo continuo en vivo · Captura puntual PCAP · pktvisor edge analysis</div>
+    <div class="section-sub">Live continuous monitoring · PCAP snapshot capture · pktvisor edge analysis</div>
 
     <!-- Action bar -->
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
@@ -2425,12 +2425,12 @@ input,select,textarea { font-family:inherit; }
 
     <!-- Startup overlay for on-demand services -->
     <div id="sensorStartupOverlay" style="display:none;margin-bottom:14px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px">
-      <div style="font-size:13px;font-weight:600;color:var(--white);margin-bottom:12px">⚡ Iniciando servicios de monitoreo</div>
+      <div style="font-size:13px;font-weight:600;color:var(--white);margin-bottom:12px">⚡ Starting monitoring services</div>
       <div style="background:var(--bg3);border-radius:2px;height:10px;overflow:hidden;margin-bottom:10px">
         <div id="sensorStartupBar" style="width:0%;height:100%;background:var(--blue);transition:width .5s"></div>
       </div>
       <div id="sensorStartupSteps" style="font-size:12px;line-height:2"></div>
-      <div style="font-size:10px;color:var(--text2);margin-top:8px">Esto solo ocurre la primera vez en cada sesión de trabajo.</div>
+      <div style="font-size:10px;color:var(--text2);margin-top:8px">This only happens once per work session.</div>
     </div>
 
     <!-- ══════════════════════════════════════════════════════════
@@ -2509,9 +2509,9 @@ input,select,textarea { font-family:inherit; }
 
         <!-- Throughput context disclaimer -->
         <div style="background:rgba(33,150,243,.05);border:1px solid rgba(33,150,243,.2);border-radius:var(--radius);padding:8px 12px;font-size:11px;color:var(--text2);line-height:1.6;margin-bottom:14px">
-          ℹ <strong style="color:var(--blue-b)">Throughput</strong> medido en tráfico propio del NekoPi.
-          Valores bajos (≈0.01 Mbps en eth0) son normales cuando no hay tráfico activo.
-          Para medir throughput real de red usa <strong>iPerf3</strong> en el módulo <a href="#" onclick="goPage('wired');return false;" style="color:var(--blue-b)">Wired/LAN</a>.
+          ℹ <strong style="color:var(--blue-b)">Throughput</strong> measured on NekoPi's own traffic.
+          Low values (≈0.01 Mbps on eth0) are normal when there is no active traffic.
+          To measure real network throughput use <strong>iPerf3</strong> in the <a href="#" onclick="goPage('wired');return false;" style="color:var(--blue-b)">Wired/LAN</a> module.
         </div>
 
         <!-- Top talkers -->
@@ -2535,8 +2535,8 @@ input,select,textarea { font-family:inherit; }
       </div>
       <div class="card-body">
         <div style="background:rgba(179,136,255,.05);border:1px solid rgba(179,136,255,.2);border-radius:var(--radius);padding:8px 12px;font-size:11px;color:var(--text2);line-height:1.6;margin-bottom:12px">
-          💾 Captura <strong style="color:var(--purple)">X segundos</strong> → genera archivo <code>.pcap</code> descargable y analizable con IA.
-          Usa esto para diagnósticos puntuales: ráfagas sospechosas, sesiones específicas, evidencia para reportes.
+          💾 Capture <strong style="color:var(--purple)">X seconds</strong> → generates a downloadable <code>.pcap</code> file, analyzable with AI.
+          Use for point-in-time diagnostics: suspicious bursts, specific sessions, report evidence.
         </div>
         <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-bottom:12px">
           <div class="form-group" style="margin:0">
@@ -2557,18 +2557,18 @@ input,select,textarea { font-family:inherit; }
               <option value="60">60 s</option>
             </select>
           </div>
-          <button class="btn btn-primary" id="sPcapCaptureBtn" onclick="sensorPcapCapture(event)">📥 Capturar</button>
-          <button class="btn btn-ghost btn-sm" onclick="sensorPcapList()">↻ Refrescar</button>
+          <button class="btn btn-primary" id="sPcapCaptureBtn" onclick="sensorPcapCapture(event)">📥 Capture</button>
+          <button class="btn btn-ghost btn-sm" onclick="sensorPcapList()">↻ Refresh</button>
         </div>
         <div id="sPcapList" style="font-size:11px;color:var(--text2);max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:6px">
-          <div class="t-muted" style="padding:8px">Aún no hay capturas. Pulsa "Capturar" para iniciar.</div>
+          <div class="t-muted" style="padding:8px">No captures yet. Click "Capture" to start.</div>
         </div>
         <div id="sPcapAiPanel" style="display:none;margin-top:10px;padding:10px;background:var(--bg3);border-left:3px solid var(--purple);border-radius:var(--radius)">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <span style="font-size:11px;color:var(--purple);font-weight:700">🧠 Análisis IA · <span id="sPcapAiName">—</span></span>
+            <span style="font-size:11px;color:var(--purple);font-weight:700">🧠 AI Analysis · <span id="sPcapAiName">—</span></span>
             <button class="btn btn-ghost btn-sm" onclick="document.getElementById('sPcapAiPanel').style.display='none'">✕</button>
           </div>
-          <div class="ai-output" id="sPcapAiOutput"><span class="t-muted">Procesando…</span></div>
+          <div class="ai-output" id="sPcapAiOutput"><span class="t-muted">Processing…</span></div>
         </div>
       </div>
     </div>
@@ -2590,7 +2590,7 @@ input,select,textarea { font-family:inherit; }
       <div class="card-body">
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
           <input class="form-input" id="urlAddInput" placeholder="https://example.com" style="flex:1">
-          <button class="btn btn-ghost btn-sm" onclick="urlAdd()">+ Agregar</button>
+          <button class="btn btn-ghost btn-sm" onclick="urlAdd()">+ Add</button>
         </div>
         <div style="overflow-x:auto">
           <table class="data-table" style="font-size:11px;min-width:700px">
@@ -2607,12 +2607,12 @@ input,select,textarea { font-family:inherit; }
               </tr>
             </thead>
             <tbody id="urlMonBody">
-              <tr><td colspan="8" style="text-align:center;color:var(--text2);padding:16px">Sin resultados. Agrega URLs y pulsa "Probe now".</td></tr>
+              <tr><td colspan="8" style="text-align:center;color:var(--text2);padding:16px">No results. Add URLs and click "Probe now".</td></tr>
             </tbody>
           </table>
         </div>
         <div style="font-size:10px;color:var(--text2);margin-top:8px">
-          🟢 &lt; 200ms · 🟡 200–500ms · 🔴 &gt; 500ms · Resultados escritos a InfluxDB · Grafana panel en la dashboard <strong>NekoPi Field Unit</strong>
+          🟢 &lt; 200ms · 🟡 200–500ms · 🔴 &gt; 500ms · Results written to InfluxDB · Grafana panel on <strong>NekoPi Field Unit</strong> dashboard
         </div>
       </div>
     </div>
@@ -2861,12 +2861,12 @@ input,select,textarea { font-family:inherit; }
           <div class="card-title">📄 Push Results</div>
           <div style="display:flex;align-items:center;gap:8px">
             <div id="npPushSummary" style="font-size:11px;color:var(--text2)"></div>
-            <button class="btn btn-primary btn-sm" data-ai-btn onclick="runNpAI(event)">🧠 Analizar con IA</button>
+            <button class="btn btn-primary btn-sm" data-ai-btn onclick="runNpAI(event)">🧠 Analyze with AI</button>
           </div>
         </div>
         <div id="npPushResults" style="display:flex;flex-direction:column;gap:1px"></div>
         <div id="npAiPanel" style="display:none;padding:14px;border-top:1px solid var(--border)">
-          <div class="ai-output" id="npAiOutput"><span class="t-muted">Procesando…</span></div>
+          <div class="ai-output" id="npAiOutput"><span class="t-muted">Processing…</span></div>
         </div>
       </div>
     </div>
@@ -2878,7 +2878,7 @@ input,select,textarea { font-family:inherit; }
   ═══════════════════════════════ -->
   <div class="page" id="page-wifits">
     <div class="section-title">🩺 WiFi Troubleshooter</div>
-    <div class="section-sub">Diagnóstico asistido · síntomas + datos reales · recomendaciones por capa</div>
+    <div class="section-sub">Assisted diagnostics · symptoms + real data · layer-by-layer recommendations</div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px" id="wtsGrid">
 
@@ -2888,61 +2888,61 @@ input,select,textarea { font-family:inherit; }
         <!-- Interface selector -->
         <div class="card">
           <div class="card-header">
-            <div class="card-title">📡 Interfaz a analizar</div>
+            <div class="card-title">📡 Interface to analyze</div>
             <span class="status-badge sb-idle" id="wtsScanStatus"><span class="sb-dot"></span>Idle</span>
           </div>
           <div class="card-body" style="padding:14px">
             <div class="form-row" style="margin-bottom:10px">
               <div class="form-group">
-                <label class="form-label">Interface WiFi</label>
+                <label class="form-label">WiFi Interface</label>
                 <select class="form-input form-select" id="wtsIface">
                   <option value="wlan1">wlan1</option>
                   <option value="wlan0">wlan0</option>
               </div>
               <div class="form-group">
-                <label class="form-label">Cliente afectado</label>
-                <input class="form-input" id="wtsClient" placeholder="Nombre / MAC / PC">
+                <label class="form-label">Affected client</label>
+                <input class="form-input" id="wtsClient" placeholder="Name / MAC / PC">
               </div>
             </div>
             <button class="btn btn-primary btn-sm" id="wtsScanBtn" onclick="wtsScan()">
-              📡 Scan del entorno
+              📡 Environment scan
             </button>
-            <div class="field-note" style="margin-top:6px">Tarda ~15s — escanea señal, canal, gateway, DNS, interferencia</div>
+            <div class="field-note" style="margin-top:6px">Takes ~15s — scans signal, channel, gateway, DNS, interference</div>
           </div>
         </div>
 
         <!-- Symptom checklist -->
         <div class="card">
-          <div class="card-header"><div class="card-title">🤒 Síntomas reportados</div></div>
+          <div class="card-header"><div class="card-title">🤒 Reported symptoms</div></div>
           <div class="card-body" style="padding:14px">
             <div style="display:flex;flex-direction:column;gap:6px" id="wtsSymptoms">
 
-              <div style="font-size:9px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:2px">Conectividad</div>
-              <label class="wts-sym"><input type="checkbox" value="no_connect"> No se puede conectar al WiFi</label>
-              <label class="wts-sym"><input type="checkbox" value="auth_fail"> Error de autenticación / contraseña</label>
-              <label class="wts-sym"><input type="checkbox" value="no_ip"> Se conecta pero no obtiene IP</label>
-              <label class="wts-sym"><input type="checkbox" value="no_internet"> Conectado pero sin internet</label>
+              <div style="font-size:9px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:2px">Connectivity</div>
+              <label class="wts-sym"><input type="checkbox" value="no_connect"> Cannot connect to WiFi</label>
+              <label class="wts-sym"><input type="checkbox" value="auth_fail"> Authentication / password error</label>
+              <label class="wts-sym"><input type="checkbox" value="no_ip"> Connects but does not get IP</label>
+              <label class="wts-sym"><input type="checkbox" value="no_internet"> Connected but no internet</label>
 
-              <div style="font-size:9px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin:6px 0 2px">Rendimiento</div>
-              <label class="wts-sym"><input type="checkbox" value="slow"> Conexión lenta / baja velocidad</label>
-              <label class="wts-sym"><input type="checkbox" value="drops"> Drops intermitentes / se cae solo</label>
-              <label class="wts-sym"><input type="checkbox" value="high_latency"> Latencia alta / lag en aplicaciones</label>
-              <label class="wts-sym"><input type="checkbox" value="video_issues"> Problemas en videollamadas</label>
+              <div style="font-size:9px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin:6px 0 2px">Performance</div>
+              <label class="wts-sym"><input type="checkbox" value="slow"> Slow connection / low throughput</label>
+              <label class="wts-sym"><input type="checkbox" value="drops"> Intermittent drops / disconnects</label>
+              <label class="wts-sym"><input type="checkbox" value="high_latency"> High latency / app lag</label>
+              <label class="wts-sym"><input type="checkbox" value="video_issues"> Video call issues</label>
 
-              <div style="font-size:9px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin:6px 0 2px">Movilidad</div>
-              <label class="wts-sym"><input type="checkbox" value="roaming"> No hace roaming / se queda pegado a un AP</label>
-              <label class="wts-sym"><input type="checkbox" value="roaming_drops"> Drops al caminar entre zonas</label>
+              <div style="font-size:9px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin:6px 0 2px">Mobility</div>
+              <label class="wts-sym"><input type="checkbox" value="roaming"> No roaming / stuck on one AP</label>
+              <label class="wts-sym"><input type="checkbox" value="roaming_drops"> Drops when walking between zones</label>
 
-              <div style="font-size:9px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin:6px 0 2px">Específico</div>
-              <label class="wts-sym"><input type="checkbox" value="one_device"> Solo afecta a 1 dispositivo</label>
-              <label class="wts-sym"><input type="checkbox" value="all_devices"> Afecta a todos los dispositivos</label>
-              <label class="wts-sym"><input type="checkbox" value="one_area"> Solo en una zona del sitio</label>
-              <label class="wts-sym"><input type="checkbox" value="intermittent"> Problema intermitente / difícil de reproducir</label>
+              <div style="font-size:9px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin:6px 0 2px">Specific</div>
+              <label class="wts-sym"><input type="checkbox" value="one_device"> Only affects 1 device</label>
+              <label class="wts-sym"><input type="checkbox" value="all_devices"> Affects all devices</label>
+              <label class="wts-sym"><input type="checkbox" value="one_area"> Only in one area of the site</label>
+              <label class="wts-sym"><input type="checkbox" value="intermittent"> Intermittent / hard to reproduce</label>
             </div>
 
             <div class="divider"></div>
             <button class="btn btn-primary" id="wtsDiagBtn" onclick="wtsDiagnose()" style="width:100%">
-              🩺 Diagnosticar
+              🩺 Diagnose
             </button>
           </div>
         </div>
@@ -2953,7 +2953,7 @@ input,select,textarea { font-family:inherit; }
 
         <!-- Live scan metrics -->
         <div class="card">
-          <div class="card-header"><div class="card-title">📊 Métricas del entorno</div></div>
+          <div class="card-header"><div class="card-title">📊 Environment metrics</div></div>
           <div class="card-body" style="padding:14px">
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
               <div class="wts-metric" id="wtsMetRssi">
@@ -3035,7 +3035,7 @@ input,select,textarea { font-family:inherit; }
         <!-- Diagnosis result -->
         <div class="card" id="wtsDiagCard" style="display:none">
           <div class="card-header">
-            <div class="card-title">🩺 Diagnóstico</div>
+            <div class="card-title">🩺 Diagnosis</div>
             <div id="wtsHealthScore" style="display:flex;align-items:center;gap:8px"></div>
           </div>
           <div class="card-body" style="padding:14px">
@@ -3052,9 +3052,9 @@ input,select,textarea { font-family:inherit; }
             <!-- Actions button -->
             <div class="divider"></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn btn-ghost btn-sm" onclick="wtsExport()">📄 Exportar reporte</button>
-              <button class="btn btn-ghost btn-sm" onclick="wtsReset()">↺ Nueva consulta</button>
-              <button class="btn btn-primary btn-sm" data-ai-btn onclick="wtsAI(event)">🤖 Análisis AI</button>
+              <button class="btn btn-ghost btn-sm" onclick="wtsExport()">📄 Export report</button>
+              <button class="btn btn-ghost btn-sm" onclick="wtsReset()">↺ New query</button>
+              <button class="btn btn-primary btn-sm" data-ai-btn onclick="wtsAI(event)">🤖 AI Analysis</button>
             </div>
           </div>
         </div>
@@ -3062,12 +3062,12 @@ input,select,textarea { font-family:inherit; }
         <!-- AI panel -->
         <div id="wtsAiCard" style="display:none">
           <div class="card" style="border-color:rgba(179,136,255,.3)">
-            <div class="card-header"><div class="card-title" style="color:var(--purple)">🤖 Análisis AI</div></div>
+            <div class="card-header"><div class="card-title" style="color:var(--purple)">🤖 AI Analysis</div></div>
             <div class="card-body">
               <div class="form-group" style="margin-bottom:12px">
-                <label class="form-label">Vendor del AP (para contextualizar el análisis)</label>
+                <label class="form-label">AP Vendor (for analysis context)</label>
                 <select class="form-input form-select" id="wtsApVendor">
-                  <option value="No sé">No sé</option>
+                  <option value="Unknown">Unknown</option>
                   <option value="Cisco">Cisco</option>
                   <option value="Cisco Meraki">Cisco Meraki</option>
                   <option value="Aruba">Aruba</option>
@@ -3076,9 +3076,9 @@ input,select,textarea { font-family:inherit; }
                   <option value="TP-Link">TP-Link</option>
                 </select>
               </div>
-              <div class="ai-output" id="wtsAiOutput"><span class="t-muted">Selecciona el vendor del AP y haz clic en "Analizar con IA"</span></div>
+              <div class="ai-output" id="wtsAiOutput"><span class="t-muted">Select the AP vendor and click "Analyze with AI"</span></div>
               <div style="margin-top:10px">
-                <button class="btn btn-primary btn-sm" data-ai-btn onclick="wtsRunAI(event)">🧠 Analizar con IA</button>
+                <button class="btn btn-primary btn-sm" data-ai-btn onclick="wtsRunAI(event)">🧠 Analyze with AI</button>
               </div>
             </div>
           </div>
@@ -3698,40 +3698,40 @@ input,select,textarea { font-family:inherit; }
   </div>
   <div class="page" id="page-ai">
     <div class="section-title">🧠 Deep Analysis</div>
-    <div class="section-sub">Análisis local de pcap · logs · configs · chat técnico · 100% Ollama remoto</div>
+    <div class="section-sub">Local pcap analysis · logs · configs · technical chat · 100% remote Ollama</div>
 
     <!-- Tabs -->
     <div style="display:flex;gap:0;margin-bottom:14px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
       <button id="aiTabDeep"  onclick='aiSwitchTab("deep")'
-        style="flex:1;padding:10px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;border-right:1px solid var(--border);background:rgba(33,150,243,.12);color:var(--blue-b);font-family:inherit">📂 Análisis de Archivos</button>
+        style="flex:1;padding:10px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;border-right:1px solid var(--border);background:rgba(33,150,243,.12);color:var(--blue-b);font-family:inherit">📂 File Analysis</button>
       <button id="aiTabChat"  onclick='aiSwitchTab("chat")'
-        style="flex:1;padding:10px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;background:var(--bg2);color:var(--text2);font-family:inherit">💬 Asistente de Red</button>
+        style="flex:1;padding:10px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;background:var(--bg2);color:var(--text2);font-family:inherit">💬 Network Assistant</button>
     </div>
 
     <!-- DEEP ANALYSIS TAB -->
     <div id="aiTabDeepPanel">
       <div class="card">
         <div class="card-header">
-          <div class="card-title">📂 Análisis de Archivos</div>
+          <div class="card-title">📂 File Analysis</div>
           <span class="status-badge sb-idle" id="aiPageStatus"><span class="sb-dot"></span>checking…</span>
         </div>
         <div class="card-body">
           <div style="background:rgba(0,230,118,.05);border:1px solid rgba(0,230,118,.2);border-radius:var(--radius);padding:10px 12px;font-size:11px;color:var(--text2);margin-bottom:14px">
-            🔒 <strong style="color:var(--green)">100% local</strong> — los archivos nunca salen del lab.
-            Sube .pcap, .log, .txt, .cfg o .conf y el asistente los analizará usando tu agente Ollama remoto.
+            🔒 <strong style="color:var(--green)">100% local</strong> — files never leave the lab.
+            Upload .pcap, .log, .txt, .cfg or .conf and the assistant will analyze them using your remote Ollama agent.
           </div>
 
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
             <input type="file" id="aiDeepFile" accept=".pcap,.pcapng,.log,.txt,.cfg,.conf"
               style="display:none" onchange="aiDeepUpload(this)">
-            <button class="btn btn-primary" data-ai-btn onclick="document.getElementById('aiDeepFile').click()">📥 Subir archivo</button>
-            <span id="aiDeepFileName" style="font-size:11px;color:var(--text2)">Ningún archivo seleccionado</span>
+            <button class="btn btn-primary" data-ai-btn onclick="document.getElementById('aiDeepFile').click()">📥 Upload file</button>
+            <span id="aiDeepFileName" style="font-size:11px;color:var(--text2)">No file selected</span>
           </div>
 
           <div id="aiDeepSummary" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:12px;font-family:monospace;font-size:11px;color:var(--text);max-height:240px;overflow-y:auto"></div>
 
           <div id="aiDeepResult" class="ai-output" style="min-height:200px">
-            <div class="ai-thinking">Sube un archivo para iniciar el análisis local…</div>
+            <div class="ai-thinking">Upload a file to start local analysis…</div>
           </div>
         </div>
       </div>
@@ -3741,24 +3741,24 @@ input,select,textarea { font-family:inherit; }
     <div id="aiTabChatPanel" style="display:none">
       <div class="card">
         <div class="card-header">
-          <div class="card-title">💬 Asistente de Red</div>
+          <div class="card-title">💬 Network Assistant</div>
           <div style="display:flex;gap:6px;align-items:center">
-            <button class="btn btn-ghost btn-sm" onclick="aiChatClear()">↺ Nueva conversación</button>
+            <button class="btn btn-ghost btn-sm" onclick="aiChatClear()">↺ New conversation</button>
           </div>
         </div>
         <div class="card-body">
           <div id="aiChatHistory" style="min-height:340px;max-height:520px;overflow-y:auto;padding:12px;background:var(--bg2);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:12px;display:flex;flex-direction:column;gap:10px">
             <div class="t-muted" style="text-align:center;font-size:11px;padding:30px 0">
-              Pregunta al asistente sobre redes — RF, troubleshooting, configuración, comandos.<br>
-              Las respuestas son orientativas: el ingeniero valida en sitio.
+              Ask the assistant about networking — RF, troubleshooting, configuration, commands.<br>
+              Answers are advisory: the engineer validates on-site.
             </div>
           </div>
           <div style="display:flex;gap:8px">
             <textarea class="form-input" id="aiChatInput" rows="2"
-              placeholder="Escribe tu pregunta… (Enter para enviar, Shift+Enter para nueva línea)"
+              placeholder="Type your question… (Enter to send, Shift+Enter for new line)"
               style="flex:1;font-family:inherit;resize:vertical"
               onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();aiChatSend(event);}"></textarea>
-            <button class="btn btn-primary" data-ai-btn id="aiChatSendBtn" onclick="aiChatSend(event)">📤 Enviar</button>
+            <button class="btn btn-primary" data-ai-btn id="aiChatSendBtn" onclick="aiChatSend(event)">📤 Send</button>
           </div>
         </div>
       </div>
@@ -3998,7 +3998,7 @@ input,select,textarea { font-family:inherit; }
           <div class="card-title">📊 Cockpit · :9090</div>
           <div style="display:flex;gap:6px;align-items:center">
             <span id="conCockpitUrl" style="font-family:monospace;font-size:11px;color:var(--cyan)">—</span>
-            <button class="btn btn-ghost btn-sm" onclick="conCockpitOpenNewTab()">↗ Nueva pestaña</button>
+            <button class="btn btn-ghost btn-sm" onclick="conCockpitOpenNewTab()">↗ New tab</button>
             <button class="btn btn-ghost btn-sm" onclick="conCockpitReload()">↻</button>
           </div>
         </div>
@@ -4007,15 +4007,15 @@ input,select,textarea { font-family:inherit; }
             style="width:100%;height:640px;border:none;display:block;background:#000"
             allow="clipboard-read; clipboard-write"></iframe>
           <div id="conCockpitFallback" style="display:none;padding:14px;color:var(--text2);font-size:11px;background:rgba(255,193,7,.06);border-top:1px solid rgba(255,193,7,.2);line-height:1.7">
-            💡 Cockpit usa <strong style="color:var(--amber)">HTTPS con certificado self-signed</strong>.
+            💡 Cockpit uses <strong style="color:var(--amber)">HTTPS with a self-signed certificate</strong>.
             El navegador puede bloquear el iframe la primera vez.
-            <strong>Solución:</strong> abre Cockpit en nueva pestaña, acepta el certificado, y regresa.
+            <strong>Solution:</strong> open Cockpit in a new tab, accept the certificate, and come back.
             <div style="margin-top:8px">
-              <button class="btn btn-primary btn-sm" onclick="conCockpitOpenNewTab()">🔗 Abrir Cockpit en pestaña nueva</button>
+              <button class="btn btn-primary btn-sm" onclick="conCockpitOpenNewTab()">🔗 Open Cockpit in new tab</button>
               <button class="btn btn-ghost btn-sm" onclick="conCockpitReload()" style="margin-left:6px">↻ Reintentar iframe</button>
             </div>
             <div style="margin-top:6px;font-size:10px;color:var(--text2)">
-              Si Cockpit no está activo: <code style="color:var(--amber)">sudo systemctl enable --now cockpit.socket</code>
+              If Cockpit is not active: <code style="color:var(--amber)">sudo systemctl enable --now cockpit.socket</code>
             </div>
           </div>
         </div>
@@ -4051,7 +4051,7 @@ input,select,textarea { font-family:inherit; }
   ═══════════════════════════════ -->
   <div class="page" id="page-ota">
     <div class="section-title">📡 OTA Capture</div>
-    <div class="section-sub">Captura pasiva WiFi · monitor mode · análisis con IA</div>
+    <div class="section-sub">Passive WiFi capture · monitor mode · AI analysis</div>
 
     <div class="two-col" style="margin-bottom:14px">
       <!-- LEFT: Config -->
@@ -4064,75 +4064,75 @@ input,select,textarea { font-family:inherit; }
           <div class="card-body">
             <div class="form-row" style="margin-bottom:10px">
               <div class="form-group">
-                <label class="form-label">Interfaz (monitor mode)</label>
+                <label class="form-label">Interface (monitor mode)</label>
                 <select class="form-input form-select" id="otaIface">
                   <option value="wlan1">wlan1</option>
                 </select>
               </div>
               <div class="form-group">
-                <label class="form-label">Canal</label>
+                <label class="form-label">Channel</label>
                 <select class="form-input form-select" id="otaChanMode">
-                  <option value="hop">Hopping (todos)</option>
-                  <option value="smart">Smart (detectar SSID)</option>
-                  <option value="fixed">Fijo</option>
+                  <option value="hop">Hopping (all)</option>
+                  <option value="smart">Smart (detect SSID)</option>
+                  <option value="fixed">Fixed</option>
                 </select>
               </div>
             </div>
             <div id="otaChanFixed" style="display:none" class="form-group">
-              <label class="form-label">Canal fijo</label>
+              <label class="form-label">Fixed channel</label>
               <input class="form-input" id="otaChanNum" type="number" min="1" max="165" value="6" style="width:80px">
             </div>
             <div class="form-group">
-              <label class="form-label">SSID objetivo (opcional — activa Smart mode)</label>
+              <label class="form-label">Target SSID (optional — enables Smart mode)</label>
               <input class="form-input" id="otaSsid" placeholder="CORP-WLAN">
             </div>
             <div class="form-group">
-              <label class="form-label">Filtro MAC (opcional)</label>
+              <label class="form-label">MAC filter (optional)</label>
               <input class="form-input" id="otaMac" placeholder="aa:bb:cc:dd:ee:ff" style="font-family:monospace">
             </div>
-            <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px;margin-top:8px">Tipos de frame</div>
+            <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px;margin-top:8px">Frame types</div>
             <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px">
               <label class="toggle-wrap"><input type="checkbox" id="otaFiltMgmt" checked><span class="toggle-lbl">Management</span></label>
               <label class="toggle-wrap"><input type="checkbox" id="otaFiltData" checked><span class="toggle-lbl">Data</span></label>
               <label class="toggle-wrap"><input type="checkbox" id="otaFiltCtrl"><span class="toggle-lbl">Control</span></label>
             </div>
             <div class="form-group">
-              <label class="form-label">Duración</label>
+              <label class="form-label">Duration</label>
               <select class="form-input form-select" id="otaDuration" style="width:160px">
-                <option value="30">30 segundos</option>
-                <option value="60" selected>1 minuto</option>
-                <option value="120">2 minutos</option>
-                <option value="300">5 minutos</option>
-                <option value="0">Manual (stop manual)</option>
+                <option value="30">30 seconds</option>
+                <option value="60" selected>1 minute</option>
+                <option value="120">2 minutes</option>
+                <option value="300">5 minutes</option>
+                <option value="0">Manual (manual stop)</option>
               </select>
             </div>
             <div class="divider"></div>
             <div style="display:flex;gap:8px">
-              <button class="btn btn-primary" id="otaStartBtn" onclick="otaStart(event)">▶ Iniciar Captura</button>
-              <button class="btn btn-danger btn-sm" id="otaStopBtn" onclick="otaStop()" style="display:none">⏹ Detener</button>
+              <button class="btn btn-primary" id="otaStartBtn" onclick="otaStart(event)">▶ Start Capture</button>
+              <button class="btn btn-danger btn-sm" id="otaStopBtn" onclick="otaStop()" style="display:none">⏹ Stop</button>
             </div>
           </div>
         </div>
 
         <div class="card" id="otaLiveCard" style="display:none">
-          <div class="card-header"><div class="card-title">📊 Captura en vivo</div></div>
+          <div class="card-header"><div class="card-title">📊 Live capture</div></div>
           <div class="card-body">
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
               <div style="background:var(--bg3);border-radius:var(--radius);padding:8px;text-align:center">
-                <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px">Tiempo</div>
+                <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px">Time</div>
                 <div style="font-size:20px;color:var(--white);font-weight:700" id="otaElapsed">0s</div>
               </div>
               <div style="background:var(--bg3);border-radius:var(--radius);padding:8px;text-align:center">
-                <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px">Canal</div>
+                <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px">Channel</div>
                 <div style="font-size:20px;color:var(--cyan);font-weight:700" id="otaChanLive">—</div>
               </div>
               <div style="background:var(--bg3);border-radius:var(--radius);padding:8px;text-align:center">
-                <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px">Tamaño</div>
+                <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px">Size</div>
                 <div style="font-size:20px;color:var(--blue-b);font-weight:700" id="otaSizeLive">0 KB</div>
               </div>
             </div>
             <div style="font-size:11px;color:var(--text2);padding:6px 0">
-              ℹ wlan1 entra en monitor mode durante la captura. La conexión WiFi del NekoPi (wlan0) no se interrumpe.
+              ℹ wlan1 enters monitor mode during capture. NekoPi's WiFi connection (wlan0) is not interrupted.
             </div>
           </div>
         </div>
@@ -4141,19 +4141,19 @@ input,select,textarea { font-family:inherit; }
       <!-- RIGHT: Files + Analysis -->
       <div class="card">
         <div class="card-header">
-          <div class="card-title">📂 Archivos Capturados</div>
+          <div class="card-title">📂 Captured Files</div>
           <button class="btn btn-ghost btn-sm" onclick="otaRefreshFiles()">↻</button>
         </div>
         <div class="card-body">
           <div id="otaFileList" style="max-height:380px;overflow-y:auto;font-size:11px">
-            <div class="t-muted" style="padding:16px;text-align:center">Sin capturas. Inicia una captura OTA.</div>
+            <div class="t-muted" style="padding:16px;text-align:center">No captures. Start an OTA capture.</div>
           </div>
           <div id="otaAiPanel" style="display:none;margin-top:10px;padding:10px;background:var(--bg3);border-left:3px solid var(--purple);border-radius:var(--radius)">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-              <span style="font-size:11px;color:var(--purple);font-weight:700">🧠 Análisis IA · <span id="otaAiName">—</span></span>
+              <span style="font-size:11px;color:var(--purple);font-weight:700">🧠 AI Analysis · <span id="otaAiName">—</span></span>
               <button class="btn btn-ghost btn-sm" onclick="document.getElementById('otaAiPanel').style.display='none'">✕</button>
             </div>
-            <div class="ai-output" id="otaAiOutput"><span class="t-muted">Procesando…</span></div>
+            <div class="ai-output" id="otaAiOutput"><span class="t-muted">Processing…</span></div>
           </div>
         </div>
       </div>
@@ -4165,14 +4165,14 @@ input,select,textarea { font-family:inherit; }
   ═══════════════════════════════ -->
   <div class="page" id="page-cpusher">
     <div class="section-title">🔌 Console Pusher</div>
-    <div class="section-sub">Terminal serial completa · Config push asistido · Cisco IOS · FTDI/USB</div>
+    <div class="section-sub">Full serial terminal · Assisted config push · Cisco IOS · FTDI/USB</div>
 
     <!-- Connection bar — always visible -->
     <div class="card" style="margin-bottom:14px">
       <div class="card-body" style="padding:10px 14px">
         <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
           <div class="form-group" style="margin:0">
-            <label class="form-label">Puerto</label>
+            <label class="form-label">Port</label>
             <div style="display:flex;gap:4px">
               <select class="form-input form-select" id="cpPort" style="font-family:monospace;width:190px">
                 <option value="/dev/ttyUSB0">/dev/ttyUSB0</option>
@@ -4189,12 +4189,12 @@ input,select,textarea { font-family:inherit; }
               <option value="115200">115200</option>
             </select>
           </div>
-          <button class="btn btn-primary" id="cpConnBtn" onclick="cpConnect(event)">🔌 Conectar</button>
-          <button class="btn btn-danger btn-sm" id="cpDiscBtn" onclick="cpDisconnect()" style="display:none">⏹ Desconectar</button>
-          <span class="status-badge sb-idle" id="cpStatus"><span class="sb-dot"></span>Desconectado</span>
+          <button class="btn btn-primary" id="cpConnBtn" onclick="cpConnect(event)">🔌 Connect</button>
+          <button class="btn btn-danger btn-sm" id="cpDiscBtn" onclick="cpDisconnect()" style="display:none">⏹ Disconnect</button>
+          <span class="status-badge sb-idle" id="cpStatus"><span class="sb-dot"></span>Disconnected</span>
         </div>
         <div id="cpNoPort" style="display:none;margin-top:8px;padding:8px 10px;background:rgba(255,193,7,.06);border:1px solid rgba(255,193,7,.2);border-radius:var(--radius);font-size:11px;color:var(--text2)">
-          ⚠ Sin puerto serial detectado. Conecta un cable USB console (FTDI/PL2303/CH340) y pulsa ↻.
+          ⚠ No serial port detected. Connect a USB console cable (FTDI/PL2303/CH340) and click ↻.
         </div>
       </div>
     </div>
@@ -4215,7 +4215,7 @@ input,select,textarea { font-family:inherit; }
           <div style="display:flex;gap:6px;align-items:center">
             <span id="cpTermUrl" style="font-family:monospace;font-size:11px;color:var(--cyan)">—</span>
             <button class="btn btn-ghost btn-sm" onclick="cpTermReload()">↻</button>
-            <button class="btn btn-ghost btn-sm" onclick="cpTermNewTab()">↗ Nueva pestaña</button>
+            <button class="btn btn-ghost btn-sm" onclick="cpTermNewTab()">↗ New tab</button>
           </div>
         </div>
         <div class="card-body" style="padding:0">
@@ -4223,8 +4223,8 @@ input,select,textarea { font-family:inherit; }
             style="width:100%;height:520px;border:none;display:block;background:#000"
             allow="clipboard-read; clipboard-write"></iframe>
           <div id="cpTermPlaceholder" style="padding:40px 20px;text-align:center;color:var(--text2);font-size:12px">
-            Conecta al puerto serial para ver la terminal.<br>
-            <span style="font-size:11px;color:var(--text2)">Usarás la misma terminal que si conectaras PuTTY o SecureCRT al cable console.</span>
+            Connect to the serial port to see the terminal.<br>
+            <span style="font-size:11px;color:var(--text2)">Same experience as connecting PuTTY or SecureCRT to the console cable.</span>
           </div>
         </div>
       </div>
@@ -4240,24 +4240,24 @@ input,select,textarea { font-family:inherit; }
           </div>
           <div class="card-body">
             <div style="background:rgba(255,193,7,.06);border:1px solid rgba(255,193,7,.2);border-radius:var(--radius);padding:8px 10px;font-size:11px;color:var(--text2);margin-bottom:10px">
-              ⚠ Config Push desconecta la terminal interactiva durante el push (el puerto solo puede tener un dueño).
-              Al terminar, reconecta la terminal automáticamente.
+              ⚠ Config Push disconnects the interactive terminal during push (the port can only have one owner).
+              When done, the terminal reconnects automatically.
             </div>
             <div class="form-group">
-              <label class="form-label">Config IOS (una línea por comando)</label>
+              <label class="form-label">IOS Config (one line per command)</label>
               <textarea class="form-input" id="cpConfig" rows="12" placeholder="conf t&#10;interface GigabitEthernet0/1&#10; description NekoPi-managed&#10; no shutdown&#10;end" style="font-family:monospace;font-size:11px;resize:vertical"></textarea>
             </div>
             <div class="form-row" style="margin-bottom:10px">
               <div class="form-group">
-                <label class="form-label">Delay entre líneas</label>
+                <label class="form-label">Delay between lines</label>
                 <div style="display:flex;align-items:center;gap:8px">
                   <input type="range" id="cpDelay" min="50" max="500" value="150" style="flex:1" oninput="document.getElementById('cpDelayVal').textContent=this.value+'ms'">
                   <span id="cpDelayVal" style="font-size:11px;color:var(--text2);min-width:42px">150ms</span>
                 </div>
               </div>
               <div class="form-group">
-                <label class="form-label" style="margin-bottom:8px">Opciones</label>
-                <label class="toggle-wrap"><input type="checkbox" id="cpWaitPrompt" checked><span class="toggle-lbl">Esperar prompt (#/>)</span></label>
+                <label class="form-label" style="margin-bottom:8px">Options</label>
+                <label class="toggle-wrap"><input type="checkbox" id="cpWaitPrompt" checked><span class="toggle-lbl">Wait for prompt (#/>)</span></label>
               </div>
             </div>
             <div style="display:flex;gap:8px;align-items:center">
@@ -4273,7 +4273,7 @@ input,select,textarea { font-family:inherit; }
         </div>
 
         <div class="card">
-          <div class="card-header"><div class="card-title">🔍 Validación Post-Push</div></div>
+          <div class="card-header"><div class="card-title">🔍 Post-Push Validation</div></div>
           <div class="card-body">
             <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
               <button class="btn btn-primary btn-sm" onclick="cpValidate(event)">🔍 Validar</button>
@@ -4295,13 +4295,13 @@ input,select,textarea { font-family:inherit; }
 
     <!-- ───────────────── 1. RED & CONECTIVIDAD ───────────────── -->
     <div class="card" style="margin-bottom:14px">
-      <div class="card-header"><div class="card-title">🌐 Red &amp; Conectividad</div></div>
+      <div class="card-header"><div class="card-title">🌐 Network &amp; Connectivity</div></div>
       <div class="card-body">
         <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
           <div>
             <div style="font-size:12px;font-weight:600;color:var(--white)">Internet Sharing (NAT)</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px">Comparte internet de eth0/wlan0 hacia eth1 (gestión directa)</div>
-            <div style="font-size:11px;color:var(--text2)">⚠️ Desactivar en auditorías formales</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">Share internet from eth0/wlan0 to eth1 (direct management)</div>
+            <div style="font-size:11px;color:var(--text2)">⚠️ Disable during formal audits</div>
           </div>
           <div style="display:flex;align-items:center;gap:10px">
             <span class="status-badge sb-ok" id="natStatus"><span class="sb-dot"></span>Enabled</span>
@@ -4321,7 +4321,7 @@ input,select,textarea { font-family:inherit; }
           <button class="btn btn-ghost btn-sm" onclick="loadDhcpLeases()">↺ Refresh</button>
         </div>
         <div id="dhcpLeasesBody" style="overflow-x:auto">
-          <div class="t-muted" style="text-align:center;padding:10px">Cargando leases…</div>
+          <div class="t-muted" style="text-align:center;padding:10px">Loading leases…</div>
         </div>
       </div>
     </div>
@@ -4329,14 +4329,14 @@ input,select,textarea { font-family:inherit; }
     <!-- ───────────────── 2. BACKEND DE IA ───────────────── -->
     <div class="card" style="margin-bottom:14px">
       <div class="card-header">
-        <div class="card-title">🤖 Backend de IA</div>
-        <span style="font-size:11px;color:var(--text2)">El RPi nunca aloja Ollama — siempre remoto</span>
+        <div class="card-title">🤖 AI Backend</div>
+        <span style="font-size:11px;color:var(--text2)">The RPi never hosts Ollama — always remote</span>
       </div>
       <div class="card-body">
         <div style="background:rgba(33,150,243,.05);border:1px solid rgba(33,150,243,.2);border-radius:var(--radius);padding:10px 12px;font-size:11px;color:var(--text2);margin-bottom:14px;line-height:1.7">
-          💡 <strong style="color:var(--blue-b)">Análisis de texto → Gemini</strong> (rápido, métricas abstractas).<br>
-          🔒 <strong style="color:var(--blue-b)">Archivos sensibles (pcap/log/cfg) → procesado local en el RPi + resumen anonimizado a Gemini</strong>
-          — el archivo raw nunca sale del dispositivo. Si Gemini no está configurado, fallback a Ollama remoto.
+          💡 <strong style="color:var(--blue-b)">Text analysis → Gemini</strong> (fast, abstract metrics).<br>
+          🔒 <strong style="color:var(--blue-b)">Sensitive files (pcap/log/cfg) → processed locally on RPi + anonymized summary to Gemini</strong>
+          — the raw file never leaves the device. If Gemini is not configured, fallback to remote Ollama.
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
@@ -4346,15 +4346,15 @@ input,select,textarea { font-family:inherit; }
             <div class="form-group">
               <label class="form-label">API Key</label>
               <input class="form-input" id="settingsGeminiKey" type="password" placeholder="AIza…">
-              <div class="field-note">Almacenada localmente en el RPi.</div>
+              <div class="field-note">Stored locally on the RPi.</div>
             </div>
             <div class="form-group">
-              <label class="form-label">Modelo</label>
+              <label class="form-label">Model</label>
               <input class="form-input" id="settingsGeminiModel" placeholder="gemini-2.5-flash" value="gemini-2.5-flash">
             </div>
             <div style="display:flex;gap:8px;align-items:center">
               <button class="btn btn-primary btn-sm" onclick="aiTestGemini(event)">🧪 Test</button>
-              <span id="aiGeminiStatus" style="font-size:11px;color:var(--text2)">— sin probar</span>
+              <span id="aiGeminiStatus" style="font-size:11px;color:var(--text2)">— untested</span>
             </div>
           </div>
 
@@ -4362,17 +4362,17 @@ input,select,textarea { font-family:inherit; }
           <div style="border:1px solid var(--border);border-radius:var(--radius);padding:12px">
             <div style="font-size:11px;font-weight:700;color:var(--green);letter-spacing:1px;margin-bottom:8px">🤖 OLLAMA REMOTO</div>
             <div class="form-group">
-              <label class="form-label">URL del agente</label>
+              <label class="form-label">Agent URL</label>
               <input class="form-input" id="settingsOllamaUrl" placeholder="http://192.168.x.x:11434">
-              <div class="field-note">Agente Ollama en otra máquina. Nunca localhost.</div>
+              <div class="field-note">Ollama agent on another machine. Never localhost.</div>
             </div>
             <div class="form-group">
-              <label class="form-label">Modelo detectado</label>
+              <label class="form-label">Detected model</label>
               <input class="form-input" id="settingsOllamaModel" placeholder="—" readonly style="background:var(--bg3);color:var(--text2)">
             </div>
             <div style="display:flex;gap:8px;align-items:center">
               <button class="btn btn-primary btn-sm" onclick="aiTestOllama(event)">🧪 Test</button>
-              <span id="aiOllamaStatus" style="font-size:11px;color:var(--text2)">— sin probar</span>
+              <span id="aiOllamaStatus" style="font-size:11px;color:var(--text2)">— untested</span>
             </div>
           </div>
         </div>
@@ -4384,7 +4384,7 @@ input,select,textarea { font-family:inherit; }
     <!-- ───────────────── 3. SONDAS & LATENCIA ───────────────── -->
     <div class="card" style="margin-bottom:14px">
       <div class="card-header">
-        <div class="card-title">📡 Sondas &amp; Latencia</div>
+        <div class="card-title">📡 Probes &amp; Latency</div>
         <button class="btn btn-primary btn-sm" onclick="saveProbeConfig()">&#10003; Save</button>
       </div>
       <div class="card-body">
@@ -4430,7 +4430,7 @@ input,select,textarea { font-family:inherit; }
         <div style="display:flex;gap:8px;align-items:center">
           <input class="form-input" id="newHostName"    placeholder="Nombre"      style="width:120px">
           <input class="form-input" id="newHostAddress" placeholder="IP / hostname" style="flex:1">
-          <button class="btn btn-ghost btn-sm" onclick="addCustomHost()">+ Agregar</button>
+          <button class="btn btn-ghost btn-sm" onclick="addCustomHost()">+ Add</button>
         </div>
         <div class="field-note" style="margin-top:6px">Los custom hosts aparecen en Service Latency del Dashboard</div>
 
@@ -4447,14 +4447,14 @@ input,select,textarea { font-family:inherit; }
           </select>
           <button class="btn btn-ghost btn-sm" onclick="_loadNearbyAPs()">&#8635; Scan Now</button>
         </div>
-        <div class="field-note" style="margin-top:6px">Intervalo del scan automático de APs en el dashboard</div>
+        <div class="field-note" style="margin-top:6px">Auto-scan interval for nearby APs on the dashboard</div>
       </div>
     </div>
 
     <!-- ───────────────── 4. DISPOSITIVO ───────────────── -->
     <div class="card">
       <div class="card-header">
-        <div class="card-title">⚙️ Dispositivo</div>
+        <div class="card-title">⚙️ Device</div>
         <button class="btn btn-primary btn-sm" onclick="saveDeviceSettings()">✓ Save</button>
       </div>
       <div class="card-body">
@@ -4636,11 +4636,11 @@ input,select,textarea { font-family:inherit; }
   ═══════════════════════════════ -->
   <div class="page" id="page-iot">
     <div class="section-title">🌐 IoT &amp; Sensors</div>
-    <div class="section-sub">MQTT · LoRa · BLE · Zigbee · En construcción</div>
+    <div class="section-sub">MQTT · LoRa · BLE · Zigbee · Under construction</div>
     <div class="card" style="min-height:60vh;display:flex;align-items:center;justify-content:center">
       <div class="card-body" style="text-align:center;padding:60px 40px;width:100%">
         <div style="font-size:64px;margin-bottom:20px">🚧</div>
-        <div style="font-family:-apple-system,'Segoe UI',sans-serif;font-size:18px;font-weight:700;letter-spacing:3px;color:var(--white);margin-bottom:12px;text-transform:uppercase">En Construcción</div>
+        <div style="font-family:-apple-system,'Segoe UI',sans-serif;font-size:18px;font-weight:700;letter-spacing:3px;color:var(--white);margin-bottom:12px;text-transform:uppercase">Under Construction</div>
         <div style="font-size:13px;color:var(--amber);margin-bottom:20px">NekoPi Field Unit — v1.1</div>
         <div style="max-width:400px;margin:0 auto;text-align:left">
           <div style="font-size:11px;color:var(--text2);line-height:2">
@@ -4903,13 +4903,13 @@ input,select,textarea { font-family:inherit; }
       <div class="card">
         <div class="card-header"><div class="card-title">🖥 Hardware</div></div>
         <div class="card-body" id="abHwBody">
-          <div class="t-muted">Cargando…</div>
+          <div class="t-muted">Loading…</div>
         </div>
       </div>
       <div class="card">
         <div class="card-header"><div class="card-title">📡 Interfaces de red</div></div>
         <div class="card-body" style="padding:0" id="abIfBody">
-          <div class="t-muted" style="padding:14px">Cargando…</div>
+          <div class="t-muted" style="padding:14px">Loading…</div>
         </div>
       </div>
     </div>
@@ -4918,7 +4918,7 @@ input,select,textarea { font-family:inherit; }
     <div class="card" style="margin-bottom:14px">
       <div class="card-header"><div class="card-title">💾 Storage</div></div>
       <div class="card-body" id="abStorageBody">
-        <div class="t-muted">Cargando…</div>
+        <div class="t-muted">Loading…</div>
       </div>
     </div>
 
@@ -4927,9 +4927,9 @@ input,select,textarea { font-family:inherit; }
       <div class="card-header"><div class="card-title">🧩 Software Stack</div></div>
       <div class="card-body" style="padding:0">
         <table class="data-table">
-          <thead><tr><th>Servicio</th><th>Versión</th><th>Status</th></tr></thead>
+          <thead><tr><th>Service</th><th>Version</th><th>Status</th></tr></thead>
           <tbody id="abSwBody">
-            <tr><td colspan="3" class="t-muted" style="text-align:center;padding:14px">Cargando…</td></tr>
+            <tr><td colspan="3" class="t-muted" style="text-align:center;padding:14px">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -4969,7 +4969,7 @@ input,select,textarea { font-family:inherit; }
         <!-- Certificaciones -->
         <div style="border-top:1px solid var(--border);margin:0 20px 14px"></div>
         <div id="abCertsBody">
-          <div class="t-muted">Cargando…</div>
+          <div class="t-muted">Loading…</div>
         </div>
 
         <!-- Skills -->
@@ -5024,7 +5024,7 @@ input,select,textarea { font-family:inherit; }
           <div style="display:flex;gap:6px;align-items:center">
             <span id="termLocalUrl" style="font-family:monospace;font-size:11px;color:var(--cyan)">—</span>
             <button class="btn btn-ghost btn-sm" onclick="termLocalReload()">↻</button>
-            <button class="btn btn-ghost btn-sm" onclick="termLocalNewTab()">↗ Nueva pestaña</button>
+            <button class="btn btn-ghost btn-sm" onclick="termLocalNewTab()">↗ New tab</button>
           </div>
         </div>
         <div class="card-body" style="padding:0">
@@ -5039,7 +5039,7 @@ input,select,textarea { font-family:inherit; }
     <div id="termPanelSsh" style="display:none">
       <div style="display:flex;gap:14px;flex-wrap:wrap">
         <div class="card" style="flex:0 0 280px">
-          <div class="card-header"><div class="card-title">🔐 Conexión SSH</div></div>
+          <div class="card-header"><div class="card-title">🔐 SSH Connection</div></div>
           <div class="card-body">
             <div class="form-group">
               <label class="form-label">Host / IP</label>
@@ -5056,20 +5056,20 @@ input,select,textarea { font-family:inherit; }
               </div>
             </div>
             <div style="font-size:11px;color:var(--text2);margin-bottom:8px">
-              💡 La contraseña se ingresa dentro de la terminal — nunca toca el backend.
+              💡 The password is entered inside the terminal — it never touches the backend.
             </div>
             <div class="divider"></div>
-            <button class="btn btn-primary btn-full" id="termSshConnBtn" onclick="termSshConnect(event)">⚡ Conectar</button>
-            <button class="btn btn-danger btn-full" id="termSshDiscBtn" style="display:none;margin-top:8px" onclick="termSshDisconnect()">✕ Cerrar sesión</button>
+            <button class="btn btn-primary btn-full" id="termSshConnBtn" onclick="termSshConnect(event)">⚡ Connect</button>
+            <button class="btn btn-danger btn-full" id="termSshDiscBtn" style="display:none;margin-top:8px" onclick="termSshDisconnect()">✕ Close session</button>
             <div style="margin-top:8px">
-              <span class="status-badge sb-idle" id="termSshStatus"><span class="sb-dot"></span>Sin conectar</span>
+              <span class="status-badge sb-idle" id="termSshStatus"><span class="sb-dot"></span>Not connected</span>
             </div>
           </div>
         </div>
 
         <div class="card" style="flex:1;min-width:280px">
           <div class="card-header">
-            <div class="card-title" id="termSshTitle">SSH · sin conexión</div>
+            <div class="card-title" id="termSshTitle">SSH · not connected</div>
             <div style="display:flex;gap:6px;align-items:center">
               <button class="btn btn-ghost btn-sm" id="termSshReloadBtn" onclick="termSshReload()" disabled>↻</button>
             </div>
@@ -5254,7 +5254,7 @@ var TRANSLATIONS = {
     "stopped": "Detenido",
     "idle": "Inactivo",
     "connecting": "Conectando...",
-    "loading": "Cargando...",
+    "loading": "Loading...",
     "error": "Error",
     "success": "Éxito",
     // Settings
@@ -5430,7 +5430,7 @@ function startLiveMetrics() {
       var sub = '';
       if (oll.online) sub = (oll.model||'').replace(':latest','') + ' · remoto';
       else if (gem.online) sub = (gem.model||'gemini') + ' · external';
-      else sub = 'Configura en Settings';
+      else sub = 'Configure in Settings';
 
       var sideVal = document.getElementById('sidebarAiVal');
       if (sideVal) sideVal.textContent = (gem.online||oll.online) ? label.toLowerCase() : 'off';
@@ -5716,7 +5716,7 @@ function _showIfaceDetail(name, iface, speed, subnet, gw, panel) {
   panel.style.display = '';
   panel.innerHTML = '<div style="color:var(--text2);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px">' +
     (iface.label || name) + ' — Detalles</div>' +
-    '<div style="color:var(--text2);font-size:11px;margin-bottom:6px">Cargando...</div>';
+    '<div style="color:var(--text2);font-size:11px;margin-bottom:6px">Loading...</div>';
 
   // Cargar datos reales del enlace
   fetchAPI('/api/wired/link?iface=' + name).then(function(link) {
@@ -5752,7 +5752,7 @@ function _showIfaceDetail(name, iface, speed, subnet, gw, panel) {
 }
 
 function _runLLDP(iface) {
-  showToast('LLDP → módulo Wired/LAN');
+  showToast('LLDP → Wired/LAN module');
   goPage('wired');
 }
 
@@ -6176,7 +6176,7 @@ const pages = {
   ota:        { title:'OTA Capture',        sub:'Captura pasiva WiFi · monitor mode · Deep Analysis', onload: function(){
     try { otaRefreshFiles(); otaLoadIfaces(); } catch(e) {}
   } },
-  wifits:     { title:'WiFi Troubleshooter', sub:'Diagnóstico asistido · síntomas + datos reales · por capa', onload: function(){
+  wifits:     { title:'WiFi Troubleshooter', sub:'Assisted diagnostics · symptoms + real data · per layer', onload: function(){
     wtsInit();
     if(DEMO_MODE){
       // Pre-load demo scan data so metrics show immediately
@@ -6227,7 +6227,7 @@ const pages = {
     }
   } },
   kismet:     { title:'Kismet IDS', onload: function(){ _kismetPoll(); fetchAPI('/api/kismet/url').then(function(d){ _kismetRealURL=d.url; var a=document.getElementById('kismetFullUILink'); if(a&&d.url) a.href=d.url; }); },        sub:'Passive wireless IDS · rogue detection' },
-  ai:         { title:'Deep Analysis',     sub:'Análisis local de pcap · logs · configs · chat técnico', onload: function(){ try{ aiPageRefreshStatus(); }catch(e){} } },
+  ai:         { title:'Deep Analysis',     sub:'Local pcap analysis · logs · configs · technical chat', onload: function(){ try{ aiPageRefreshStatus(); }catch(e){} } },
   reports:    { title:'Reports',           sub:'PDF · QR · EN/ES' },
   tools:      { title:'Tools',             sub:'Subnet · VLSM · IP Converter · Reference' },
   cli:        { title:'Terminal',          sub:'ttyd embebido · bash local · SSH remoto', onload: function(){
@@ -6347,7 +6347,7 @@ function goPage(id) {
       clearInterval(_profilerTimeoutIv);
       if (!DEMO_MODE) fetch('/api/profiler/stop', {method:'POST'});
       if (profStatus) { profStatus.className='status-badge sb-idle'; profStatus.innerHTML='<span class="sb-dot"></span>AP Down'; }
-      showToast('Profiler detenido al salir del módulo');
+      showToast('Profiler stopped on module exit');
     }
   }
 }
@@ -6495,7 +6495,7 @@ function detectAllNetworkInfo() {
   fetchAPI('/api/network/info').then(function(data) {
     if (!data) {
       // Backend no responde — mostrar error claro, no simulación
-      _showLiveError('No se pudo conectar al backend en ' + (API_BASE || '—'));
+      _showLiveError('Could not connect to backend at ' + (API_BASE || '—'));
       return;
     }
 
@@ -6896,7 +6896,7 @@ function runQC() {
 
 function qcFinish() {
   if (!qcTests || qcTests.length === 0) {
-    showToast('No hay resultados aún — espera que terminen los tests');
+    showToast('No results yet — wait for tests to finish');
     return;
   }
   wizGoto('qc', 2);
@@ -7060,9 +7060,9 @@ function runWifiScan() {
   addLine('t-info', 'Scanning... (may take 10-15s)');
   if (bar) bar.style.width = '20%';
   fetchAPI('/api/wifi/scan').then(function(data) {
-    if (!data) { addLine('t-err', '✗ No se pudo escanear — ¿hay adaptador WiFi?'); return; }
+    if (!data) { addLine('t-err', '✗ Could not scan — is a WiFi adapter connected?'); return; }
     if (data.error) { addLine('t-warn', '⚠ ' + data.error); wifiFinish(); return; }
-    addLine('t-ok', 'Interface: ' + data.iface + ' — ' + data.count + ' APs encontrados');
+    addLine('t-ok', 'Interface: ' + data.iface + ' — ' + data.count + ' APs found');
     data.aps.forEach(function(ap) {
       var ssid = ap.ssid || '(hidden)';
       var rssi = ap.signal_dbm ? ap.signal_dbm + 'dBm' : '?';
@@ -8148,7 +8148,7 @@ function runPathAI(ev){
     hops.push('- hop'+(idx+1)+' '+ip+' avg='+avg+' loss='+loss+(cls?' ['+cls+']':''));
   });
   var lossNote = lossyCount === 0 && hopCount > 0
-    ? '✓ 0% loss en TODOS los hops — el path está limpio.'
+    ? '✓ 0% loss on ALL hops — the path is clean.'
     : (lossyCount + ' hops con loss > 0%, total acumulado: ' + totalLoss.toFixed(1) + '%');
   var bottleneckLine = (maxRttHop && hopCount > 0)
     ? 'Hop con mayor RTT: '+maxRttHop+' ('+maxRtt.toFixed(1)+' ms)'
@@ -8238,7 +8238,7 @@ function toggleSensor(){
     clearInterval(sensorIntervalId);
     if(!DEMO_MODE){
       fetch(API_BASE + '/api/sensor/stop', {method:'POST'}).then(function(){
-        showToast('Deteniendo servicios…');
+        showToast('Stopping services…');
         return fetch(API_BASE + '/api/sensor/services/stop', {method:'POST'});
       }).then(function(){
         if(st){st.className='status-badge sb-idle';st.innerHTML='<span class="sb-dot"></span>Stopped';}
@@ -8349,7 +8349,7 @@ function sensorPcapCapture(ev){
     })
     .catch(function(e){ showToast('✗ '+e.message); })
     .finally(function(){
-      if(btn){ btn.disabled = false; btn.textContent = '📥 Capturar'; }
+      if(btn){ btn.disabled = false; btn.textContent = '📥 Capture'; }
     });
 }
 
@@ -8360,7 +8360,7 @@ function sensorPcapList(){
     .then(function(d){
       var files = (d && d.files) || [];
       if(!files.length){
-        box.innerHTML = '<div class="t-muted">Aún no hay capturas.</div>';
+        box.innerHTML = '<div class="t-muted">No captures yet.</div>';
         return;
       }
       box.innerHTML = files.map(function(f){
@@ -8389,9 +8389,9 @@ function sensorPcapAnalyze(name, ev){
     return;
   }
   out.innerHTML =
-    '<div class="ai-thinking">⏳ Procesando análisis profundo…</div>'
+    '<div class="ai-thinking">⏳ Processing deep analysis…</div>'
     +'<div style="font-size:11px;color:var(--text2);margin-top:6px;padding-left:14px">'
-    +'tshark local · anonimizando IPs/MACs · enviando resumen al modelo'
+    +'local tshark · anonymizing IPs/MACs · sending summary to model'
     +'</div>';
   if(btn){ btn.disabled = true; btn._oldText = btn.textContent; btn.textContent = '⌛'; }
   fetch(API_BASE + '/api/sensor/pcap/analyze?name='+encodeURIComponent(name),
@@ -8843,12 +8843,12 @@ function clearSensorHistory(){
 function _nekopiHost(){ return window.location.hostname || 'localhost'; }
 function openGrafana(){
   var btn = document.getElementById('btnGrafana');
-  if(btn && btn.style.opacity === '0.4'){ showToast('Grafana está detenido — inicia Sensor Mode primero'); return; }
+  if(btn && btn.style.opacity === '0.4'){ showToast('Grafana is stopped — start Sensor Mode first'); return; }
   window.open('http://'+_nekopiHost()+':3000','_blank');
 }
 function openInflux(){
   var btn = document.getElementById('btnInflux');
-  if(btn && btn.style.opacity === '0.4'){ showToast('InfluxDB está detenido — inicia Sensor Mode primero'); return; }
+  if(btn && btn.style.opacity === '0.4'){ showToast('InfluxDB is stopped — start Sensor Mode first'); return; }
   window.open('http://'+_nekopiHost()+':8086','_blank');
 }
 
@@ -9018,9 +9018,9 @@ function termSshConnect(ev){
   var port = ((document.getElementById('termSshPort')||{}).value || '22').trim();
   var status = document.getElementById('termSshStatus');
   var btn = ev && ev.currentTarget;
-  if(!host){ showToast('Ingresa la IP del equipo'); return; }
-  if(status){ status.className='status-badge sb-warn'; status.innerHTML='<span class="sb-dot"></span>conectando…'; }
-  if(btn){ btn.disabled = true; btn.textContent = '⌛ Lanzando ttyd…'; }
+  if(!host){ showToast('Enter the device IP'); return; }
+  if(status){ status.className='status-badge sb-warn'; status.innerHTML='<span class="sb-dot"></span>connecting…'; }
+  if(btn){ btn.disabled = true; btn.textContent = '⌛ Launching ttyd…'; }
   fetch(API_BASE + '/api/terminal/ssh', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({host: host, user: user, port: parseInt(port)||22}),
@@ -9044,7 +9044,7 @@ function termSshConnect(ev){
   }).catch(function(e){
     if(status){ status.className='status-badge sb-fail'; status.innerHTML='<span class="sb-dot"></span>'+e.message; }
   }).finally(function(){
-    if(btn){ btn.disabled = false; btn.textContent = '⚡ Conectar'; }
+    if(btn){ btn.disabled = false; btn.textContent = '⚡ Connect'; }
   });
 }
 
@@ -9057,11 +9057,11 @@ function termSshDisconnect(){
   var iframe = document.getElementById('termSshIframe');
   if(iframe) iframe.src = 'about:blank';
   var status = document.getElementById('termSshStatus');
-  if(status){ status.className='status-badge sb-idle'; status.innerHTML='<span class="sb-dot"></span>Sin conectar'; }
+  if(status){ status.className='status-badge sb-idle'; status.innerHTML='<span class="sb-dot"></span>Not connected'; }
   var disc = document.getElementById('termSshDiscBtn');
   if(disc) disc.style.display = 'none';
   var title = document.getElementById('termSshTitle');
-  if(title) title.textContent = 'SSH · sin conexión';
+  if(title) title.textContent = 'SSH · not connected';
   var rl = document.getElementById('termSshReloadBtn');
   if(rl) rl.disabled = true;
 }
@@ -9194,7 +9194,7 @@ function otaStart(ev){
     return;
   }
 
-  if(btn){ btn.disabled = true; btn.textContent = '⌛ Iniciando…'; }
+  if(btn){ btn.disabled = true; btn.textContent = '⌛ Starting…'; }
   fetch(API_BASE + '/api/ota/start', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify(body),
@@ -9296,7 +9296,7 @@ function otaAnalyze(name, ev){
   if(!panel || !out) return;
   panel.style.display = '';
   if(label) label.textContent = name;
-  out.innerHTML = '<div class="ai-thinking">⏳ Análisis profundo OTA…</div>';
+  out.innerHTML = '<div class="ai-thinking">⏳ Deep OTA analysis…</div>';
   if(btn){ btn.disabled = true; btn._old = btn.textContent; btn.textContent = '⌛'; }
   fetch(API_BASE + '/api/ota/analyze/'+encodeURIComponent(name), {method:'POST'})
     .then(function(r){ return r.json().then(function(d){ return {http:r.ok, data:d}; }); })
@@ -9419,7 +9419,7 @@ function cpConnect(ev){
     return;
   }
 
-  if(btn){ btn.disabled = true; btn.textContent = '⌛ Conectando…'; }
+  if(btn){ btn.disabled = true; btn.textContent = '⌛ Connecting…'; }
   fetch(API_BASE + '/api/console/connect', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({port: port, baud: baud}),
@@ -9443,7 +9443,7 @@ function cpConnect(ev){
       showToast('✗ '+(d&&d.error||'failed'));
     }
   }).catch(function(e){ showToast('✗ '+e.message); })
-    .finally(function(){ if(btn){ btn.disabled = false; btn.textContent = '🔌 Conectar'; } });
+    .finally(function(){ if(btn){ btn.disabled = false; btn.textContent = '🔌 Connect'; } });
 }
 
 function cpDisconnect(){
@@ -9495,7 +9495,7 @@ function cpPollStart(){
         _cpConnected = false;
         _cpResetUI();
         var st = document.getElementById('cpStatus');
-        if(st){ st.className='status-badge sb-fail'; st.innerHTML='<span class="sb-dot"></span>Conexión perdida'; }
+        if(st){ st.className='status-badge sb-fail'; st.innerHTML='<span class="sb-dot"></span>Connection lost'; }
       }
     });
   }, 3000);
@@ -9538,7 +9538,7 @@ function cpPush(ev){
 
   if(!_cpConnected){ showToast('Conecta primero al equipo'); return; }
   // Push requires sole port ownership — disconnect ttyd first, push, reconnect.
-  if(btn){ btn.disabled = true; btn.textContent = '⌛ Desconectando terminal…'; }
+  if(btn){ btn.disabled = true; btn.textContent = '⌛ Disconnecting terminal…'; }
   var port = (document.getElementById('cpPort')||{}).value || '/dev/ttyUSB0';
   var baud = parseInt((document.getElementById('cpBaud')||{}).value) || 9600;
 
@@ -9568,7 +9568,7 @@ function cpPush(ev){
         outEl.scrollTop = outEl.scrollHeight;
       }
       if(d.ok){
-        if(ps) ps.innerHTML = '<span style="color:var(--green)">✓ Push completo: '+(d.sent||0)+' líneas</span>';
+        if(ps) ps.innerHTML = '<span style="color:var(--green)">✓ Push complete: '+(d.sent||0)+' lines</span>';
         showToast('✓ Config push completo');
       } else {
         var errs = (d.errors||[]).map(function(e){return '❌ L'+e.line_num+': '+e.error;}).join('\n');
@@ -9615,12 +9615,12 @@ function cpValidate(ev){
       +'<div style="color:var(--green);margin:4px 0">✅ no shutdown</div>'
       +'<div style="color:var(--green);margin:4px 0">✅ ip address 192.168.1.100 255.255.255.0</div>'
       +'<div style="color:var(--red);margin:4px 0">❌ spanning-tree portfast — NO encontrado</div>'
-      +'<div style="margin-top:8px;color:var(--text2)">4/5 líneas coinciden · 1 faltante</div>';
+      +'<div style="margin-top:8px;color:var(--text2)">4/5 lines match · 1 missing</div>';
     return;
   }
 
   if(!_cpConnected){ showToast('Conecta primero'); return; }
-  result.innerHTML = '<div class="ai-thinking">▶ Desconectando terminal · show run · validando…</div>';
+  result.innerHTML = '<div class="ai-thinking">▶ Disconnecting terminal · show run · validating…</div>';
   var port = (document.getElementById('cpPort')||{}).value || '/dev/ttyUSB0';
   var baud = parseInt((document.getElementById('cpBaud')||{}).value) || 9600;
 
@@ -9726,7 +9726,7 @@ function _aiBackendBadge(backend, model){
 }
 
 function _aiFormatResponse(text){
-  if(!text) return '<span class="t-muted">Respuesta vacía</span>';
+  if(!text) return '<span class="t-muted">Empty response</span>';
   var safe = text
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
@@ -9795,7 +9795,7 @@ function _aiAnonMapHTML(anon){
     '<details style="margin-top:6px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">'
     + '<summary style="padding:6px 10px;cursor:pointer;font-size:11px;color:var(--green);user-select:none">'
     + '🗺 Mapa de IPs · '+ipCount+' IPs · '+macCount+' MACs '
-    + '<span style="color:var(--text2);font-weight:normal">(solo visible localmente — no se envió a la IA)</span>'
+    + '<span style="color:var(--text2);font-weight:normal">(only visible locally — not sent to AI)</span>'
     + '</summary>'
     + '<div style="padding:4px 0 8px">'
     + '<table style="width:100%;border-collapse:collapse;font-size:11px">'
@@ -9926,7 +9926,7 @@ function callAI(prompt, outputElementId, opts){
 
   // DEMO mode — return canned response per module key, no network
   if(typeof DEMO_MODE !== 'undefined' && DEMO_MODE){
-    lockBtn(opts.deep ? '⌛ Análisis profundo…' : '⌛ Analizando…');
+    lockBtn(opts.deep ? '⌛ Deep analysis…' : '⌛ Analyzing…');
     var demoText = _AI_DEMO[opts.demoKey] || _AI_DEMO.chat;
     setTimeout(function(){
       var html =
@@ -9941,11 +9941,11 @@ function callAI(prompt, outputElementId, opts){
 
   // ── Deep Analysis path: pre-process file locally, anonymize, → Gemini ──
   if(opts.deep && opts.file){
-    lockBtn('⌛ Análisis profundo…');
+    lockBtn('⌛ Deep analysis…');
     outputEl.innerHTML =
-      '<div class="ai-thinking">⏳ Procesando análisis profundo localmente…</div>'
+      '<div class="ai-thinking">⏳ Processing deep analysis locally…</div>'
       +'<div style="font-size:11px;color:var(--text2);margin-top:6px;padding-left:14px">'
-      +'1. Extrayendo patrones del archivo · 2. Anonimizando IPs/MACs · 3. Enviando resumen al modelo'
+      +'1. Extracting patterns from file · 2. Anonymizing IPs/MACs · 3. Sending summary to model'
       +'</div>';
     var fd = new FormData();
     fd.append('file', opts.file);
@@ -9981,8 +9981,8 @@ function callAI(prompt, outputElementId, opts){
   }
 
   // ── Normal text path ──
-  lockBtn('⌛ Analizando…');
-  outputEl.innerHTML = '<div class="ai-thinking">▶ Conectando con el modelo…</div>';
+  lockBtn('⌛ Analyzing…');
+  outputEl.innerHTML = '<div class="ai-thinking">▶ Connecting to the model…</div>';
 
   aiStatus(true).then(function(st){
     var gemOnline = st && st.gemini && st.gemini.online;
@@ -9995,7 +9995,7 @@ function callAI(prompt, outputElementId, opts){
       outputEl.innerHTML =
         '<div style="color:var(--amber);font-size:12px;padding:12px;background:rgba(255,193,7,.05);'
         +'border:1px dashed rgba(255,193,7,.3);border-radius:4px">'
-        +'⚙️ Configura un backend de IA en <strong>Settings</strong> para usar esta función.'
+        +'⚙️ Configure an AI backend in <strong>Settings</strong> to use this feature.'
         +'</div>';
       unlockBtn();
       return;
@@ -10043,7 +10043,7 @@ function refreshAIButtons(){
       } else {
         b.style.opacity = '0.5';
         b.style.cursor  = 'help';
-        b.title = 'Configura IA en Settings';
+        b.title = 'Configure AI in Settings';
       }
     });
   });
@@ -10176,8 +10176,8 @@ function aiDeepUpload(input){
   if(nameEl) nameEl.textContent = file.name + ' · ' + _bytesFmt(file.size);
   if(sumEl){
     sumEl.style.display = '';
-    sumEl.textContent = '⏳ Pre-procesando ' + file.name + ' localmente…\n'
-      + '   Extrayendo patrones · anonimizando IPs/MACs · enviando resumen al modelo';
+    sumEl.textContent = '⏳ Pre-processing ' + file.name + ' locally…\n'
+      + '   Extracting patterns · anonymizing IPs/MACs · sending summary to model';
   }
   // Single hop: callAI handles upload + anonymization + cloud dispatch.
   callAI('', resEl, {
@@ -10186,7 +10186,7 @@ function aiDeepUpload(input){
     demoKey: 'wifits',
     onDone: function(){
       if(sumEl) sumEl.textContent =
-        '✓ ' + file.name + ' procesado localmente y enviado al modelo (resumen anonimizado).';
+        '✓ ' + file.name + ' processed locally and sent to the model (anonymized summary).';
     }
   });
   input.value = '';
@@ -10497,7 +10497,7 @@ function initProbeConfigUI() {
 function addCustomHost() {
   var name = (document.getElementById('newHostName')||{}).value.trim();
   var addr = (document.getElementById('newHostAddress')||{}).value.trim();
-  if (!name||!addr){ showToast('Ingresa nombre y direccion'); return; }
+  if (!name||!addr){ showToast('Enter name and address'); return; }
   var cfg = loadProbeConfig();
   cfg.custom = cfg.custom||[];
   cfg.custom.push({name:name,host:addr});
@@ -10583,10 +10583,10 @@ function loadDhcpLeases(){
   var box = document.getElementById('dhcpLeasesBody');
   if(!box) return;
   fetchAPI('/api/mgmt/leases').then(function(d){
-    if(!d) { box.innerHTML = '<div class="t-muted" style="text-align:center;padding:10px">No disponible</div>'; return; }
+    if(!d) { box.innerHTML = '<div class="t-muted" style="text-align:center;padding:10px">Not available</div>'; return; }
     var leases = d.leases || [];
     if(!leases.length){
-      box.innerHTML = '<div class="t-muted" style="text-align:center;padding:10px">Sin clientes conectados</div>';
+      box.innerHTML = '<div class="t-muted" style="text-align:center;padding:10px">No clients connected</div>';
       return;
     }
     var html = '<table class="data-table"><thead><tr>'
@@ -10629,20 +10629,20 @@ function loadAISettings(){
     var om = document.getElementById('settingsOllamaModel');
     if(om){
       var model = st.ollama && st.ollama.model;
-      om.value = model || (s.ollama_url ? '— sin respuesta —' : '');
+      om.value = model || (s.ollama_url ? '— no response —' : '');
     }
     // Initial Test status badges so the engineer sees the current state
     var gs = document.getElementById('aiGeminiStatus');
     if(gs){
-      if(st.gemini && st.gemini.online)        gs.innerHTML = '<span style="color:var(--green)">✅ Gemini configurado</span>';
-      else if(st.gemini && st.gemini.configured) gs.innerHTML = '<span style="color:var(--amber)">⚠ Configurado, no probado</span>';
-      else                                     gs.innerHTML = '— sin probar';
+      if(st.gemini && st.gemini.online)        gs.innerHTML = '<span style="color:var(--green)">✅ Gemini configured</span>';
+      else if(st.gemini && st.gemini.configured) gs.innerHTML = '<span style="color:var(--amber)">⚠ Configured, untested</span>';
+      else                                     gs.innerHTML = '— untested';
     }
     var os = document.getElementById('aiOllamaStatus');
     if(os){
       if(st.ollama && st.ollama.online)        os.innerHTML = '<span style="color:var(--green)">✅ Online · '+(st.ollama.model||'')+'</span>';
-      else if(st.ollama && st.ollama.configured) os.innerHTML = '<span style="color:var(--red)">❌ No responde</span>';
-      else                                     os.innerHTML = '— sin probar';
+      else if(st.ollama && st.ollama.configured) os.innerHTML = '<span style="color:var(--red)">❌ Not responding</span>';
+      else                                     os.innerHTML = '— untested';
     }
     // Device card
     var hn = document.getElementById('settingsHostname');
@@ -10688,10 +10688,10 @@ function aiTestGemini(ev){
   var model = (document.getElementById('settingsGeminiModel')||{}).value || 'gemini-2.5-flash';
   var statusEl = document.getElementById('aiGeminiStatus');
   if(!key || key.indexOf('•') === 0){
-    if(statusEl) statusEl.innerHTML = '<span style="color:var(--amber)">⚠ Pega tu API key primero</span>';
+    if(statusEl) statusEl.innerHTML = '<span style="color:var(--amber)">⚠ Paste your API key first</span>';
     return;
   }
-  if(btn){ btn.disabled = true; btn.textContent = '⌛ Probando…'; }
+  if(btn){ btn.disabled = true; btn.textContent = '⌛ Testing…'; }
   // Save first (so future calls use these creds), then probe
   fetch(API_BASE + '/api/settings', {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -10721,14 +10721,14 @@ function aiTestOllama(ev){
   var url = ((document.getElementById('settingsOllamaUrl')||{}).value || '').trim();
   var statusEl = document.getElementById('aiOllamaStatus');
   if(!url){
-    if(statusEl) statusEl.innerHTML = '<span style="color:var(--amber)">⚠ Ingresa la URL del agente</span>';
+    if(statusEl) statusEl.innerHTML = '<span style="color:var(--amber)">⚠ Enter the agent URL</span>';
     return;
   }
   if(/^https?:\/\/(localhost|127\.0\.0\.1)/i.test(url)){
-    statusEl.innerHTML = '<span style="color:var(--amber)">⚠ El RPi nunca aloja Ollama — usa la IP de tu agente remoto</span>';
+    statusEl.innerHTML = '<span style="color:var(--amber)">⚠ The RPi never hosts Ollama — use your remote agent's IP</span>';
     return;
   }
-  if(btn){ btn.disabled = true; btn.textContent = '⌛ Probando…'; }
+  if(btn){ btn.disabled = true; btn.textContent = '⌛ Testing…'; }
   fetch(API_BASE + '/api/settings', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ollama_url: url}),
@@ -10740,11 +10740,11 @@ function aiTestOllama(ev){
   }).then(function(r){ return r.json(); }).then(function(d){
     var modelEl = document.getElementById('settingsOllamaModel');
     if(d && d.ok){
-      statusEl.innerHTML = '<span style="color:var(--green)">✅ Agente IA online · '+(d.model||'')+'</span>';
+      statusEl.innerHTML = '<span style="color:var(--green)">✅ AI Agent online · '+(d.model||'')+'</span>';
       if(modelEl) modelEl.value = d.model || '';
     } else {
-      statusEl.innerHTML = '<span style="color:var(--red)">❌ '+(d&&d.error||'No se encuentra agente en esa dirección')+'</span>';
-      if(modelEl) modelEl.value = '— sin respuesta —';
+      statusEl.innerHTML = '<span style="color:var(--red)">❌ '+(d&&d.error||'No agent found at that address')+'</span>';
+      if(modelEl) modelEl.value = '— no response —';
     }
   }).catch(function(e){
     statusEl.innerHTML = '<span style="color:var(--red)">❌ '+e.message+'</span>';
@@ -13355,7 +13355,7 @@ function tkTftpUpload(){
   var upBtn  = document.getElementById('tkTftpUploadBtn');
   var cnBtn  = document.getElementById('tkTftpCancelBtn');
   if(!input || !input.files || !input.files[0]){
-    if(status) status.innerHTML = '<span style="color:var(--amber)">⚠ Selecciona un archivo</span>';
+    if(status) status.innerHTML = '<span style="color:var(--amber)">⚠ Select a file</span>';
     return;
   }
   var f = input.files[0];
@@ -13416,7 +13416,7 @@ function tkTftpUpload(){
     if(upBtn) upBtn.style.display = '';
     if(cnBtn) cnBtn.style.display = 'none';
     if(prog) prog.style.display = 'none';
-    if(status) status.innerHTML = '<span style="color:var(--red)">✗ Error de red durante la subida</span>';
+    if(status) status.innerHTML = '<span style="color:var(--red)">✗ Network error during upload</span>';
   };
 
   xhr.open('POST', API_BASE + '/api/toolkit/tftp/upload');
@@ -13813,7 +13813,7 @@ function loadAboutPage(){
       swb.innerHTML = (d.software || []).map(function(sw){
         var st = sw.status || '';
         var cls = st==='active'||st==='running' ? 'sb-ok' : st==='ok'||st==='installed' ? 'sb-idle' : 'sb-fail';
-        var label = st==='active'||st==='running' ? '● Running' : st==='ok'||st==='installed' ? '✓ OK' : st==='inactive' ? '○ Detenido' : st;
+        var label = st==='active'||st==='running' ? '● Running' : st==='ok'||st==='installed' ? '✓ OK' : st==='inactive' ? '○ Stopped' : st;
         return '<tr>'
           +'<td style="color:var(--white)">'+sw.name+'</td>'
           +'<td style="font-family:monospace;color:var(--cyan)">'+sw.version+'</td>'
