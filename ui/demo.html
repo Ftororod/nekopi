@@ -1025,13 +1025,8 @@ input,select,textarea { font-family:inherit; }
   <!-- CONTENT -->
   <div class="content">
 
-    <!-- Demo banner — fixed at top of content -->
-    <div id="demoBanner" style="background:linear-gradient(90deg,rgba(156,39,176,.15),rgba(33,150,243,.10));border-bottom:1px solid rgba(156,39,176,.3);padding:10px 18px;font-size:12px;color:#ce93d8;display:flex;align-items:center;gap:10px;flex-wrap:wrap;letter-spacing:.3px;position:sticky;top:0;z-index:90">
-      <span style="font-size:16px">🐱</span>
-      <span><strong>Demo Mode</strong> — datos simulados</span>
-      <span style="color:rgba(255,255,255,.25)">|</span>
-      <span style="color:var(--text2)">Hardware real: <strong style="color:var(--amber)">Raspberry Pi 5</strong></span>
-    </div>
+    <!-- Demo badge — small, top-right corner -->
+    <div id="demoBadge" style="position:fixed;top:10px;right:14px;z-index:200;background:rgba(156,39,176,.18);border:1px solid rgba(156,39,176,.35);border-radius:4px;padding:3px 10px;font-size:10px;letter-spacing:1.5px;color:#ce93d8;font-weight:700;pointer-events:none">◎ DEMO</div>
 
   <!-- ═══════════════════════════════
        DASHBOARD
@@ -5308,9 +5303,54 @@ function startLiveMetrics() {
   function refreshMetrics() {
     if (DEMO_MODE) {
       var ml = document.getElementById('m-lat');
-      var te = document.getElementById('tempEl');
       if (ml) ml.innerHTML = (2.8 + Math.random()*1.2).toFixed(1) + '<small> ms</small>';
-      if (te) te.textContent = 'RPi5 · ' + (40 + Math.floor(Math.random()*8)) + '°C';
+
+      // CPU: 15-45% — smooth random walk
+      var _demoCpu = window._demoCpu || (window._demoCpu = 28);
+      _demoCpu += (Math.random() - 0.5) * 8;
+      if (_demoCpu < 15) _demoCpu = 15 + Math.random() * 5;
+      if (_demoCpu > 45) _demoCpu = 45 - Math.random() * 5;
+      window._demoCpu = _demoCpu;
+      var cpuPct = Math.round(_demoCpu);
+
+      // RAM: 40-65% — slower drift (re-calc every ~10s via counter)
+      window._demoRamTick = (window._demoRamTick || 0) + 1;
+      if (!window._demoRam || window._demoRamTick % 2 === 0) {
+        var _demoRam = window._demoRam || 52;
+        _demoRam += (Math.random() - 0.48) * 4;
+        if (_demoRam < 40) _demoRam = 40 + Math.random() * 3;
+        if (_demoRam > 65) _demoRam = 65 - Math.random() * 3;
+        window._demoRam = _demoRam;
+      }
+      var ramPct = window._demoRam;
+      var ramTotal = 8.0;
+      var ramUsed  = (ramTotal * ramPct / 100).toFixed(1);
+
+      // Temp: 48-62°C
+      var _demoTemp = window._demoTemp || 54;
+      _demoTemp += (Math.random() - 0.5) * 3;
+      if (_demoTemp < 48) _demoTemp = 48 + Math.random() * 2;
+      if (_demoTemp > 62) _demoTemp = 62 - Math.random() * 2;
+      window._demoTemp = _demoTemp;
+      var tempC = Math.round(_demoTemp);
+
+      // Top-bar pills
+      var cpuVal  = document.getElementById('cpuVal');
+      var ramVal  = document.getElementById('ramVal');
+      var tempVal = document.getElementById('tempVal');
+      var te      = document.getElementById('tempEl');
+      if (cpuVal)  cpuVal.textContent  = cpuPct + '%';
+      if (ramVal)  ramVal.textContent  = ramUsed + '/' + ramTotal.toFixed(1) + 'G';
+      if (tempVal) tempVal.textContent = tempC + '°C';
+      if (te)      te.textContent      = 'RPi5 · ' + tempC + '°C';
+
+      // Dashboard cards
+      var mCpu     = document.getElementById('m-cpu');
+      var mCpuBdg  = document.getElementById('m-cpu-badge');
+      var mRamSub  = document.getElementById('m-ram-sub');
+      if (mCpu)    mCpu.innerHTML = cpuPct + '<small>%</small>';
+      if (mCpuBdg){ mCpuBdg.textContent = tempC + '°C'; mCpuBdg.className = 'metric-badge mb-ok'; }
+      if (mRamSub) mRamSub.textContent = 'RAM: ' + ramUsed + ' / ' + ramTotal.toFixed(1) + 'GB';
       return;
     }
 
