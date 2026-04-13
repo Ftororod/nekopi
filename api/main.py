@@ -7273,8 +7273,11 @@ async def terminal_ssh(request: Request):
         ttyd_port = _ttyd_alloc_port()
     except RuntimeError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=503)
+    ssl_cert = str(BASE_DIR / "ssl" / "cert.pem")
+    ssl_key  = str(BASE_DIR / "ssl" / "key.pem")
     cmd = [
         TTYD_BIN, "-p", str(ttyd_port), "-W",
+        "--ssl", "--ssl-cert", ssl_cert, "--ssl-key", ssl_key,
         "ssh",
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
@@ -7399,8 +7402,11 @@ async def console_connect(request: Request):
             except Exception: pass
     # socat gives us a clean raw bidirectional pipe — no escape-key issues
     # from screen/minicom, and ttyd's -W flag allows writing back into it.
+    ssl_cert = str(BASE_DIR / "ssl" / "cert.pem")
+    ssl_key  = str(BASE_DIR / "ssl" / "key.pem")
     cmd = [
         TTYD_BIN, "-p", str(_CP_TTYD_PORT), "-W",
+        "--ssl", "--ssl-cert", ssl_cert, "--ssl-key", ssl_key,
         "socat", f"file:{port},b{baud},raw,echo=0,crnl", "-,raw,echo=0",
     ]
     try:

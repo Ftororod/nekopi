@@ -3916,7 +3916,7 @@ input,select,textarea { font-family:inherit; }
           </div>
           <div style="margin-bottom:12px">
             <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Console (ttyd)</div>
-            <div style="font-family:monospace;font-size:13px;color:var(--purple)">http://nekopi.local:7681/console</div>
+            <div style="font-family:monospace;font-size:13px;color:var(--purple)">https://nekopi.local:7681</div>
           </div>
           <div style="margin-bottom:12px">
             <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Mobile AP (wlan1 dongle)</div>
@@ -8797,7 +8797,8 @@ function clearReportHistory(){ reportHistory=[]; var tbody=document.getElementBy
 var _termSshSession = null; // {session_id, port, host, user}
 
 function _ttydHost(){
-  return window.location.protocol + '//' + window.location.hostname;
+  // ttyd now runs with --ssl using the same cert as NekoPi, so always HTTPS
+  return 'https://' + window.location.hostname;
 }
 function _ttydLocalUrl(){ return _ttydHost() + ':7681/'; }
 function _ttydSshUrl(port){ return _ttydHost() + ':' + port + '/'; }
@@ -9194,7 +9195,7 @@ function cpSwitchTab(which){
 }
 
 function _cpTtydUrl(port){
-  return 'http://' + window.location.hostname + ':' + (port || 7682) + '/';
+  return 'https://' + window.location.hostname + ':' + (port || 7682) + '/';
 }
 
 function cpRefreshPorts(){
