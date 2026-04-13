@@ -864,6 +864,11 @@ input,select,textarea { font-family:inherit; }
 </style>
 </head>
 <body>
+<div id="betaBanner" style="background:rgba(255,152,0,.08);border-bottom:1px solid rgba(255,152,0,.25);padding:6px 14px;font-size:0.75rem;color:rgba(255,193,7,.85);text-align:center;position:relative;z-index:300;display:none">
+  ⚠️ NekoPi is currently in active development — some features may be incomplete. Hardware required for live mode.
+  <button onclick="this.parentElement.style.display='none';try{localStorage.setItem('nekopi_beta_dismissed','1')}catch(e){}" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:rgba(255,193,7,.6);cursor:pointer;font-size:14px;padding:2px 6px">✕</button>
+</div>
+<script>try{if(!localStorage.getItem('nekopi_beta_dismissed'))document.getElementById('betaBanner').style.display=''}catch(e){}</script>
 <div class="scan-line"></div>
 
 <!-- MOBILE DRAWER OVERLAY -->

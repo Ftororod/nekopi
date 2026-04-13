@@ -14127,7 +14127,24 @@ window.fetch = function(url) {
   return _fetchOriginal.apply(this, arguments);
 };
 
-document.addEventListener('DOMContentLoaded', function() { try { nkInit(); } catch(e) {} });
+document.addEventListener('DOMContentLoaded', function() {
+  try { nkInit(); } catch(e) {}
+  // One-time demo notice per session
+  try {
+    if (!sessionStorage.getItem('nekopi_demo_seen')) {
+      sessionStorage.setItem('nekopi_demo_seen', '1');
+      var overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;display:flex;align-items:center;justify-content:center';
+      var box = document.createElement('div');
+      box.style.cssText = 'background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:22px 28px;max-width:420px;text-align:center;color:var(--text);font-size:13px;line-height:1.7;box-shadow:0 8px 32px rgba(0,0,0,.4)';
+      box.innerHTML = '<div style="font-size:20px;margin-bottom:8px">🚧</div>' +
+        'Interactive demo with simulated data.<br>Live features require a NekoPi hardware unit (Raspberry Pi 5).' +
+        '<div style="margin-top:14px"><button style="background:var(--blue);color:#fff;border:none;padding:7px 28px;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;letter-spacing:1px;font-family:inherit" onclick="this.closest(\'div[style*=fixed]\').remove()">OK</button></div>';
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+    }
+  } catch(e) {}
+});
 
 
 
