@@ -128,16 +128,16 @@ The installer automatically sets up:
 <div align="center">
 
 ### Dashboard
-![Dashboard](https://raw.githubusercontent.com/Ftororod/nekopi/main/docs/screenshots/dashboard.png)
+![Dashboard](docs/screenshots/dashboard.png)
 
 ### Quick Check — 15/16 PASS
-![Quick Check](https://raw.githubusercontent.com/Ftororod/nekopi/main/docs/screenshots/quickcheck.png)
+![Quick Check](docs/screenshots/quickcheck.png)
 
 ### Security Audit
-![Security Audit](https://raw.githubusercontent.com/Ftororod/nekopi/main/docs/screenshots/security.png)
+![Security Audit](docs/screenshots/security.png)
 
 ### Sensor Mode
-![Sensor Mode](https://raw.githubusercontent.com/Ftororod/nekopi/main/docs/screenshots/sensor.png)
+![Sensor Mode](docs/screenshots/sensor.png)
 
 </div>
 
