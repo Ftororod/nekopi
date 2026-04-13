@@ -6,6 +6,7 @@ Codename: Tomás
 from fastapi import FastAPI, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import asyncio, json, subprocess, re, socket, time, os, shutil
 
@@ -13,6 +14,11 @@ app = FastAPI(title="NekoPi Field Unit API", version="1.3.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 BASE_DIR  = Path(__file__).parent.parent
+
+# Serve static assets (logos, images) from /opt/nekopi/ui/assets/
+_ASSETS_DIR = BASE_DIR / "ui" / "assets"
+if _ASSETS_DIR.is_dir():
+    app.mount("/assets", StaticFiles(directory=str(_ASSETS_DIR)), name="assets")
 HTML_FILE = BASE_DIR / "ui" / "index.html"
 
 @app.get("/", include_in_schema=False)
