@@ -244,7 +244,7 @@ input,select,textarea { font-family:inherit; }
 .hamburger span { width:20px; height:2px; background:currentColor; border-radius:1px; display:block; }
 
 /* CONTENT — breathing room between sidebar and page content */
-.content { padding:20px 24px; flex:1; overflow-y:auto; height:calc(100vh - var(--topbar-h)); }
+.content { padding:20px 24px 40px; flex:1; overflow-y:auto; min-height:0; height:calc(100vh - var(--topbar-h)); }
 
 /* ═══════════════════════════════════════════
    COMPONENTS
@@ -480,7 +480,7 @@ input,select,textarea { font-family:inherit; }
    .page only adds bottom clearance so the last card isn't glued
    to the viewport edge. No top/horizontal padding here — that
    would double-up with .content's padding and push the title down. */
-.page { display:none; padding:0 0 40px; margin:0; }
+.page { display:none; padding:0 0 60px; margin:0; }
 .page.active { display:block; }
 
 /* Divider */
@@ -616,7 +616,7 @@ input,select,textarea { font-family:inherit; }
   .sidebar { transform:translateX(-100%) !important; }
   .sidebar.open { transform:translateX(0) !important; box-shadow:4px 0 24px rgba(0,0,0,.5); }
   .main { margin-left:0; height:100vh; overflow:hidden; }
-  .content { height:calc(100vh - var(--topbar-h) - var(--bottom-h) - env(safe-area-inset-bottom, 0px)); }
+  .content { height:calc(100vh - var(--topbar-h) - var(--bottom-h) - env(safe-area-inset-bottom, 0px)); padding-bottom:calc(var(--bottom-h) + 20px); }
   .hamburger { display:flex; }
   .bottom-nav { display:block; }
   .metrics-grid { grid-template-columns:repeat(2,1fr); }
@@ -627,7 +627,7 @@ input,select,textarea { font-family:inherit; }
   .wizard-steps { flex-wrap:nowrap; overflow-x:auto; }
   .wizard-step { min-width:120px; }
   .ws-label { display:none; }
-  .content { padding:12px; }
+  .content { padding:12px; padding-bottom:calc(var(--bottom-h) + 20px); }
   .topbar { padding:0 12px; }
   .tb-pill:not(.live) { display:none; }
   .page-breadcrumb { display:none; }
@@ -646,14 +646,14 @@ input,select,textarea { font-family:inherit; }
   /* Section titles: slightly smaller but still readable */
   .section-title { font-size:16px; letter-spacing:1px; margin:0 0 2px; }
   .section-sub { font-size:11px; margin:2px 0 12px; }
-  .page { padding:0 0 30px; }
+  .page { padding:0 0 60px; }
   /* Data tables horizontal scroll */
   .data-table { display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; white-space:nowrap; }
 }
 @media (max-width: 480px) {
   .metrics-grid { grid-template-columns:1fr 1fr; gap:8px; }
   .form-row-3 { grid-template-columns:1fr; }
-  .content { padding:10px; }
+  .content { padding:10px; padding-bottom:calc(var(--bottom-h) + 20px); }
   /* Live/Demo toggle: shrink text */
   #btnLiveMode, #btnDemoMode { padding:3px 7px; font-size:10px; }
 }
@@ -4940,30 +4940,45 @@ input,select,textarea { font-family:inherit; }
       </div></div>
     </div>
 
-    <!-- Author card -->
+    <!-- Author card (unified) -->
     <div class="card" style="margin-bottom:14px">
       <div class="card-body" style="text-align:center;padding:16px">
+        <!-- Name & Title -->
         <div style="font-size:14px;font-weight:700;color:var(--white);margin-bottom:4px">Fabi&#225;n Toro Rodr&#237;guez</div>
-        <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Network &amp; Infrastructure Specialist · Bogot&#225;, Colombia</div>
-        <div style="font-size:11px;color:var(--text2);line-height:1.8">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:14px">Network &amp; Infrastructure Specialist · Bogot&#225;, Colombia 🇨🇴</div>
+
+        <!-- Certificaciones -->
+        <div style="border-top:1px solid var(--border);margin:0 20px 14px"></div>
+        <div id="abCertsBody">
+          <div class="t-muted">Cargando…</div>
+        </div>
+
+        <!-- Skills -->
+        <div style="border-top:1px solid var(--border);margin:14px 20px"></div>
+        <div style="margin-bottom:6px">
+          <div style="font-size:9px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:8px">Skills</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center">
+            <span style="padding:3px 10px;border:1px solid var(--border);border-radius:12px;font-size:11px;color:var(--purple)">Cisco SD-Access (SDA)</span>
+            <span style="padding:3px 10px;border:1px solid var(--border);border-radius:12px;font-size:11px;color:var(--purple)">802.1x/AAA</span>
+            <span style="padding:3px 10px;border:1px solid var(--border);border-radius:12px;font-size:11px;color:var(--purple)">WiFi Enterprise</span>
+            <span style="padding:3px 10px;border:1px solid var(--border);border-radius:12px;font-size:11px;color:var(--purple)">ThousandEyes</span>
+            <span style="padding:3px 10px;border:1px solid var(--border);border-radius:12px;font-size:11px;color:var(--purple)">Meraki</span>
+          </div>
+        </div>
+
+        <!-- License & Hardware -->
+        <div style="border-top:1px solid var(--border);margin:14px 20px"></div>
+        <div style="font-size:11px;color:var(--text2);line-height:1.8;margin-bottom:14px">
           MIT License · Open Source · Hardware-agnostic<br>
           Probado: RPi5 · CF-953AX · RTL8125B
         </div>
-      </div>
-    </div>
 
-    <!-- Certifications -->
-    <div class="card" style="margin-bottom:14px">
-      <div class="card-header"><div class="card-title">🏆 Certificaciones</div></div>
-      <div class="card-body" id="abCertsBody">
-        <div class="t-muted">Cargando…</div>
+        <!-- Links -->
+        <div style="display:flex;justify-content:center;gap:10px">
+          <a href="https://github.com/Ftororod/nekopi" target="_blank" class="btn btn-ghost btn-sm" style="font-size:12px;text-decoration:none;padding:6px 14px">🐱 GitHub</a>
+          <a href="https://co.linkedin.com/in/fabian-toro-rodriguez-200a43185" target="_blank" class="btn btn-ghost btn-sm" style="font-size:12px;text-decoration:none;padding:6px 14px">💼 LinkedIn</a>
+        </div>
       </div>
-    </div>
-
-    <!-- Links -->
-    <div style="text-align:center;padding:14px;display:flex;gap:10px;justify-content:center">
-      <a href="https://github.com/Ftororod/nekopi" target="_blank" class="btn btn-ghost btn-sm" style="font-size:12px;text-decoration:none;padding:6px 14px">🐱 GitHub</a>
-      <a href="https://co.linkedin.com/in/fabian-toro-rodriguez-200a43185" target="_blank" class="btn btn-ghost btn-sm" style="font-size:12px;text-decoration:none;padding:6px 14px">💼 LinkedIn</a>
     </div>
   </div>
 
@@ -13579,13 +13594,13 @@ function loadAboutPage(){
     var cb = document.getElementById('abCertsBody');
     if(cb && d.certifications){
       var active = (d.certifications.active || []).map(function(c){
-        return '<div style="margin:3px 0;color:var(--green);font-size:12px">\ud83c\udfc6 '+c+'</div>';
+        return '<span style="padding:3px 10px;border:1px solid var(--border);border-radius:12px;font-size:11px;color:var(--cyan)">'+c+'</span>';
       }).join('');
       var prog = (d.certifications.in_progress || []).map(function(c){
-        return '<div style="margin:3px 0;color:var(--amber);font-size:12px">⏳ '+c+'</div>';
+        return '<span style="padding:3px 10px;border:1px dashed var(--amber);border-radius:12px;font-size:11px;color:var(--amber)">⏳ '+c+'</span>';
       }).join('');
-      cb.innerHTML = (active ? '<div style="font-size:10px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Activas</div>'+active : '')
-        + (prog ? '<div style="font-size:10px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin:10px 0 6px">En progreso</div>'+prog : '');
+      cb.innerHTML = (active ? '<div style="margin-bottom:6px"><div style="font-size:9px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:8px">Certificaciones</div><div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center">'+active+'</div></div>' : '')
+        + (prog ? '<div style="margin-top:10px"><div style="font-size:9px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:8px">En progreso</div><div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center">'+prog+'</div></div>' : '');
     }
   });
 
