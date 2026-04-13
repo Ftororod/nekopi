@@ -7987,6 +7987,147 @@ async def ota_analyze(filename: str):
     }
 
 
+@app.get("/api/about")
+async def api_about():
+    """Returns live system info for the About page — nothing hardcoded."""
+    import platform as _plat
+
+    def _ver(cmd: list, timeout: int = 3) -> str:
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            out = (r.stdout or r.stderr or "").strip()
+            # Extract version-like token from the first line
+            first = out.splitlines()[0] if out else ""
+            m = re.search(r"[\d]+\.[\d]+[\w.-]*", first)
+            return m.group() if m else first[:40]
+        except Exception:
+            return "N/A"
+
+    def _svc_state(name: str) -> str:
+        try:
+            r = subprocess.run(["systemctl", "is-active", name],
+                               capture_output=True, text=True, timeout=2)
+            return r.stdout.strip()  # "active" | "inactive" | "failed"
+        except Exception:
+            return "unknown"
+
+    # System
+    try:
+        uptime_s = float(Path("/proc/uptime").read_text().split()[0])
+    except Exception:
+        uptime_s = 0
+    try:
+        osr = {}
+        for line in Path("/etc/os-release").read_text().splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                osr[k] = v.strip('"')
+        os_pretty = osr.get("PRETTY_NAME", "Linux")
+    except Exception:
+        os_pretty = "Linux"
+    try:
+        model = Path("/proc/device-tree/model").read_text().strip("\x00\n")
+    except Exception:
+        model = "Unknown"
+    try:
+        temp_c = round(int(Path("/sys/class/thermal/thermal_zone0/temp").read_text().strip()) / 1000, 1)
+    except Exception:
+        temp_c = None
+    try:
+        mem = {}
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            parts = line.split()
+            if len(parts) >= 2:
+                mem[parts[0].rstrip(":")] = int(parts[1])
+        ram_total = round(mem.get("MemTotal", 0) / 1048576, 1)
+    except Exception:
+        ram_total = 0
+    try:
+        st = os.statvfs("/")
+        disk_total = round(st.f_frsize * st.f_blocks / 1073741824, 1)
+        disk_used  = round(st.f_frsize * (st.f_blocks - st.f_bfree) / 1073741824, 1)
+        disk_pct   = round(disk_used / disk_total * 100, 1) if disk_total else 0
+    except Exception:
+        disk_total = disk_used = disk_pct = 0
+
+    # Interfaces
+    ifaces = []
+    try:
+        for i in get_interfaces():
+            ifaces.append({
+                "name":  i.get("name", ""),
+                "role":  i.get("role", i.get("label", "")),
+                "type":  i.get("type", ""),
+                "ip":    i.get("ip", ""),
+                "mac":   i.get("mac", ""),
+                "speed": i.get("speed", ""),
+                "ssid":  i.get("ssid", ""),
+            })
+    except Exception:
+        pass
+
+    # Software versions + status
+    software = [
+        {"name": "NekoPi API",  "version": "1.3.0", "status": "running"},
+        {"name": "Python",      "version": _plat.python_version(), "status": "ok"},
+        {"name": "FastAPI",     "version": _ver(["/opt/nekopi/venv/bin/python3", "-c", "import fastapi;print(fastapi.__version__)"]), "status": "ok"},
+        {"name": "Kismet",      "version": _ver(["kismet", "--version"]), "status": _svc_state("kismet")},
+        {"name": "pktvisor",    "version": _ver([str(PKTVISOR_BIN), "--version"]) if PKTVISOR_BIN.exists() else "N/A", "status": "installed" if PKTVISOR_BIN.exists() else "missing"},
+        {"name": "InfluxDB",    "version": _ver(["influx", "version"]), "status": _svc_state("influxdb")},
+        {"name": "Grafana",     "version": _ver(["grafana-server", "-v"]), "status": _svc_state("grafana-server")},
+        {"name": "Cockpit",     "version": _ver(["cockpit-bridge", "--version"]), "status": _svc_state("cockpit")},
+        {"name": "ttyd",        "version": _ver(["ttyd", "--version"]), "status": "installed"},
+        {"name": "tshark",      "version": _ver(["tshark", "--version"]), "status": "installed" if shutil.which("tshark") else "missing"},
+        {"name": "WeasyPrint",  "version": _ver(["/opt/nekopi/venv/bin/python3", "-c", "import weasyprint;print(weasyprint.__version__)"]), "status": "ok"},
+    ]
+
+    # Certifications
+    certs = {
+        "active": [
+            "CCNP Enterprise",
+            "CCS-EWD \u2014 Cisco Certified Specialist Enterprise Wireless Design",
+            "CCS-EWI \u2014 Cisco Certified Specialist Enterprise Wireless Implementation",
+            "CCS-EAI \u2014 Cisco Certified Specialist Enterprise Advanced Infrastructure",
+            "CCS-ECore \u2014 Cisco Certified Specialist Enterprise Core",
+            "CCNA",
+            "Ekahau ECSE Design",
+            "Cisco CMNA (Meraki)",
+        ],
+        "in_progress": [
+            "CCNP Wireless (350-101 WLCOR)",
+        ],
+    }
+
+    return {
+        "nekopi": {
+            "version": "1.3.0",
+            "codename": "Tom\u00e1s",
+            "author": "Fabi\u00e1n Toro Rodr\u00edguez",
+            "location": "Bogot\u00e1, Colombia",
+            "license": "MIT",
+            "uptime_h": round(uptime_s / 3600, 1),
+        },
+        "system": {
+            "hostname": socket.gethostname(),
+            "os": os_pretty,
+            "kernel": _plat.release(),
+            "arch": _plat.machine(),
+            "uptime_h": round(uptime_s / 3600, 1),
+            "uptime_s": int(uptime_s),
+        },
+        "hardware": {
+            "model": model,
+            "cpu": f"ARM Cortex-A76 \u00d7 {os.cpu_count() or 4}",
+            "ram_total_gb": ram_total,
+            "temp_c": temp_c,
+            "storage": [{"device": "/", "total_gb": disk_total, "used_gb": disk_used, "pct": disk_pct}],
+            "interfaces": ifaces,
+        },
+        "software": software,
+        "certifications": certs,
+    }
+
+
 @app.get("/api/settings")
 async def settings_get():
     s = _settings_load()

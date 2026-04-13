@@ -4867,147 +4867,69 @@ input,select,textarea { font-family:inherit; }
 
   </div>
   <div class="page" id="page-about">
-    <div class="section-title">&#128075; About</div>
-    <div class="section-sub">NekoPi Field Unit v1.0.0 · Codename: Tom&#225;s &#128049;</div>
+    <div class="section-title">🐱 About</div>
+    <div class="section-sub" id="abSubtitle">NekoPi Field Unit · cargando…</div>
 
-    <!-- Version card -->
-    <div class="card" style="margin-bottom:14px">
-      <div class="card-body" style="padding:0">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+    <!-- Header -->
+    <div class="card" style="margin-bottom:14px;border-left:4px solid var(--cyan)">
+      <div class="card-body" style="text-align:center;padding:20px">
+        <div style="font-size:28px">🐱</div>
+        <div style="font-size:20px;font-weight:800;color:var(--white);letter-spacing:1px;margin-top:6px" id="abTitle">NekoPi Field Unit</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:4px" id="abTagline">Codename: Tomás · v1.3.0 · MIT License</div>
+        <div style="font-size:12px;color:var(--cyan);margin-top:4px" id="abAuthor">by Fabián Toro Rodríguez · Bogotá, Colombia 🇨🇴</div>
+      </div>
+    </div>
 
-          <div style="padding:16px;border-right:1px solid var(--border);border-bottom:1px solid var(--border)">
-            <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Version</div>
-            <div style="font-size:22px;font-weight:700;color:var(--cyan)">v1.0.0</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px">Codename: <span style="color:var(--amber);font-weight:700">Tom&#225;s</span> &#128049;</div>
-          </div>
-
-          <div style="padding:16px;border-bottom:1px solid var(--border)">
-            <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">License</div>
-            <div style="font-size:22px;font-weight:700;color:var(--green)">MIT</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px">Open source · free forever</div>
-          </div>
-
-          <div style="padding:16px;border-right:1px solid var(--border);border-bottom:1px solid var(--border)">
-            <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Platform</div>
-            <div style="font-size:16px;font-weight:700;color:var(--white)" id="ab-platform">Raspberry Pi 5</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px" id="ab-arch">aarch64 · Ubuntu 24.04</div>
-          </div>
-
-          <div style="padding:16px;border-bottom:1px solid var(--border)">
-            <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Uptime</div>
-            <div style="font-size:16px;font-weight:700;color:var(--white)" id="ab-uptime">—</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px" id="ab-load">load avg: —</div>
-          </div>
-
-          <div style="padding:16px;border-right:1px solid var(--border)">
-            <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Hostname</div>
-            <div style="font-size:16px;font-weight:700;color:var(--white)" id="ab-hostname">nekopi-field-01</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px">domain: local</div>
-          </div>
-
-          <div style="padding:16px">
-            <div style="font-size:8px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Storage</div>
-            <div style="font-size:16px;font-weight:700;color:var(--white)" id="ab-storage">—</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px" id="ab-storage-sub">microSD · —</div>
-          </div>
-
+    <!-- System Info — 2 columns -->
+    <div class="two-col" style="margin-bottom:14px">
+      <div class="card">
+        <div class="card-header"><div class="card-title">🖥 Hardware</div></div>
+        <div class="card-body" id="abHwBody">
+          <div class="t-muted">Cargando…</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">📡 Interfaces de red</div></div>
+        <div class="card-body" style="padding:0" id="abIfBody">
+          <div class="t-muted" style="padding:14px">Cargando…</div>
         </div>
       </div>
     </div>
 
-    <!-- Hardware stack -->
+    <!-- Storage -->
     <div class="card" style="margin-bottom:14px">
-      <div class="card-header"><div class="card-title">&#128268; Hardware Stack</div></div>
+      <div class="card-header"><div class="card-title">💾 Storage</div></div>
+      <div class="card-body" id="abStorageBody">
+        <div class="t-muted">Cargando…</div>
+      </div>
+    </div>
+
+    <!-- Software Stack -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header"><div class="card-title">🧩 Software Stack</div></div>
       <div class="card-body" style="padding:0">
         <table class="data-table">
-          <thead><tr><th>Component</th><th>Spec</th><th>Status</th></tr></thead>
-          <tbody>
-            <tr>
-              <td style="color:var(--white);font-weight:600">Raspberry Pi 5</td>
-              <td style="color:var(--text2);font-size:10px">ARM Cortex-A76 · 8GB LPDDR4X</td>
-              <td><span class="status-badge sb-ok"><span class="sb-dot"></span>OK</span></td>
-            </tr>
-            <tr>
-              <td style="color:var(--white);font-weight:600">MPW2.5G WiFi7 HAT</td>
-              <td style="color:var(--text2);font-size:10px">RTL8125B 2.5GbE · MT7925 WiFi7</td>
-              <td><span class="status-badge sb-ok"><span class="sb-dot"></span>OK</span></td>
-            </tr>
-            <tr>
-              <td style="color:var(--white);font-weight:600">Waveshare OLED HAT</td>
-              <td style="color:var(--text2);font-size:10px">1.3" · 128×64 · SH1106 · SPI</td>
-              <td><span class="status-badge sb-ok"><span class="sb-dot"></span>OK</span></td>
-            </tr>
-            <tr>
-              <td style="color:var(--white);font-weight:600">External Powerbank</td>
-              <td style="color:var(--text2);font-size:10px">USB-C PD · field-swappable</td>
-              <td><span class="status-badge sb-ok"><span class="sb-dot"></span>External</span></td>
-            </tr>
-            <tr>
-              <td style="color:var(--white);font-weight:600">3D Printed Case</td>
-              <td style="color:var(--text2);font-size:10px">OpenSCAD · PLA · magnetic lid</td>
-              <td><span class="status-badge sb-ok"><span class="sb-dot"></span>OK</span></td>
-            </tr>
+          <thead><tr><th>Servicio</th><th>Versión</th><th>Status</th></tr></thead>
+          <tbody id="abSwBody">
+            <tr><td colspan="3" class="t-muted" style="text-align:center;padding:14px">Cargando…</td></tr>
           </tbody>
         </table>
       </div>
     </div>
 
-    <!-- Software stack -->
+    <!-- Certifications -->
     <div class="card" style="margin-bottom:14px">
-      <div class="card-header"><div class="card-title">&#129517; Software Stack</div></div>
-      <div class="card-body" style="padding:0">
-        <table class="data-table">
-          <thead><tr><th>Component</th><th>Version</th><th>Status</th></tr></thead>
-          <tbody id="ab-sw-table">
-            <tr><td style="color:var(--white)">NekoPi GUI</td><td style="color:var(--cyan);font-weight:600">v1.0.0</td><td><span class="status-badge sb-ok"><span class="sb-dot"></span>Running</span></td></tr>
-            <tr><td style="color:var(--white)">FastAPI Backend</td><td style="color:var(--text2)">v0.115</td><td><span class="status-badge sb-idle"><span class="sb-dot"></span>Pending</span></td></tr>
-            <tr><td style="color:var(--white)">IA Backend</td><td style="color:var(--text2)" id="ab-ai-ver">—</td><td id="ab-ai-status"><span class="status-badge sb-idle"><span class="sb-dot"></span>Sin configurar</span></td></tr>
-            <tr><td style="color:var(--white)">pktvisor</td><td style="color:var(--text2)">v4.x</td><td><span class="status-badge sb-idle"><span class="sb-dot"></span>Pending</span></td></tr>
-            <tr><td style="color:var(--white)">InfluxDB</td><td style="color:var(--text2)">v2.x</td><td><span class="status-badge sb-idle"><span class="sb-dot"></span>Pending</span></td></tr>
-            <tr><td style="color:var(--white)">Grafana</td><td style="color:var(--text2)">v10.x</td><td><span class="status-badge sb-idle"><span class="sb-dot"></span>Pending</span></td></tr>
-            <tr><td style="color:var(--white)">Kismet</td><td style="color:var(--text2)">v2023.x</td><td><span class="status-badge sb-idle"><span class="sb-dot"></span>Pending</span></td></tr>
-          </tbody>
-        </table>
+      <div class="card-header"><div class="card-title">🏆 Certificaciones</div></div>
+      <div class="card-body" id="abCertsBody">
+        <div class="t-muted">Cargando…</div>
       </div>
     </div>
 
-    <!-- Credits -->
-    <div class="card">
-      <div class="card-header"><div class="card-title">&#10024; Credits</div></div>
-      <div class="card-body">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <div style="background:var(--bg3);border-radius:var(--radius);padding:12px;text-align:center">
-            <div style="font-size:20px;margin-bottom:4px">&#128736;</div>
-            <div style="font-size:11px;font-weight:700;color:var(--white)">Inspired by</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px">WLANPi Project</div>
-          </div>
-          <div style="background:var(--bg3);border-radius:var(--radius);padding:12px;text-align:center">
-            <div style="font-size:20px;margin-bottom:4px">&#127757;</div>
-            <div style="font-size:11px;font-weight:700;color:var(--white)">Built in</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px">Bogot&#225;, Colombia &#127464;&#127476;</div>
-          </div>
-          <div style="background:var(--bg3);border-radius:var(--radius);padding:12px;text-align:center">
-            <div style="font-size:20px;margin-bottom:4px">&#128049;</div>
-            <div style="font-size:11px;font-weight:700;color:var(--white)">Codename</div>
-            <div style="font-size:11px;color:var(--amber);margin-top:2px;font-weight:700">Tom&#225;s</div>
-          </div>
-          <div style="background:var(--bg3);border-radius:var(--radius);padding:12px;text-align:center">
-            <div style="font-size:20px;margin-bottom:4px">&#129504;</div>
-            <div style="font-size:11px;font-weight:700;color:var(--white)">Backend IA</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px">Gemini API o Ollama remoto</div>
-          </div>
-        </div>
-        <div style="margin-top:12px;padding:14px;background:rgba(0,229,255,.05);border:1px solid rgba(0,229,255,.15);border-radius:var(--radius);text-align:center">
-          <div style="font-size:13px;font-weight:700;color:var(--white);margin-bottom:4px">Fabi&#225;n Toro Rodr&#237;guez</div>
-          <div style="font-size:11px;color:var(--text2);margin-bottom:8px">Network &amp; Infrastructure Specialist · Bogot&#225;, Colombia</div>
-          <div style="font-size:11px;color:var(--text2);line-height:1.8">
-            MIT License · Open Source · Hardware-agnostic<br>
-            RPi4/5 · Any WiFi adapter · Any Ethernet HAT
-          </div>
-        </div>
-      </div>
+    <!-- Footer -->
+    <div style="text-align:center;padding:14px;font-size:11px;color:var(--text2)">
+      NekoPi Field Unit · Codename Tomás · Open Source · MIT License<br>
+      <span style="color:var(--cyan)">Inspired by WLANPi Project</span> · RPi4/5 · Hardware-agnostic
     </div>
-
   </div>
 
 <!-- ═══════════════════════════════
@@ -6060,7 +5982,7 @@ const pages = {
     try { cpRefreshPorts(); cpPollStart(); } catch(e) {}
   } },
   settings:   { title:'Settings',          sub:'NekoPi Field Unit v1.0', onload: function(){ try{ initProbeConfigUI(); initWifiScanIntervalUI(); loadAISettings(); loadDhcpLeases(); }catch(e){} } },
-  about:      { title:'About',             sub:'NekoPi Field Unit v1.0.0 · hardware · software · credits' },
+  about:      { title:'About',             sub:'NekoPi Field Unit · system info · software · certs', onload: function(){ try{ loadAboutPage(); }catch(e){} } },
 };
 
 function goPage(id) {
@@ -13535,34 +13457,119 @@ function nkInit() {
 // ═══════════════════════════════════════
 //  ABOUT PAGE
 // ═══════════════════════════════════════
-function initAbout() {
-  function set(id, val) { var el = document.getElementById(id); if (el) el.textContent = val; }
-  if (DEMO_MODE) {
-    if (autoDetected && autoDetected.hostname) set('ab-hostname', autoDetected.hostname);
-    set('ab-uptime',      '3d 14h 22m');
-    set('ab-load',        'load avg: 0.42 0.38 0.31');
-    set('ab-storage',     '14.2 GB used / 59.5 GB');
-    set('ab-storage-sub', 'microSD 64GB · 76% free');
-    set('ab-platform',    'Raspberry Pi 5');
-    set('ab-arch',        'aarch64 · Ubuntu 24.04 LTS');
-    return;
-  }
-  // LIVE: datos reales
-  fetchAPI('/api/health').then(function(data) {
-    if (!data) return;
-    set('ab-hostname',    data.hostname   || '—');
-    set('ab-uptime',      data.uptime     || '—');
-    set('ab-load',        data.load       || '—');
-    set('ab-storage',     data.storage    || '—');
-    set('ab-storage-sub', data.storage_sub|| '—');
-    set('ab-platform',    data.platform   || data.arch || '—');
-    set('ab-arch',        data.arch + ' · ' + (data.os || 'Linux'));
-    if (data.cpu_temp) {
-      var te = document.getElementById('tempEl');
-      if (te) te.textContent = 'RPi5 · ' + data.cpu_temp + '°C';
+var _abPollIv = null;
+
+function loadAboutPage(){
+  fetchAPI('/api/about').then(function(d){
+    if(!d) return;
+    var n = d.nekopi || {};
+    var s = d.system || {};
+    var h = d.hardware || {};
+
+    // Subtitle + header
+    var sub = document.getElementById('abSubtitle');
+    if(sub) sub.textContent = 'NekoPi v'+n.version+' · Codename '+n.codename+' · '+s.hostname;
+    var tag = document.getElementById('abTagline');
+    if(tag) tag.textContent = 'Codename: '+n.codename+' · v'+n.version+' · '+n.license+' License';
+    var auth = document.getElementById('abAuthor');
+    if(auth) auth.textContent = 'by '+n.author+' · '+n.location+' \ud83c\udde8\ud83c\uddf4';
+
+    // Hardware card
+    var hw = document.getElementById('abHwBody');
+    if(hw){
+      var up_s = s.uptime_s || 0;
+      var d_d = Math.floor(up_s/86400), d_h = Math.floor((up_s%86400)/3600), d_m = Math.floor((up_s%3600)/60);
+      var upStr = d_d>0 ? d_d+'d '+d_h+'h '+d_m+'m' : d_h+'h '+d_m+'m';
+      hw.innerHTML =
+        '<table style="width:100%;font-size:12px;border-collapse:collapse">'
+        +'<tr><td style="color:var(--text2);padding:4px 0">Modelo</td><td style="color:var(--white)">'+(h.model||'—')+'</td></tr>'
+        +'<tr><td style="color:var(--text2);padding:4px 0">CPU</td><td style="color:var(--white)">'+(h.cpu||'—')+'</td></tr>'
+        +'<tr><td style="color:var(--text2);padding:4px 0">RAM</td><td style="color:var(--white)">'+(h.ram_total_gb||0)+' GB</td></tr>'
+        +'<tr><td style="color:var(--text2);padding:4px 0">Temperatura</td><td style="color:'+(h.temp_c>70?'var(--red)':h.temp_c>55?'var(--amber)':'var(--green)')+'" id="abTemp">'+(h.temp_c||'—')+'°C</td></tr>'
+        +'<tr><td style="color:var(--text2);padding:4px 0">Hostname</td><td style="color:var(--cyan)">'+(s.hostname||'—')+'</td></tr>'
+        +'<tr><td style="color:var(--text2);padding:4px 0">OS</td><td style="color:var(--white)">'+(s.os||'—')+'</td></tr>'
+        +'<tr><td style="color:var(--text2);padding:4px 0">Kernel</td><td style="color:var(--text2)">'+(s.kernel||'—')+' · '+(s.arch||'')+'</td></tr>'
+        +'<tr><td style="color:var(--text2);padding:4px 0">Uptime</td><td style="color:var(--white)" id="abUptime">'+upStr+'</td></tr>'
+        +'</table>';
+    }
+
+    // Interfaces
+    var ifb = document.getElementById('abIfBody');
+    if(ifb && h.interfaces){
+      var rows = (h.interfaces || []).map(function(i){
+        var role = i.role || i.type || '';
+        var info = i.ssid || i.ip || i.speed || i.mac || '';
+        return '<tr>'
+          +'<td style="font-family:monospace;color:var(--white)">'+i.name+'</td>'
+          +'<td style="color:var(--amber);font-size:11px">'+role+'</td>'
+          +'<td style="color:var(--text2);font-size:11px">'+info+'</td>'
+          +'<td style="font-family:monospace;color:var(--text2);font-size:10px">'+i.mac+'</td>'
+          +'</tr>';
+      }).join('');
+      ifb.innerHTML = '<table class="data-table"><thead><tr><th>Iface</th><th>Rol</th><th>Info</th><th>MAC</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    }
+
+    // Storage
+    var stb = document.getElementById('abStorageBody');
+    if(stb && h.storage){
+      stb.innerHTML = (h.storage || []).map(function(s){
+        var color = s.pct > 90 ? 'var(--red)' : s.pct > 70 ? 'var(--amber)' : 'var(--blue)';
+        return '<div style="margin-bottom:8px">'
+          +'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">'
+          +'<span style="color:var(--white);font-family:monospace">'+s.device+'</span>'
+          +'<span style="color:var(--text2)">'+s.used_gb+' / '+s.total_gb+' GB ('+s.pct+'%)</span>'
+          +'</div>'
+          +'<div style="background:var(--bg3);border-radius:2px;height:8px;overflow:hidden">'
+          +'<div style="width:'+s.pct+'%;height:100%;background:'+color+';transition:width .5s"></div>'
+          +'</div></div>';
+      }).join('');
+    }
+
+    // Software
+    var swb = document.getElementById('abSwBody');
+    if(swb && d.software){
+      swb.innerHTML = (d.software || []).map(function(sw){
+        var st = sw.status || '';
+        var cls = st==='active'||st==='running' ? 'sb-ok' : st==='ok'||st==='installed' ? 'sb-idle' : 'sb-fail';
+        var label = st==='active'||st==='running' ? '● Running' : st==='ok'||st==='installed' ? '✓ OK' : st==='inactive' ? '○ Detenido' : st;
+        return '<tr>'
+          +'<td style="color:var(--white)">'+sw.name+'</td>'
+          +'<td style="font-family:monospace;color:var(--cyan)">'+sw.version+'</td>'
+          +'<td><span class="status-badge '+cls+'"><span class="sb-dot"></span>'+label+'</span></td>'
+          +'</tr>';
+      }).join('');
+    }
+
+    // Certifications
+    var cb = document.getElementById('abCertsBody');
+    if(cb && d.certifications){
+      var active = (d.certifications.active || []).map(function(c){
+        return '<div style="margin:3px 0;color:var(--green);font-size:12px">\ud83c\udfc6 '+c+'</div>';
+      }).join('');
+      var prog = (d.certifications.in_progress || []).map(function(c){
+        return '<div style="margin:3px 0;color:var(--amber);font-size:12px">⏳ '+c+'</div>';
+      }).join('');
+      cb.innerHTML = (active ? '<div style="font-size:10px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Activas</div>'+active : '')
+        + (prog ? '<div style="font-size:10px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin:10px 0 6px">En progreso</div>'+prog : '');
     }
   });
+
+  // Auto-refresh temp + uptime every 30s
+  if(_abPollIv) clearInterval(_abPollIv);
+  _abPollIv = setInterval(function(){
+    if(!document.getElementById('page-about') || !document.getElementById('page-about').classList.contains('active')){
+      clearInterval(_abPollIv); _abPollIv = null; return;
+    }
+    fetchAPI('/api/system/metrics').then(function(d){
+      if(!d) return;
+      var te = document.getElementById('abTemp');
+      if(te && d.cpu_temp != null) te.textContent = d.cpu_temp + '°C';
+    });
+  }, 30000);
 }
+
+// Legacy stub — some boot paths may still call this
+function initAbout() { loadAboutPage(); }
 
 // ═══════════════════════════════════════
 //  CONNECTION MODULE
