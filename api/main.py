@@ -6227,6 +6227,104 @@ def _pktvisor_running() -> bool:
     p = _PKT.get("proc")
     return bool(p and p.poll() is None)
 
+
+# ── Sensor backing services (InfluxDB + Grafana) — on-demand ──────
+def _svc_running(name: str) -> bool:
+    r = subprocess.run(["systemctl", "is-active", name],
+                       capture_output=True, text=True)
+    return r.stdout.strip() == "active"
+
+def _svc_pid(name: str) -> int:
+    r = subprocess.run(["systemctl", "show", name, "-p", "MainPID", "--value"],
+                       capture_output=True, text=True)
+    try: return int(r.stdout.strip())
+    except: return 0
+
+def _wait_http(url: str, timeout: int = 15) -> bool:
+    """Polls a URL every 0.5s until it returns 200 or timeout expires."""
+    import urllib.request as _ur
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with _ur.urlopen(url, timeout=2) as r:
+                if r.status == 200:
+                    return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
+@app.get("/api/sensor/services/status")
+async def sensor_services_status():
+    influx_ok  = _svc_running("influxdb")
+    grafana_ok = _svc_running("grafana-server")
+    return {
+        "influxdb": {"running": influx_ok, "pid": _svc_pid("influxdb") if influx_ok else 0},
+        "grafana":  {"running": grafana_ok, "pid": _svc_pid("grafana-server") if grafana_ok else 0},
+        "ready": influx_ok and grafana_ok,
+    }
+
+
+@app.post("/api/sensor/services/start")
+async def sensor_services_start():
+    """Starts InfluxDB + Grafana on demand and waits for each to become
+    healthy before returning. The frontend polls /services/status during
+    this call to show per-step progress."""
+    results = {"influxdb": False, "grafana": False, "ready": False, "errors": []}
+
+    # Step 1 — InfluxDB
+    if not _svc_running("influxdb"):
+        r = subprocess.run(["sudo", "systemctl", "start", "influxdb"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            results["errors"].append(f"influxdb start failed: {r.stderr[:200]}")
+            return results
+        if not _wait_http("http://localhost:8086/health", timeout=15):
+            results["errors"].append("influxdb did not become healthy in 15s")
+            return results
+    results["influxdb"] = True
+
+    # Step 2 — Grafana
+    if not _svc_running("grafana-server"):
+        r = subprocess.run(["sudo", "systemctl", "start", "grafana-server"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            results["errors"].append(f"grafana start failed: {r.stderr[:200]}")
+            return results
+        if not _wait_http("http://localhost:3000/api/health", timeout=20):
+            results["errors"].append("grafana did not become healthy in 20s")
+            return results
+    results["grafana"] = True
+
+    # Re-provision datasource + dashboard (idempotent)
+    try:
+        _grafana_ensure_datasource()
+        _grafana_ensure_dashboard()
+    except Exception:
+        pass
+
+    results["ready"] = True
+    return results
+
+
+@app.post("/api/sensor/services/stop")
+async def sensor_services_stop():
+    """Stops Grafana + InfluxDB to free ~550 MB RAM when Sensor Mode is
+    not in use."""
+    errors = []
+    for svc in ("grafana-server", "influxdb"):
+        r = subprocess.run(["sudo", "systemctl", "stop", svc],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            errors.append(f"{svc}: {r.stderr[:100]}")
+    # Invalidate the lazy InfluxDB client so it reconnects on next start
+    global _INFLUX_CLIENT, _INFLUX_WRITE
+    _INFLUX_CLIENT = None
+    _INFLUX_WRITE  = None
+    return {"ok": len(errors) == 0, "errors": errors}
+
+
 @app.post("/api/sensor/start")
 async def sensor_start(iface: str = "auto"):
     """Launches pktvisord against the given iface. The nekopi service has

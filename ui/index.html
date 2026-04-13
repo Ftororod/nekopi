@@ -2420,8 +2420,19 @@ input,select,textarea { font-family:inherit; }
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
       <span class="status-badge sb-idle" id="sensorMainStatus"><span class="sb-dot"></span>Stopped</span>
       <span style="font-size:11px;color:var(--text2)" id="sensorCycleEl"></span>
-      <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="openGrafana()">📊 Grafana ↗</button>
-      <button class="btn btn-ghost btn-sm" onclick="openInflux()">◊ InfluxDB ↗</button>
+      <span id="sensorSvcBadge" style="font-size:10px;color:var(--text2);margin-left:4px"></span>
+      <button class="btn btn-ghost btn-sm" id="btnGrafana" style="margin-left:auto" onclick="openGrafana()" title="Grafana">📊 Grafana ↗</button>
+      <button class="btn btn-ghost btn-sm" id="btnInflux" onclick="openInflux()" title="InfluxDB">◊ InfluxDB ↗</button>
+    </div>
+
+    <!-- Startup overlay for on-demand services -->
+    <div id="sensorStartupOverlay" style="display:none;margin-bottom:14px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px">
+      <div style="font-size:13px;font-weight:600;color:var(--white);margin-bottom:12px">⚡ Iniciando servicios de monitoreo</div>
+      <div style="background:var(--bg3);border-radius:2px;height:10px;overflow:hidden;margin-bottom:10px">
+        <div id="sensorStartupBar" style="width:0%;height:100%;background:var(--blue);transition:width .5s"></div>
+      </div>
+      <div id="sensorStartupSteps" style="font-size:12px;line-height:2"></div>
+      <div style="font-size:10px;color:var(--text2);margin-top:8px">Esto solo ocurre la primera vez en cada sesión de trabajo.</div>
     </div>
 
     <!-- ══════════════════════════════════════════════════════════
@@ -5962,6 +5973,8 @@ const pages = {
     fetchAPI('/api/sensor/url-results').then(function(d){
       if(d && d.results && d.results.length) urlRenderResults(d.results);
     });
+    // Update service badge (Grafana/InfluxDB running state)
+    try { _sensorUpdateSvcBadge(); } catch(e) {}
   } },
   scan:       { title:'Network Scan',      sub:'nmap · CVE lookup · AI inline' },
   roaming:    { title:'Roaming Analyzer',  sub:'802.11r/k/v · FT timing', onload: function(){
@@ -7988,51 +8001,146 @@ var sensorIntervalId = null;
 var sensorHistory = [];
 var sensorCycle = 0;
 
+function _sensorUpdateSvcBadge(){
+  // Update the service indicators + Grafana/InfluxDB button states
+  if(DEMO_MODE) return;
+  fetchAPI('/api/sensor/services/status').then(function(d){
+    if(!d) return;
+    var badge = document.getElementById('sensorSvcBadge');
+    var gBtn  = document.getElementById('btnGrafana');
+    var iBtn  = document.getElementById('btnInflux');
+    if(badge){
+      if(d.ready) badge.innerHTML = '<span style="color:var(--green)">InfluxDB ✅ Grafana ✅</span>';
+      else badge.innerHTML = '<span style="color:var(--text2)">Servicios detenidos · ~550MB RAM libre</span>';
+    }
+    if(gBtn){
+      gBtn.style.opacity = d.grafana && d.grafana.running ? '1' : '0.4';
+      gBtn.title = d.grafana && d.grafana.running ? 'Abrir Grafana' : 'Grafana detenido';
+    }
+    if(iBtn){
+      iBtn.style.opacity = d.influxdb && d.influxdb.running ? '1' : '0.4';
+      iBtn.title = d.influxdb && d.influxdb.running ? 'Abrir InfluxDB' : 'InfluxDB detenido';
+    }
+  });
+}
+
+function _sensorStartupShow(step, pct){
+  var overlay = document.getElementById('sensorStartupOverlay');
+  var bar     = document.getElementById('sensorStartupBar');
+  var steps   = document.getElementById('sensorStartupSteps');
+  if(overlay) overlay.style.display = '';
+  if(bar) bar.style.width = pct + '%';
+  var lines = [
+    {label:'InfluxDB', icon: step>1?'✅':'⏳', note: step>1?'listo':'iniciando...'},
+    {label:'Grafana',  icon: step>2?'✅':step>=2?'⏳':'○', note: step>2?'listo':step>=2?'iniciando...':'en espera'},
+    {label:'Sensor Mode', icon: step>3?'✅':step>=3?'⏳':'○', note: step>3?'capturando':step>=3?'iniciando...':'en espera'},
+  ];
+  if(steps) steps.innerHTML = lines.map(function(l){
+    return '<div>'+l.icon+' <strong>'+l.label+'</strong> <span style="color:var(--text2)">'+l.note+'</span></div>';
+  }).join('');
+}
+
+function _sensorStartupHide(){
+  var overlay = document.getElementById('sensorStartupOverlay');
+  if(overlay) overlay.style.display = 'none';
+}
+
 function toggleSensor(){
-  sensorRunning=!sensorRunning;
   var btn=document.getElementById('sensorStartBtn');
   var st=document.getElementById('sensorMainStatus');
+
   if(sensorRunning){
-    btn.textContent='\u25a0 Stop Sensor Mode'; btn.className='btn btn-danger';
-    if(st){st.className='status-badge sb-run';st.innerHTML='<span class="sb-dot"></span>Starting…';}
-    var iface = (document.getElementById('sensorIfaceSelect')||{}).value || 'auto';
-    if (iface === 'All interfaces') iface = 'auto';
-    if (DEMO_MODE) {
-      runSensorCycle();
-      if(st){st.className='status-badge sb-run';st.innerHTML='<span class="sb-dot"></span>Running';}
-      showToast('Sensor Mode (demo)');
+    // STOP
+    sensorRunning = false;
+    btn.textContent='\u25b6 Start Sensor Mode'; btn.className='btn btn-primary';
+    if(st){st.className='status-badge sb-idle';st.innerHTML='<span class="sb-dot"></span>Stopping…';}
+    clearInterval(sensorIntervalId);
+    if(!DEMO_MODE){
+      fetch(API_BASE + '/api/sensor/stop', {method:'POST'}).then(function(){
+        showToast('Deteniendo servicios…');
+        return fetch(API_BASE + '/api/sensor/services/stop', {method:'POST'});
+      }).then(function(){
+        if(st){st.className='status-badge sb-idle';st.innerHTML='<span class="sb-dot"></span>Stopped';}
+        showToast('✅ Servicios detenidos — recursos liberados');
+        _sensorUpdateSvcBadge();
+      }).catch(function(){
+        if(st){st.className='status-badge sb-idle';st.innerHTML='<span class="sb-dot"></span>Stopped';}
+      });
     } else {
-      // Spawn pktvisord on the chosen iface, then begin polling.
-      fetch(API_BASE + '/api/sensor/start?iface=' + encodeURIComponent(iface), {method:'POST'})
-        .then(function(r){ return r.json(); })
-        .then(function(d){
-          if(!d || !d.ok){
-            sensorRunning = false;
-            if(btn){ btn.textContent='\u25b6 Start Sensor Mode'; btn.className='btn btn-primary'; }
-            if(st){ st.className='status-badge sb-fail'; st.innerHTML='<span class="sb-dot"></span>Start failed'; }
-            showToast('pktvisor: ' + ((d && d.error) || 'failed'));
-            return;
-          }
-          if(st){ st.className='status-badge sb-run'; st.innerHTML='<span class="sb-dot"></span>Capturing on '+d.iface; }
-          showToast('pktvisor capturing on ' + d.iface);
-          runSensorCycle();
-        })
-        .catch(function(e){
-          sensorRunning = false;
-          if(btn){ btn.textContent='\u25b6 Start Sensor Mode'; btn.className='btn btn-primary'; }
-          if(st){ st.className='status-badge sb-fail'; st.innerHTML='<span class="sb-dot"></span>'+e.message; }
-        });
+      if(st){st.className='status-badge sb-idle';st.innerHTML='<span class="sb-dot"></span>Stopped';}
+      showToast('Sensor Mode stopped');
     }
+    return;
+  }
+
+  // START
+  sensorRunning = true;
+  btn.textContent='\u25a0 Stop Sensor Mode'; btn.className='btn btn-danger';
+  if(st){st.className='status-badge sb-run';st.innerHTML='<span class="sb-dot"></span>Starting…';}
+  var iface = (document.getElementById('sensorIfaceSelect')||{}).value || 'auto';
+  if (iface === 'All interfaces') iface = 'auto';
+
+  if (DEMO_MODE) {
+    runSensorCycle();
+    if(st){st.className='status-badge sb-run';st.innerHTML='<span class="sb-dot"></span>Running';}
+    showToast('Sensor Mode (demo)');
     var interval=parseInt((document.getElementById('sensorInterval')||{}).value||60)*1000;
     clearInterval(sensorIntervalId);
     sensorIntervalId=setInterval(runSensorCycle, Math.max(2000, interval));
-  } else {
-    btn.textContent='\u25b6 Start Sensor Mode'; btn.className='btn btn-primary';
-    if(st){st.className='status-badge sb-idle';st.innerHTML='<span class="sb-dot"></span>Stopped';}
-    clearInterval(sensorIntervalId);
-    if(!DEMO_MODE) fetch(API_BASE + '/api/sensor/stop', {method:'POST'});
-    showToast('Sensor Mode stopped');
+    return;
   }
+
+  // Check services first
+  _sensorStartupShow(1, 10);
+  fetch(API_BASE + '/api/sensor/services/status').then(function(r){ return r.json(); })
+    .then(function(svc){
+      if(svc && svc.ready){
+        // Already running — skip to capture
+        _sensorStartupHide();
+        return _sensorStartCapture(iface, btn, st);
+      }
+      // Start services with progress
+      _sensorStartupShow(1, 20);
+      return fetch(API_BASE + '/api/sensor/services/start', {method:'POST'})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if(!d || !d.ready){
+            throw new Error((d&&d.errors&&d.errors[0]) || 'services failed');
+          }
+          _sensorStartupShow(3, 80);
+          _sensorUpdateSvcBadge();
+          return _sensorStartCapture(iface, btn, st);
+        });
+    })
+    .catch(function(e){
+      sensorRunning = false;
+      _sensorStartupHide();
+      btn.textContent='\u25b6 Start Sensor Mode'; btn.className='btn btn-primary';
+      if(st){st.className='status-badge sb-fail';st.innerHTML='<span class="sb-dot"></span>'+e.message;}
+      showToast('✗ '+e.message);
+    });
+}
+
+function _sensorStartCapture(iface, btn, st){
+  _sensorStartupShow(3, 90);
+  return fetch(API_BASE + '/api/sensor/start?iface=' + encodeURIComponent(iface), {method:'POST'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      _sensorStartupHide();
+      if(!d || !d.ok){
+        sensorRunning = false;
+        btn.textContent='\u25b6 Start Sensor Mode'; btn.className='btn btn-primary';
+        if(st){st.className='status-badge sb-fail';st.innerHTML='<span class="sb-dot"></span>Start failed';}
+        showToast('pktvisor: ' + ((d && d.error) || 'failed'));
+        return;
+      }
+      if(st){st.className='status-badge sb-run';st.innerHTML='<span class="sb-dot"></span>Capturing on '+d.iface;}
+      showToast('pktvisor capturing on ' + d.iface);
+      runSensorCycle();
+      var interval=parseInt((document.getElementById('sensorInterval')||{}).value||60)*1000;
+      clearInterval(sensorIntervalId);
+      sensorIntervalId=setInterval(runSensorCycle, Math.max(2000, interval));
+    });
 }
 
 // ── Sensor PCAP capture + on-device analysis ──
@@ -8552,8 +8660,16 @@ function clearSensorHistory(){
 // Resolve the host as seen by the user's browser, NOT "localhost" — the
 // browser is on a different machine than the RPi5 most of the time.
 function _nekopiHost(){ return window.location.hostname || 'localhost'; }
-function openGrafana(){ window.open('http://'+_nekopiHost()+':3000','_blank'); }
-function openInflux(){  window.open('http://'+_nekopiHost()+':8086','_blank'); }
+function openGrafana(){
+  var btn = document.getElementById('btnGrafana');
+  if(btn && btn.style.opacity === '0.4'){ showToast('Grafana está detenido — inicia Sensor Mode primero'); return; }
+  window.open('http://'+_nekopiHost()+':3000','_blank');
+}
+function openInflux(){
+  var btn = document.getElementById('btnInflux');
+  if(btn && btn.style.opacity === '0.4'){ showToast('InfluxDB está detenido — inicia Sensor Mode primero'); return; }
+  window.open('http://'+_nekopiHost()+':8086','_blank');
+}
 
 // setCaptureMode + setInfluxModeSetting were removed with the Sensor Mode
 // rebuild — the PCAP/Monitor/sFlow toggles and the Influx local/remote
