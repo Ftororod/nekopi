@@ -13750,6 +13750,16 @@ function _hwCapsUnavailable(caps, reqKeys) {
   return false;
 }
 
+// Single click-interceptor shared by every gated button. It checks the
+// current nav-disabled state at click time, so toggling the class is
+// enough to turn gating on or off — no listener churn on re-runs.
+function _nkBlockGatedClick(ev) {
+  if (this.classList.contains('nav-disabled')) {
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
+}
+
 function applyHwGating(caps) {
   try {
     if (!caps) return;  // backwards-compat: no hw_caps.json => don't disable anything
@@ -13763,6 +13773,11 @@ function applyHwGating(caps) {
       var page = btn.getAttribute('data-page');
       var req  = HW_REQUIREMENTS[page];
       if (!req) continue;
+      // Install the click interceptor once per button.
+      if (!btn._nkBlockInstalled) {
+        btn.addEventListener('click', _nkBlockGatedClick, true);
+        btn._nkBlockInstalled = true;
+      }
       var missing = _hwCapsUnavailable(caps, req);
       if (missing) {
         btn.disabled = true;
@@ -13770,10 +13785,14 @@ function applyHwGating(caps) {
         btn.style.opacity = '0.45';
         btn.style.cursor  = 'not-allowed';
         btn.title = msg + ' (missing: ' + missing + ')';
-        // Prevent navigation
-        btn.addEventListener('click', function(ev) {
-          ev.preventDefault(); ev.stopPropagation();
-        }, true);
+      } else {
+        // Re-enable if caps arrive late or the function runs again
+        // with updated capabilities (hot-plug USB adapter, etc.).
+        btn.disabled = false;
+        btn.classList.remove('nav-disabled');
+        btn.style.opacity = '';
+        btn.style.cursor  = '';
+        btn.title = '';
       }
     }
   } catch (e) {}
@@ -13785,10 +13804,14 @@ function nkInit() {
   var ring = document.getElementById('secScoreRing');
   if(ring){ ring.style.strokeDashoffset='314'; ring.style.stroke='rgba(255,255,255,.1)'; }
   // Fetch hardware capabilities once at boot and gate unavailable modules.
-  // If /api/hw-caps returns null (demo mode, backend down, or old install),
-  // gating is skipped and all modules remain visible — backwards compatible.
+  // applyHwGating must NEVER be called before /api/hw-caps resolves —
+  // a synchronous call would disable modules that should be available.
+  // If fetchAPI returns null (demo mode, backend down, or old install),
+  // gating is skipped and all modules remain visible.
   try {
-    fetchAPI('/api/hw-caps').then(function(caps) { applyHwGating(caps); });
+    fetchAPI('/api/hw-caps')
+      .then(function(caps) { applyHwGating(caps); })
+      .catch(function()    { /* fetch failed — leave modules enabled */ });
   } catch (e) {}
   checkBackend(function(online) {
     backendOnline = online;
