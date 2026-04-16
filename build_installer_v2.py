@@ -276,27 +276,55 @@ HW_DETECT_BODY = textwrap.dedent("""\
     HAS_ETH0=$(detect_iface eth0)
     HAS_ETH1=$(detect_iface eth1)
 
-    # Driver-based detection — stable across HAT present/absent
-    for iface in $(ls /sys/class/net/ 2>/dev/null); do
-        [ "$iface" = "lo" ] && continue
+    # Enumerate real wired (non-wifi) Ethernet ifaces by /sys attributes
+    # so detection works on any Linux host — not only ones with eth0/eth1
+    # legacy names. Matches RPi5 (eth0/eth1), VMs (ens33), modern servers
+    # (enp3s0), etc.
+    WIRED_IFACES=()
+    for entry in /sys/class/net/*; do
+        [ -e "$entry" ] || continue
+        name=$(basename "$entry")
+        [ "$name" = "lo" ] && continue
+        [ -f "$entry/type" ] || continue
+        [ "$(cat "$entry/type" 2>/dev/null)" = "1" ] || continue
+        [ -d "$entry/wireless" ] && continue
+        [ -e "$entry/device" ] || continue
+        WIRED_IFACES+=("$name")
+    done
+
+    # Pass 1: driver-matched assignment (preferred on RPi5 with HAT)
+    for iface in "${WIRED_IFACES[@]}"; do
         [ -L "/sys/class/net/$iface/device/driver" ] || continue
         driver=$(basename "$(readlink -f /sys/class/net/$iface/device/driver)")
         case "$driver" in
-            bcmgenet|macb)  HAS_ETH_MGMT="yes"; MGMT_IFACE="$iface" ;;
-            r8169|r8125)    HAS_ETH_TEST="yes"; TEST_IFACE="$iface" ;;
+            bcmgenet|macb)
+                [ -z "$MGMT_IFACE" ] && { MGMT_IFACE="$iface"; HAS_ETH_MGMT="yes"; }
+                ;;
+            r8169|r8125)
+                [ -z "$TEST_IFACE" ] && { TEST_IFACE="$iface"; HAS_ETH_TEST="yes"; }
+                ;;
         esac
     done
 
-    [ -z "$MGMT_IFACE" ] && [ "$HAS_ETH1" = "yes" ] && MGMT_IFACE="eth1"
-    [ -z "$MGMT_IFACE" ] && [ "$HAS_ETH0" = "yes" ] && MGMT_IFACE="eth0"
-    [ -z "$TEST_IFACE" ] && [ "$HAS_ETH0" = "yes" ] && TEST_IFACE="eth0"
+    # Pass 2: name-agnostic fallback — first unclaimed wired iface → mgmt,
+    # next → test. Covers VMs and servers that lack bcmgenet/r8169.
+    for iface in "${WIRED_IFACES[@]}"; do
+        [ "$iface" = "$MGMT_IFACE" ] && continue
+        [ "$iface" = "$TEST_IFACE" ] && continue
+        if [ -z "$MGMT_IFACE" ]; then
+            MGMT_IFACE="$iface"; HAS_ETH_MGMT="yes"
+        elif [ -z "$TEST_IFACE" ]; then
+            TEST_IFACE="$iface";  HAS_ETH_TEST="yes"
+        fi
+    done
 
     echo "  wlan0 (built-in WiFi):   $HAS_WLAN0"
     echo "  wlan1 (USB monitor adp): $HAS_WLAN1"
     echo "  eth0  (kernel name):     $HAS_ETH0"
     echo "  eth1  (kernel name):     $HAS_ETH1"
-    echo "  mgmt  (driver-matched):  $HAS_ETH_MGMT ($MGMT_IFACE)"
-    echo "  test  (driver-matched):  $HAS_ETH_TEST ($TEST_IFACE)"
+    echo "  wired ifaces (type=1):   ${WIRED_IFACES[*]:-(none)}"
+    echo "  mgmt chosen:             $HAS_ETH_MGMT ($MGMT_IFACE)"
+    echo "  test chosen:             $HAS_ETH_TEST ($TEST_IFACE)"
 
     mkdir -p "$NEKOPI_DIR/data"
     cat > "$NEKOPI_DIR/data/hw_caps.json" <<HWCAPS
@@ -308,7 +336,7 @@ HW_DETECT_BODY = textwrap.dedent("""\
       "eth_mgmt":     $( [ "$HAS_ETH_MGMT" = "yes" ] && echo true || echo false ),
       "eth_test":     $( [ "$HAS_ETH_TEST" = "yes" ] && echo true || echo false ),
       "wifi_monitor": $( [ "$HAS_WLAN1" = "yes" ] && echo true || echo false ),
-      "wifi_uplink":  $( [ "$HAS_WLAN0" = "yes" ] && echo true || echo false ),
+      "wifi_uplink":  $( { [ "$HAS_WLAN0" = "yes" ] || [ "$HAS_WLAN1" = "yes" ]; } && echo true || echo false ),
       "mgmt_iface": "$MGMT_IFACE",
       "test_iface": "$TEST_IFACE",
       "generated_at": "$(date -Iseconds)"
