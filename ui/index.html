@@ -13739,7 +13739,10 @@ var HW_REQUIREMENTS = {
   'profiler': ['wifi_monitor'],      // Virtual AP for capability capture
   'ota':      ['wifi_monitor'],      // Passive capture needs monitor mode
   'security': ['eth_test'],          // Subnet auto-detect needs eth test iface
-  'wired':    ['eth_test']           // LLDP/iPerf/etc need test eth
+  'wired':    ['eth_mgmt']           // Any wired iface is enough — tools that
+                                      // specifically need eth_test (e.g. iPerf
+                                      // TEST mode) handle absence at runtime
+
 };
 
 function _hwCapsUnavailable(caps, reqKeys) {
