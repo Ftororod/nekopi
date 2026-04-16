@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  NekoPi Field Unit — Automated Installer v2
 #  Version:   1.3.0  ·  Codename: ToManchas
-#  Generated: 2026-04-16 15:00
+#  Generated: 2026-04-16 15:17
 #  Target:    Ubuntu 24.04 LTS · Raspberry Pi 5 · 8 GB
 #  License:   GPL-3.0-or-later
 # ═══════════════════════════════════════════════════════════════
@@ -20,12 +20,23 @@ mkdir -p "$(dirname "$INSTALL_LOG")"
 
 # Must be root
 if [[ $EUID -ne 0 ]]; then
-    echo "❌ This script must be run as root (sudo)"
+    echo "This script must be run as root (sudo)"
     exit 1
 fi
 
+
 # ── Progress display helpers ─────────────────────────────────────────
-NEKOPI_TOTAL_STEPS=25
+# Colors — only when stdout is a TTY
+if [ -t 1 ]; then
+    GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'
+    GRAY='\033[0;90m';  BOLD='\033[1m';      RED='\033[0;31m'
+    RESET='\033[0m'
+else
+    GREEN=''; YELLOW=''; CYAN=''; GRAY=''; BOLD=''; RED=''; RESET=''
+fi
+
+NEKOPI_TOTAL_STEPS=24
+
 NEKOPI_CURRENT_STEP=0
 NEKOPI_START_TIME=$(date +%s)
 NEKOPI_STEP_START=0
@@ -35,24 +46,31 @@ NEKOPI_SKIPPED=()     # entries of the form "N:label:reason"
 _nk_tty() { [ -t 1 ]; }
 
 _nk_banner() {
-    local version="1.3.0"
-    local codename="ToManchas"
+    local version codename
+    # Read VERSION file at runtime so this works regardless of when the
+    # installer was generated vs. when the user runs it.
+    if [ -f "$NEKOPI_DIR/VERSION" ]; then
+        version=$(head -n 1 "$NEKOPI_DIR/VERSION" 2>/dev/null)
+        codename=$(sed -n '2p' "$NEKOPI_DIR/VERSION" 2>/dev/null)
+    elif [ -f "$(dirname "$0")/VERSION" ]; then
+        version=$(head -n 1 "$(dirname "$0")/VERSION" 2>/dev/null)
+        codename=$(sed -n '2p' "$(dirname "$0")/VERSION" 2>/dev/null)
+    fi
+    version="${version:-unknown}"
+    codename="${codename:-unknown}"
     echo ""
-    echo "╔══════════════════════════════════════════════════════════╗"
-    printf "║  %-30s %20s  ║\n" "NekoPi Field Unit" "v${version}"
-    printf "║  %-30s %20s  ║\n" "Codename: ${codename} · GPL v3" "~18 min total"
-    echo "╚══════════════════════════════════════════════════════════╝"
+    echo -e "${CYAN}╔════════════════════════════════════════════════╗${RESET}"
+    echo -e "${CYAN}║${RESET}  ${BOLD}NekoPi Field Unit${RESET}"
+    echo -e "${CYAN}║${RESET}  ${CYAN}v${version} · Codename: ${codename}${RESET}"
+    echo -e "${CYAN}║${RESET}  GPL v3 · ~8 min total"
+    echo -e "${CYAN}╚════════════════════════════════════════════════╝${RESET}"
     echo ""
 }
 
 _nk_section() {
     local title="$1"
     echo ""
-    printf "── %s " "$title"
-    local n=$((54 - ${#title}))
-    [ "$n" -lt 1 ] && n=1
-    printf '%0.s─' $(seq 1 "$n")
-    echo ""
+    echo -e "${GRAY}── ${title} ──────────────────────────────────────${RESET}"
     echo ""
 }
 
@@ -60,44 +78,46 @@ _nk_step_start() {
     NEKOPI_CURRENT_STEP="$1"
     NEKOPI_STEP_START=$(date +%s)
     if _nk_tty; then
-        printf "[%s/%s] ⠸  %s\n" "$1" "$NEKOPI_TOTAL_STEPS" "$2"
+        echo -e "${GRAY}[${1}/${NEKOPI_TOTAL_STEPS}]${RESET} ${YELLOW}⠸  ${2}${RESET}"
     else
-        printf "[%s/%s] ..  %s\n" "$1" "$NEKOPI_TOTAL_STEPS" "$2"
+        echo "[${1}/${NEKOPI_TOTAL_STEPS}] ..  ${2}"
     fi
 }
 
 _nk_step_done() {
     local elapsed=$(( $(date +%s) - NEKOPI_STEP_START ))
     if _nk_tty; then
-        printf "\033[1A\033[2K[%s/%s] ✔  %-45s %ds\n" \
-            "$1" "$NEKOPI_TOTAL_STEPS" "$2" "$elapsed"
+        # Rewrite the in-progress line as completed
+        echo -ne "\033[1A\033[2K"
+        echo -e "${GRAY}[${1}/${NEKOPI_TOTAL_STEPS}]${RESET} ${GREEN}✔  ${2}${RESET}   ${GRAY}${elapsed}s${RESET}"
     else
-        printf "[%s/%s] ✔  %s (%ds)\n" "$1" "$NEKOPI_TOTAL_STEPS" "$2" "$elapsed"
+        echo "[${1}/${NEKOPI_TOTAL_STEPS}] ✔  ${2}   ${elapsed}s"
     fi
-    NEKOPI_COMPLETED+=("$1:$2:$elapsed")
+    NEKOPI_COMPLETED+=("${1}:${2}:${elapsed}")
 }
 
 _nk_step_skip() {
     if _nk_tty; then
-        printf "\033[1A\033[2K[%s/%s] –  %s\n" "$1" "$NEKOPI_TOTAL_STEPS" "$2"
+        echo -ne "\033[1A\033[2K"
+        echo -e "${GRAY}[${1}/${NEKOPI_TOTAL_STEPS}]${RESET} ${GRAY}–  ${2}${RESET}"
     else
-        printf "[%s/%s] –  %s\n" "$1" "$NEKOPI_TOTAL_STEPS" "$2"
+        echo "[${1}/${NEKOPI_TOTAL_STEPS}] –  ${2}"
     fi
-    printf "         (skipped — %s)\n" "$3"
-    NEKOPI_SKIPPED+=("$1:$2:$3")
+    echo -e "         ${GRAY}(skipped — ${3})${RESET}"
+    NEKOPI_SKIPPED+=("${1}:${2}:${3}")
     NEKOPI_CURRENT_STEP="$1"
 }
 
 _nk_hw_pills() {
-    printf "         "
+    echo -ne "         "
     local pair iface status
     for pair in "$@"; do
         iface="${pair%%:*}"
         status="${pair##*:}"
         if [ "$status" = "yes" ]; then
-            printf "%s ✔  " "$iface"
+            echo -ne "${GREEN}${iface} ✔${RESET}  "
         else
-            printf "%s —  " "$iface"
+            echo -ne "${GRAY}${iface} —${RESET}  "
         fi
     done
     echo ""
@@ -106,16 +126,24 @@ _nk_hw_pills() {
 _nk_pkg_progress() {
     local pkg="$1" idx="$2" total="$3"
     local bar_fill=$(( idx * 20 / total ))
-    local bar=""
-    local i
+    local i bar_fill_str="" bar_empty_str=""
     for i in $(seq 1 20); do
-        if [ "$i" -le "$bar_fill" ]; then bar="${bar}█"; else bar="${bar}░"; fi
+        if [ "$i" -le "$bar_fill" ]; then
+            bar_fill_str="${bar_fill_str}="
+        else
+            bar_empty_str="${bar_empty_str}-"
+        fi
     done
     if _nk_tty; then
-        printf "\033[1A\033[2K[%s/%s] ⠸  Installing %-16s [%s]  %d/%d\n" \
-            "$NEKOPI_CURRENT_STEP" "$NEKOPI_TOTAL_STEPS" "$pkg" "$bar" "$idx" "$total"
+        echo -ne "\033[1A\033[2K"
+        printf '%b[%s/%s]%b %b⠸  Installing %-16s%b [%b%s%b%b%s%b]  %d/%d\n' \
+            "$GRAY" "$NEKOPI_CURRENT_STEP" "$NEKOPI_TOTAL_STEPS" "$RESET" \
+            "$YELLOW" "$pkg" "$RESET" \
+            "$CYAN" "$bar_fill_str" "$RESET" \
+            "$GRAY" "$bar_empty_str" "$RESET" \
+            "$idx" "$total"
     else
-        printf "    Installing: %s (%d/%d)\n" "$pkg" "$idx" "$total"
+        echo "    Installing: ${pkg} (${idx}/${total})"
     fi
 }
 
@@ -123,10 +151,13 @@ _nk_overall_progress() {
     local elapsed=$(( $(date +%s) - NEKOPI_START_TIME ))
     local pct=$(( NEKOPI_CURRENT_STEP * 100 / NEKOPI_TOTAL_STEPS ))
     local bar_fill=$(( pct * 30 / 100 ))
-    local bar=""
-    local i
+    local i bar_fill_str="" bar_empty_str=""
     for i in $(seq 1 30); do
-        if [ "$i" -le "$bar_fill" ]; then bar="${bar}█"; else bar="${bar}░"; fi
+        if [ "$i" -le "$bar_fill" ]; then
+            bar_fill_str="${bar_fill_str}="
+        else
+            bar_empty_str="${bar_empty_str}-"
+        fi
     done
     local elapsed_fmt
     if [ "$elapsed" -lt 60 ]; then
@@ -135,18 +166,18 @@ _nk_overall_progress() {
         elapsed_fmt="$((elapsed/60))m $((elapsed%60))s"
     fi
     echo ""
-    echo "─────────────────────────────────────────────────────────"
-    printf "Overall  [%s]  %d%%\n" "$bar" "$pct"
-    printf "Elapsed: %s\n" "$elapsed_fmt"
+    echo -e "${GRAY}─────────────────────────────────────────────────────────${RESET}"
+    echo -e "Overall  [${CYAN}${bar_fill_str}${RESET}${GRAY}${bar_empty_str}${RESET}]  ${BOLD}${pct}%${RESET}"
+    echo -e "Elapsed: ${elapsed_fmt}"
     echo ""
 }
 
 _nk_on_error() {
     local rc="$1"
     echo ""
-    echo "❌ Installation failed at step $NEKOPI_CURRENT_STEP"
-    echo "   Last 40 lines of $INSTALL_LOG:"
-    echo "   ──────────────────────────────────────────────────────"
+    echo -e "${RED}❌ Installation failed at step ${NEKOPI_CURRENT_STEP}${RESET}"
+    echo -e "${GRAY}   Last 40 lines of ${INSTALL_LOG}:${RESET}"
+    echo -e "${GRAY}   ──────────────────────────────────────────────────────${RESET}"
     tail -40 "$INSTALL_LOG" 2>/dev/null | sed 's/^/   /'
     exit "$rc"
 }
@@ -217,7 +248,6 @@ export MGMT_IFACE TEST_IFACE
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 1 "Hardware detection"
 _nk_hw_pills "eth-mgmt:$HAS_ETH_MGMT" "eth-test:$HAS_ETH_TEST" "wlan0:$HAS_WLAN0" "wlan1:$HAS_WLAN1"
-_nk_overall_progress
 
 
 _nk_step_start 2 "User nekopi"
@@ -227,7 +257,6 @@ if ! id "$NEKOPI_USER" &>/dev/null; then
 fi
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 2 "User nekopi"
-_nk_overall_progress
 
 
 _nk_step_start 3 "Directories"
@@ -239,7 +268,6 @@ chown -R "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR"
 chmod 755 "$NEKOPI_DIR/data"
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 3 "Directories"
-_nk_overall_progress
 
 
 _nk_step_start 4 "APT repositories"
@@ -270,7 +298,6 @@ fi
 apt-get update -qq
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 4 "APT repositories"
-_nk_overall_progress
 
 
 _nk_step_start 5 "Base dependencies"
@@ -278,6 +305,12 @@ _nk_step_start 5 "Base dependencies"
     # Preseed wireshark so tshark install doesn't prompt
     echo "wireshark-common wireshark-common/install-setuid boolean true" \
         | debconf-set-selections
+
+    # Always install Kismet — the wlan1-specific configuration in step 16
+    # is conditional, but the kismet package must be present regardless
+    # so that modules activate automatically when an MT7921AU is plugged
+    # in later (hw_caps.json is re-read at service start).
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq kismet || true
 } >> "$INSTALL_LOG" 2>&1
 
 PKGS=(
@@ -307,7 +340,6 @@ for pkg in "${PKGS[@]}"; do
 done
 
 _nk_step_done 5 "Base dependencies"
-_nk_overall_progress
 
 
 _nk_step_start 6 "User groups"
@@ -317,7 +349,6 @@ usermod -a -G wireshark "$NEKOPI_USER" 2>/dev/null || true
 usermod -a -G netdev    "$NEKOPI_USER" 2>/dev/null || true
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 6 "User groups"
-_nk_overall_progress
 
 
 _nk_step_start 7 "Clone / update repo"
@@ -336,7 +367,6 @@ fi
 chown -R "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR/data"
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 7 "Clone / update repo"
-_nk_overall_progress
 
 
 _nk_step_start 8 "Python venv + pip deps"
@@ -371,7 +401,6 @@ else
 fi
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 8 "Python venv + pip deps"
-_nk_overall_progress
 
 
 _nk_step_start 9 "SSL certificate"
@@ -387,7 +416,6 @@ if [ ! -f "$NEKOPI_DIR/ssl/cert.pem" ]; then
 fi
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 9 "SSL certificate"
-_nk_overall_progress
 
 
 _nk_step_start 10 "systemd service"
@@ -421,7 +449,6 @@ systemctl daemon-reload
 systemctl enable nekopi
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 10 "systemd service"
-_nk_overall_progress
 
 
 _nk_step_start 11 "Netplan (eth-mgmt / eth-test)"
@@ -456,7 +483,6 @@ chmod 600 /etc/netplan/01-nekopi-mgmt.yaml
 netplan apply 2>/dev/null || true
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 11 "Netplan (eth-mgmt / eth-test)"
-_nk_overall_progress
 
 
 _nk_step_start 12 "dnsmasq + systemd-resolved fix"
@@ -503,7 +529,6 @@ systemctl enable dnsmasq
 systemctl restart dnsmasq 2>/dev/null || true
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 12 "dnsmasq + systemd-resolved fix"
-_nk_overall_progress
 
 
 _nk_step_start 13 "InfluxDB setup"
@@ -547,7 +572,6 @@ systemctl disable influxdb 2>/dev/null || true
 systemctl stop influxdb 2>/dev/null || true
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 13 "InfluxDB setup"
-_nk_overall_progress
 
 
 _nk_step_start 14 "Grafana (on-demand)"
@@ -556,7 +580,6 @@ systemctl disable grafana-server 2>/dev/null || true
 systemctl stop grafana-server 2>/dev/null || true
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 14 "Grafana (on-demand)"
-_nk_overall_progress
 
 
 _nk_step_start 15 "Cockpit"
@@ -570,24 +593,30 @@ COCKPIT
 systemctl enable --now cockpit.socket
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 15 "Cockpit"
-_nk_overall_progress
 
 
-if [ "$HAS_WLAN1" != "yes" ]; then
-    _nk_step_start 16 "Kismet log dir"
-    _nk_step_skip  16 "Kismet log dir" "wlan1 not detected"
-    _nk_overall_progress
-else
-    _nk_step_start 16 "Kismet log dir"
-    {
-mkdir -p /etc/kismet
-cat > /etc/kismet/kismet_site.conf << 'KISMET'
+_nk_step_start 16 "Kismet config"
+{
+# Always: log output path and capture dir. These work with or without
+# wlan1 — if wlan1 shows up later (hot-plug), Kismet will find it
+# via sources configured below OR via its own auto-detect.
+mkdir -p /etc/kismet /opt/nekopi/captures/kismet
+cat > /etc/kismet/kismet_site.conf << 'KISMET_CFG'
 log_prefix=/opt/nekopi/captures/kismet/Kismet
-KISMET
-    } >> "$INSTALL_LOG" 2>&1
-    _nk_step_done 16 "Kismet log dir"
-    _nk_overall_progress
+KISMET_CFG
+sed -i 's/^    //' /etc/kismet/kismet_site.conf
+
+# Conditional: monitor-mode source line (requires wlan1 adapter present
+# at install time). If wlan1 is absent now, we leave the source list
+# empty — the backend will regenerate kismet_site.conf when wlan1 is
+# detected at runtime.
+if [ "$HAS_WLAN1" = "yes" ]; then
+    echo "source=wlan1" >> /etc/kismet/kismet_site.conf
+else
+    echo "NOTE: wlan1 not detected — skipping wlan1-specific source config"
 fi
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 16 "Kismet config"
 
 
 _nk_step_start 17 "Sudoers"
@@ -613,7 +642,6 @@ chmod 440 /etc/sudoers.d/nekopi-services
 visudo -c -f /etc/sudoers.d/nekopi-services || { rm -f /etc/sudoers.d/nekopi-services; false; }
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 17 "Sudoers"
-_nk_overall_progress
 
 
 _nk_step_start 18 "pktvisor"
@@ -635,37 +663,19 @@ if [ -f "$NEKOPI_DIR/bin/pktvisord" ]; then
 fi
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 18 "pktvisor"
-_nk_overall_progress
 
 
-_nk_step_start 19 "Ollama local AI"
-{
-if ! command -v ollama &>/dev/null; then
-    curl -fsSL https://ollama.ai/install.sh | sh
-fi
-
-systemctl enable ollama 2>/dev/null || true
-systemctl start ollama 2>/dev/null || true
-
-# Pull base model in background — don't block installer
-nohup ollama pull mistral > /dev/null 2>&1 &
-} >> "$INSTALL_LOG" 2>&1
-_nk_step_done 19 "Ollama local AI"
-_nk_overall_progress
-
-
-_nk_step_start 20 "Data files"
+_nk_step_start 19 "Data files"
 {
 if [ ! -f "$NEKOPI_DIR/data/dhcp-options.json" ]; then
     echo '{"options": []}' > "$NEKOPI_DIR/data/dhcp-options.json"
     chown "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR/data/dhcp-options.json"
 fi
 } >> "$INSTALL_LOG" 2>&1
-_nk_step_done 20 "Data files"
-_nk_overall_progress
+_nk_step_done 19 "Data files"
 
 
-_nk_step_start 21 ".gitignore"
+_nk_step_start 20 ".gitignore"
 {
 cat > "$NEKOPI_DIR/.gitignore" << 'GITIGNORE'
 *.kismet
@@ -684,30 +694,27 @@ ui/assets/ota/
 GITIGNORE
 chown "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR/.gitignore"
 } >> "$INSTALL_LOG" 2>&1
-_nk_step_done 21 ".gitignore"
-_nk_overall_progress
+_nk_step_done 20 ".gitignore"
 
 
-_nk_step_start 22 "Final ownership"
+_nk_step_start 21 "Final ownership"
 {
 chown -R "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR"
 } >> "$INSTALL_LOG" 2>&1
-_nk_step_done 22 "Final ownership"
-_nk_overall_progress
+_nk_step_done 21 "Final ownership"
 
 
-_nk_step_start 23 "Assets check"
+_nk_step_start 22 "Assets check"
 {
 [ -f "$NEKOPI_DIR/ui/assets/nekopi-logo-about.png" ] \
     || echo "WARN: missing ui/assets/nekopi-logo-about.png"
 [ -f "$NEKOPI_DIR/ui/assets/nekopi-logo-dark.png" ] \
     || echo "WARN: missing ui/assets/nekopi-logo-dark.png"
 } >> "$INSTALL_LOG" 2>&1
-_nk_step_done 23 "Assets check"
-_nk_overall_progress
+_nk_step_done 22 "Assets check"
 
 
-_nk_step_start 24 "Start services"
+_nk_step_start 23 "Start services"
 {
 systemctl restart nekopi
 sleep 3
@@ -722,11 +729,10 @@ if [ "$READY" != "1" ]; then
     echo "WARN: NekoPi did not respond yet — check journalctl -u nekopi -f"
 fi
 } >> "$INSTALL_LOG" 2>&1
-_nk_step_done 24 "Start services"
-_nk_overall_progress
+_nk_step_done 23 "Start services"
 
 
-_nk_step_start 25 "Post-install verification"
+_nk_step_start 24 "Post-install verification"
 {
 INSTALL_ERRORS=0
 
@@ -743,7 +749,6 @@ check() {
 check "systemd service nekopi"        "systemctl is-active --quiet nekopi"
 check "dnsmasq active"                "systemctl is-active --quiet dnsmasq"
 check "cockpit socket active"         "systemctl is-active --quiet cockpit.socket"
-check "ollama service"                "systemctl is-active --quiet ollama"
 check "Port $NEKOPI_PORT listening"   "ss -tlnp | grep -q ':$NEKOPI_PORT'"
 check "API /api/health responds"      "curl -sk https://127.0.0.1:$NEKOPI_PORT/api/health"
 check "API /api/hw-caps responds"     "curl -sk https://127.0.0.1:$NEKOPI_PORT/api/hw-caps"
@@ -756,7 +761,7 @@ check "UI index.html"                 "test -f $NEKOPI_DIR/ui/index.html"
 check "Python fastapi/uvicorn"        "$NEKOPI_DIR/venv/bin/python3 -c 'import fastapi, uvicorn'"
 check "ttyd binary"                   "command -v ttyd"
 check "tshark binary"                 "command -v tshark"
-check "ollama binary"                 "command -v ollama"
+check "kismet binary"                 "command -v kismet"
 check "Group: dialout"                "groups $NEKOPI_USER | grep -q dialout"
 check "Group: wireshark"              "groups $NEKOPI_USER | grep -q wireshark"
 
@@ -770,36 +775,41 @@ fi
 
 echo "INSTALL_ERRORS=$INSTALL_ERRORS"
 } >> "$INSTALL_LOG" 2>&1
-_nk_step_done 25 "Post-install verification"
-_nk_overall_progress
+_nk_step_done 24 "Post-install verification"
 
+
+# Overall progress bar — printed once at the end, not between steps
+_nk_overall_progress
 
 _nk_section "completed"
 
-echo "╔══════════════════════════════════════════════════════════╗"
-echo "║  Installation complete                                   ║"
-echo "╚══════════════════════════════════════════════════════════╝"
+echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════╗${RESET}"
+echo -e "${BOLD}${GREEN}║  Installation complete${RESET}"
+echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════════╝${RESET}"
 echo ""
 
 # Completed steps
 for entry in "${NEKOPI_COMPLETED[@]}"; do
     IFS=':' read -r num label secs <<< "$entry"
-    printf "  ✔  [%2s]  %-40s %ds\n" "$num" "$label" "$secs"
+    printf '  %b✔%b  [%2s]  %-40s %ds\n' \
+        "$GREEN" "$RESET" "$num" "$label" "$secs"
 done
 
 # Skipped steps, if any
 if [ ${#NEKOPI_SKIPPED[@]} -gt 0 ]; then
     echo ""
-    echo "  Skipped (hardware not available):"
+    echo -e "  ${YELLOW}Skipped (hardware not available):${RESET}"
     for entry in "${NEKOPI_SKIPPED[@]}"; do
         IFS=':' read -r num label reason <<< "$entry"
-        printf "  –  [%2s]  %-40s (%s)\n" "$num" "$label" "$reason"
+        printf '  %b–%b  [%2s]  %-40s (%s)\n' \
+            "$YELLOW" "$RESET" "$num" "$label" "$reason"
     done
 fi
 
 TOTAL_TIME=$(( $(date +%s) - NEKOPI_START_TIME ))
 echo ""
-printf "  Total time: %dm %ds\n" "$((TOTAL_TIME/60))" "$((TOTAL_TIME%60))"
-printf "  Access:     https://%s:%s\n" "$(hostname -I | awk '{print $1}')" "$NEKOPI_PORT"
-printf "  Install log: %s\n" "$INSTALL_LOG"
+printf '  Total time: %dm %ds\n' "$((TOTAL_TIME/60))" "$((TOTAL_TIME%60))"
+printf '  Access:     %bhttps://%s:%s%b\n' \
+    "$CYAN" "$(hostname -I | awk '{print $1}')" "$NEKOPI_PORT" "$RESET"
+printf '  Install log: %s\n' "$INSTALL_LOG"
 echo ""
