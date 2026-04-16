@@ -4182,7 +4182,7 @@ input,select,textarea { font-family:inherit; }
               <select class="form-input form-select" id="cpPort" style="font-family:monospace;width:190px">
                 <option value="/dev/ttyUSB0">/dev/ttyUSB0</option>
               </select>
-              <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 6px" onclick="cpRefreshPorts()">↻</button>
+              <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px" onclick="cpRefreshPorts()" title="Scan for serial ports">🔍 Detect</button>
             </div>
           </div>
           <div class="form-group" style="margin:0">
@@ -4898,7 +4898,8 @@ input,select,textarea { font-family:inherit; }
         <img src="/assets/nekopi-logo-about.png" alt="NekoPi"
              style="display:block;margin:0 auto 16px;width:110px;height:110px;border-radius:18px;padding:6px;background:#ffffff">
         <div style="font-size:20px;font-weight:800;color:var(--white);letter-spacing:1px" id="abTitle">NekoPi Field Unit</div>
-        <div style="font-size:12px;color:var(--text2);margin-top:4px" id="abTagline">Codename: ToManchas · v1.3.0 · MIT License</div>
+        <!-- Tagline is populated dynamically from /api/about (see loadAboutPage) -->
+        <div style="font-size:12px;color:var(--text2);margin-top:4px" id="abTagline">Loading…</div>
         <div style="font-size:12px;color:var(--cyan);margin-top:4px" id="abAuthor">by Fabián Toro Rodríguez · Bogotá, Colombia 🇨🇴</div>
       </div>
     </div>
@@ -4993,7 +4994,7 @@ input,select,textarea { font-family:inherit; }
         <!-- License & Hardware -->
         <div style="border-top:1px solid var(--border);margin:14px 20px"></div>
         <div style="font-size:11px;color:var(--text2);line-height:1.8;margin-bottom:14px">
-          MIT License · Open Source · Hardware-agnostic<br>
+          GPL v3 License · Open Source · Hardware-agnostic<br>
           Probado: RPi5 · CF-953AX · RTL8125B
         </div>
 
@@ -5090,8 +5091,25 @@ input,select,textarea { font-family:inherit; }
   </div>
 
 <script>
-
-
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * NekoPi Field Unit — Network Diagnostic Toolkit (Frontend)
+ * Copyright (C) 2025 Fabián Toro Rodríguez
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
 
 // ═══════════════════════════════════════
 //  iOS SAFE WRAPPERS
@@ -6243,7 +6261,7 @@ const pages = {
     try { conSwitchTab('health'); } catch(e) {}
   } },
   cpusher:    { title:'Console Pusher',  sub:'Serial config push · Cisco IOS · FTDI/USB', onload: function(){
-    try { cpRefreshPorts(); cpPollStart(); } catch(e) {}
+    try { cpRefreshPorts(true); cpPollStart(); } catch(e) {}
   } },
   settings:   { title:'Settings',          sub:'NekoPi Field Unit v1.0', onload: function(){ try{ initProbeConfigUI(); initWifiScanIntervalUI(); loadAISettings(); loadDhcpLeases(); }catch(e){} } },
   about:      { title:'About',             sub:'NekoPi Field Unit · system info · software · certs', onload: function(){ try{ loadAboutPage(); }catch(e){} } },
@@ -6434,8 +6452,10 @@ function autoSecTarget() {
       }
     }
   }).catch(function(){
+    // FIX: was hardcoded fallback '192.168.1.0/24' — now leaves empty so user
+    // enters a real subnet instead of silently scanning a fake one.
     var el = document.getElementById('secTarget');
-    if(el && !el.value) el.value = '192.168.1.0/24';
+    if(el && !el.value) el.placeholder = 'e.g. 10.0.0.0/24';
   });
 }
 
@@ -9384,7 +9404,7 @@ function _cpTtydUrl(port){
   return 'https://' + window.location.hostname + ':' + (port || 7682) + '/';
 }
 
-function cpRefreshPorts(){
+function cpRefreshPorts(silent){
   fetchAPI('/api/console/ports').then(function(d){
     if(!d) return;
     var sel  = document.getElementById('cpPort');
@@ -9394,13 +9414,23 @@ function cpRefreshPorts(){
     if(!ports.length){
       sel.innerHTML = '<option value="">(sin puerto serial)</option>';
       if(noP) noP.style.display = '';
+      if(!silent) showToast('No serial ports detected');
       return;
     }
     if(noP) noP.style.display = 'none';
     sel.innerHTML = ports.map(function(p){
-      var label = p.port + (p.chipset ? ' — ' + p.chipset : (p.description ? ' — '+p.description : ''));
+      var chip = p.chipset ? ' [' + p.chipset + ']' : '';
+      var desc = !p.chipset && p.description ? ' — ' + p.description : '';
+      var label = p.port + chip + desc;
       return '<option value="'+p.port+'">'+label+'</option>';
     }).join('');
+    // Auto-select the only port
+    if(ports.length === 1){
+      sel.value = ports[0].port;
+      if(!silent) showToast('Auto-selected ' + ports[0].port + (ports[0].chipset ? ' (' + ports[0].chipset + ')' : ''));
+    } else if(!silent){
+      showToast(ports.length + ' serial ports detected');
+    }
   });
 }
 
@@ -13696,11 +13726,69 @@ function tkWolQuick(mac){
 // Init toolkit on page load
 (function(){ try{ tkWolRenderSaved(); } catch(e){} })();
 
+// ═══════════════════════════════════════
+//  HARDWARE CAPABILITIES GATING
+// ═══════════════════════════════════════
+// Maps each module's data-page to the hw-caps keys it requires.
+// If ANY required capability is missing, the module is marked unavailable.
+var HW_REQUIREMENTS = {
+  'wifi':     ['wifi_uplink'],       // Needs wlan0 or wlan1
+  'roaming':  ['wifi_monitor'],      // Needs monitor-mode adapter (wlan1)
+  'kismet':   ['wifi_monitor'],      // Kismet IDS needs wlan1
+  'profiler': ['wifi_monitor'],      // Virtual AP for capability capture
+  'ota':      ['wifi_monitor'],      // Passive capture needs monitor mode
+  'security': ['eth_test'],          // Subnet auto-detect needs eth test iface
+  'wired':    ['eth_test']           // LLDP/iPerf/etc need test eth
+};
+
+function _hwCapsUnavailable(caps, reqKeys) {
+  if (!caps) return false;  // Backwards compat — no caps file => assume everything available
+  for (var i = 0; i < reqKeys.length; i++) {
+    if (!caps[reqKeys[i]]) return reqKeys[i];
+  }
+  return false;
+}
+
+function applyHwGating(caps) {
+  try {
+    if (!caps) return;  // backwards-compat: no hw_caps.json => don't disable anything
+    var lang = (localStorage.getItem('nekopi_ui_lang') || 'en');
+    var msgES = 'No disponible en este hardware';
+    var msgEN = 'Not available on this hardware';
+    var msg   = lang === 'es' ? msgES : msgEN;
+    var btns = document.querySelectorAll('.nav-item[data-page]');
+    for (var i = 0; i < btns.length; i++) {
+      var btn = btns[i];
+      var page = btn.getAttribute('data-page');
+      var req  = HW_REQUIREMENTS[page];
+      if (!req) continue;
+      var missing = _hwCapsUnavailable(caps, req);
+      if (missing) {
+        btn.disabled = true;
+        btn.classList.add('nav-disabled');
+        btn.style.opacity = '0.45';
+        btn.style.cursor  = 'not-allowed';
+        btn.title = msg + ' (missing: ' + missing + ')';
+        // Prevent navigation
+        btn.addEventListener('click', function(ev) {
+          ev.preventDefault(); ev.stopPropagation();
+        }, true);
+      }
+    }
+  } catch (e) {}
+}
+
 function nkInit() {
   _updateModeUI();
   // Initialize security score ring to empty state
   var ring = document.getElementById('secScoreRing');
   if(ring){ ring.style.strokeDashoffset='314'; ring.style.stroke='rgba(255,255,255,.1)'; }
+  // Fetch hardware capabilities once at boot and gate unavailable modules.
+  // If /api/hw-caps returns null (demo mode, backend down, or old install),
+  // gating is skipped and all modules remain visible — backwards compatible.
+  try {
+    fetchAPI('/api/hw-caps').then(function(caps) { applyHwGating(caps); });
+  } catch (e) {}
   checkBackend(function(online) {
     backendOnline = online;
     _updateModeUI();

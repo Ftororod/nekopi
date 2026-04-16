@@ -1,7 +1,24 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# NekoPi Field Unit — Network Diagnostic Toolkit
+# Copyright (C) 2025 Fabián Toro Rodríguez
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-NekoPi Field Unit — FastAPI Backend v1.3
-Codename: Tomás
+NekoPi Field Unit — FastAPI Backend
+Version & codename are read from the VERSION file at repo root (single source of truth).
 """
 from fastapi import FastAPI, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse
@@ -10,7 +27,21 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import asyncio, json, subprocess, re, socket, time, os, shutil
 
-app = FastAPI(title="NekoPi Field Unit API", version="1.3.0")
+def _read_version() -> dict:
+    """Read version and codename from VERSION file at repo root."""
+    version_file = Path(__file__).parent.parent / "VERSION"
+    try:
+        lines = version_file.read_text().strip().splitlines()
+        return {
+            "version":  lines[0].strip() if len(lines) > 0 else "unknown",
+            "codename": lines[1].strip() if len(lines) > 1 else "unknown",
+        }
+    except Exception:
+        return {"version": "unknown", "codename": "unknown"}
+
+_VERSION_INFO = _read_version()
+
+app = FastAPI(title="NekoPi Field Unit API", version=_VERSION_INFO["version"])
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 BASE_DIR  = Path(__file__).parent.parent
@@ -196,10 +227,98 @@ def _port_open(port: int) -> bool:
         s = _s.create_connection(("127.0.0.1", port), timeout=1); s.close(); return True
     except: return False
 
+# ── HARDWARE CAPABILITIES ────────────────────────────────────
+# Driver-based interface lookup — kernel name (eth0/eth1) is unstable when
+# hardware is added or removed (HAT present vs absent). Drivers are stable.
+_MGMT_DRIVERS = ("bcmgenet", "macb")   # RPi5 built-in Ethernet
+_TEST_DRIVERS = ("r8169", "r8125")     # RTL8125B 2.5GbE HAT
+
+def _iface_driver(name: str) -> str:
+    try:
+        link = Path(f"/sys/class/net/{name}/device/driver")
+        if link.exists():
+            return os.path.basename(os.readlink(str(link)))
+    except Exception:
+        pass
+    return ""
+
+def get_mgmt_iface() -> str:
+    """MGMT interface (RPi5 built-in) — matched by driver, fallback to eth-mgmt/eth1."""
+    for iface in get_interfaces():
+        if iface.get("driver") in _MGMT_DRIVERS:
+            return iface["name"]
+    for candidate in ("eth-mgmt", "eth1", "eth0"):
+        if Path(f"/sys/class/net/{candidate}").exists():
+            return candidate
+    return "eth1"
+
+def get_test_iface() -> str:
+    """TEST interface (HAT or WAN side) — matched by driver, fallback to eth-test/eth0."""
+    for iface in get_interfaces():
+        if iface.get("driver") in _TEST_DRIVERS:
+            return iface["name"]
+    for candidate in ("eth-test", "eth0", "eth1"):
+        if Path(f"/sys/class/net/{candidate}").exists():
+            return candidate
+    return "eth0"
+
+_HW_CAPS_FILE = BASE_DIR / "data" / "hw_caps.json"
+
+def _iface_exists(name: str) -> bool:
+    return Path(f"/sys/class/net/{name}").exists()
+
+def get_hw_caps() -> dict:
+    """Return hardware capabilities. Prefers on-disk hw_caps.json written by
+    the installer (authoritative); falls back to live probe so the API works
+    even when the file is missing (backwards compat with old installs)."""
+    caps = {}
+    if _HW_CAPS_FILE.exists():
+        try:
+            caps = json.loads(_HW_CAPS_FILE.read_text())
+        except Exception:
+            caps = {}
+
+    # Live probe — always refresh from sysfs so hot-plug (USB WiFi) works
+    ifaces = get_interfaces()
+    by_role = {i["role"]: i["name"] for i in ifaces if i.get("role")}
+    drivers = {i["name"]: i.get("driver", "") for i in ifaces}
+
+    live = {
+        "wlan0": _iface_exists("wlan0"),
+        "wlan1": _iface_exists("wlan1"),
+        "eth0":  _iface_exists("eth0"),
+        "eth1":  _iface_exists("eth1"),
+        "eth_mgmt": any(d in _MGMT_DRIVERS for d in drivers.values()),
+        "eth_test": any(d in _TEST_DRIVERS for d in drivers.values()),
+        "wifi_monitor": _iface_exists("wlan1"),  # MT7921AU or similar
+        "wifi_uplink":  _iface_exists("wlan0"),
+        "mgmt_iface": by_role.get("mgmt") or get_mgmt_iface(),
+        "test_iface": by_role.get("test") or get_test_iface(),
+    }
+    # Merge: file caps may contain extra notes; live wins on availability
+    caps.update(live)
+    return caps
+
+@app.get("/api/hw-caps")
+async def hw_caps():
+    return get_hw_caps()
+
+def _no_hw_response(missing: str) -> dict:
+    labels = {
+        "wlan1": "wlan1 (adaptador WiFi externo MT7921AU)",
+        "wlan0": "wlan0 (WiFi built-in)",
+        "eth0":  "eth0 (interfaz TEST / HAT 2.5GbE)",
+        "eth1":  "eth1 (interfaz MGMT)",
+    }
+    return {"status": "no_hardware", "missing": missing,
+            "message": f"{labels.get(missing, missing)} not found on this system"}
+
 # ── HEALTH ───────────────────────────────────────────────────
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "version": "1.3.0", "codename": "Tomas",
+    return {"status": "ok",
+            "version":  _VERSION_INFO["version"],
+            "codename": _VERSION_INFO["codename"],
             "hostname": socket.gethostname(), "uptime_s": _get_uptime()}
 
 # ── SERVICES STATUS ──────────────────────────────────────────
@@ -387,7 +506,8 @@ async def network_probes():
     gw  = get_default_gateway()
     dns = (get_dns_servers() or ["8.8.8.8"])[0]
     targets = [
-        {"name": "Gateway",    "host": gw or "192.168.1.1"},
+        # FIX: was hardcoded 192.168.1.1 — now null when no real gateway detected
+        {"name": "Gateway",    "host": gw or None},
         {"name": "DNS",        "host": dns},
         {"name": "1.1.1.1",   "host": "1.1.1.1"},
         {"name": "8.8.8.8",   "host": "8.8.8.8"},
@@ -1078,7 +1198,7 @@ async def wifi_disconnect(iface: str = "wlan1"):
 async def wifi_scan(iface: str = ""):
     if not iface:
         iface = get_best_wifi_iface()
-        if not iface: return {"iface": None, "count": 0, "aps": [], "error": "No WiFi interface found"}
+        if not iface: return _no_hw_response("wlan1")
     # Forzar interfaz UP antes de escanear (puede estar DORMANT sin AP)
     run_cmd(["ip", "link", "set", iface, "up"])
     await asyncio.sleep(0.5)
@@ -1471,7 +1591,19 @@ async def path_status():
 
 # ── NETWORK SCAN ─────────────────────────────────────────────
 @app.get("/api/scan/network")
-async def scan_network(target: str = "192.168.1.0/24"):
+async def scan_network(target: str = ""):
+    # FIX: was hardcoded 192.168.1.0/24 — now auto-detect from TEST iface
+    if not target:
+        test_if = get_test_iface()
+        if test_if:
+            ip_out = run_cmd(["ip", "-4", "addr", "show", test_if])
+            m = re.search(r"inet ([\d.]+)/(\d+)", ip_out or "")
+            if m:
+                parts = m.group(1).split(".")
+                target = ".".join(parts[:3]) + ".0/24"
+        if not target:
+            return {"status": "no_subnet", "hosts": [],
+                    "message": "No se pudo detectar subred — especifique target manualmente"}
     cmd = ["nmap", "-sn", "--open", "-oJ", "-", target]
     out = run_cmd(cmd, timeout=60)
     hosts = []
@@ -1492,7 +1624,7 @@ async def scan_network(target: str = "192.168.1.0/24"):
 # ── ABOUT ────────────────────────────────────────────────────
 
 # ── CLIENT PROFILER — powered by wlanpi-profiler ─────────────
-# Credits: WLAN Pi Team · https://github.com/WLAN-Pi/wlanpi-profiler · MIT License
+# Credits: WLAN Pi Team · https://github.com/WLAN-Pi/wlanpi-profiler (BSD-3-Clause)
 
 _PROFILER_PROC    = None
 _PROFILER_FILES   = "/tmp/nekopi-profiler"
@@ -2495,7 +2627,26 @@ async def roaming_events(since: int = 0):
 
 @app.get("/api/roaming/status")
 async def roaming_status():
+    if not _iface_exists(_ROAM_IFACE) and not _iface_exists("wlan1"):
+        return _no_hw_response("wlan1")
     return {"running": _ROAM_RUNNING, "iface": _ROAM_IFACE, "events": len(_ROAM_EVENTS)}
+
+@app.get("/api/wifi/monitor")
+async def wifi_monitor_status():
+    """Status of monitor-mode capable adapter (wlan1). Returns no_hardware if absent."""
+    if not _iface_exists("wlan1"):
+        return _no_hw_response("wlan1")
+    mode = run_cmd(["iw", "dev", "wlan1", "info"])
+    m = re.search(r"type\s+(\S+)", mode or "")
+    return {"status": "ok", "iface": "wlan1", "mode": m.group(1) if m else "unknown"}
+
+@app.get("/api/kismet/status")
+async def kismet_status():
+    """Kismet running + hardware availability check."""
+    if not _iface_exists("wlan1"):
+        return _no_hw_response("wlan1")
+    status = _kismet_get("/system/status.json")
+    return {"status": "ok", "running": bool(status), "iface": "wlan1"}
 
 
 # ── KISMET IDS ─────────────────────────────────────────────────────────────
@@ -2525,9 +2676,9 @@ async def kismet_url(request: Request):
     host = request.headers.get("host", "").split(":")[0]
     if host and host != "localhost" and host != "127.0.0.1":
         return {"url": f"http://{host}:2501", "ip": host}
-    # Fallback: eth0
+    # Fallback: TEST interface (driver-based, works with or without HAT)
     import re as _re
-    ip = run_cmd(["ip", "-4", "addr", "show", "eth0"]) or ""
+    ip = run_cmd(["ip", "-4", "addr", "show", get_test_iface()]) or ""
     match = _re.search(r"inet ([\d.]+)/", ip)  # noqa
     real_ip = match.group(1) if match else "localhost"
     return {"url": f"http://{real_ip}:2501", "ip": real_ip}
@@ -3449,19 +3600,25 @@ async def security_start(subnet: str = "", iface: str = "wlan1",
         return {"ok": False, "error": "Scan already running"}
     if not subnet:
         import re as _re
-        eth0_info = run_cmd(["ip", "addr", "show", "eth0"])
-        src_m = _re.search(r"inet ([\d.]+)/(\d+)", eth0_info)
+        # FIX: was hardcoded eth0 — now uses driver-based TEST iface detection
+        test_if = get_test_iface()
+        eth_info = run_cmd(["ip", "addr", "show", test_if]) if test_if else ""
+        src_m = _re.search(r"inet ([\d.]+)/(\d+)", eth_info or "")
         if src_m:
             parts = src_m.group(1).split(".")
             subnet = ".".join(parts[:3]) + ".0/24"
         else:
             routes = run_cmd(["ip", "route", "show"])
             for line in routes.splitlines():
-                if "eth0" in line and "kernel" in line:
+                if test_if and test_if in line and "kernel" in line:
                     net_m = _re.search(r"([\d.]+/\d+)", line)
                     if net_m:
                         subnet = net_m.group(1); break
-            if not subnet: subnet = "192.168.1.0/24"
+            if not subnet:
+                # No TEST iface IP and no kernel route — cannot auto-detect.
+                # Return null-equivalent so caller/UI shows "—" instead of fake subnet.
+                return {"status": "no_subnet", "message":
+                        "No se pudo detectar subred — conecte eth0/eth-test o especifique subred manualmente"}
 
     _SEC_RUNNING = True
     _SEC_STATUS  = "starting"
@@ -3940,7 +4097,8 @@ async def toolkit_arp_scan(iface: str = "eth0", subnet: str = ""):
             net = ipaddress.ip_interface(f"{m.group(1)}/{m.group(2)}").network
             subnet = str(net)
         else:
-            subnet = "192.168.1.0/24"
+            # FIX: was hardcoded 192.168.1.0/24 — refuse to scan fake subnet
+            return {"ok": False, "error": f"No IP on {iface} — specify subnet manually"}
 
     def _run():
         import subprocess as _sp
@@ -7394,6 +7552,37 @@ _CP_SERIAL_PORT = ""
 _CP_SERIAL_BAUD = 9600
 
 
+def _detect_chipset_dmesg(device: str) -> str:
+    """Try to identify USB-serial chipset via dmesg when pyserial metadata is empty."""
+    dev_name = device.rsplit("/", 1)[-1]  # e.g. "ttyUSB0"
+    try:
+        out = subprocess.check_output(
+            ["dmesg"], stderr=subprocess.DEVNULL, timeout=3
+        ).decode(errors="replace")
+    except Exception:
+        return ""
+    # Walk dmesg lines looking for the device name and known chipset keywords
+    chipset_map = {
+        "FTDI":   "FTDI",
+        "FT232":  "FTDI",
+        "FT2232": "FTDI",
+        "ch340":  "CH340",
+        "ch341":  "CH340",
+        "cp210":  "CP210x",
+        "cp2102": "CP210x",
+        "cp2104": "CP210x",
+        "pl2303": "PL2303",
+    }
+    for line in out.splitlines():
+        if dev_name not in line:
+            continue
+        low = line.lower()
+        for key, label in chipset_map.items():
+            if key.lower() in low:
+                return label
+    return ""
+
+
 @app.get("/api/console/ports")
 async def console_ports():
     """Lists available serial ports with chipset info."""
@@ -7402,11 +7591,15 @@ async def console_ports():
         # Filter out non-USB pseudo-ports (ttyAMA0 etc.)
         if not p.device.startswith("/dev/ttyUSB") and not p.device.startswith("/dev/ttyACM"):
             continue
+        chipset = ((p.manufacturer or "") + " " + (p.product or "")).strip()
+        # Fallback: parse dmesg for known chipset identifiers
+        if not chipset:
+            chipset = _detect_chipset_dmesg(p.device)
         ports.append({
             "port":        p.device,
             "description": p.description or "",
             "hwid":        p.hwid or "",
-            "chipset":     ((p.manufacturer or "") + " " + (p.product or "")).strip(),
+            "chipset":     chipset,
         })
     return {"ports": ports}
 
@@ -8102,7 +8295,7 @@ async def api_about():
 
     # Software versions + status
     software = [
-        {"name": "NekoPi API",  "version": "1.3.0", "status": "running"},
+        {"name": "NekoPi API",  "version": _VERSION_INFO["version"], "status": "running"},
         {"name": "Python",      "version": _plat.python_version(), "status": "ok"},
         {"name": "FastAPI",     "version": _ver(["/opt/nekopi/venv/bin/python3", "-c", "import fastapi;print(fastapi.__version__)"]), "status": "ok"},
         {"name": "Kismet",      "version": _ver(["kismet", "--version"]), "status": _svc_state("kismet")},
@@ -8134,11 +8327,11 @@ async def api_about():
 
     return {
         "nekopi": {
-            "version": "1.3.0",
-            "codename": "Tom\u00e1s",
+            "version":  _VERSION_INFO["version"],
+            "codename": _VERSION_INFO["codename"],
             "author": "Fabi\u00e1n Toro Rodr\u00edguez",
             "location": "Bogot\u00e1, Colombia",
-            "license": "MIT",
+            "license": "GPL-3.0",
             "uptime_h": round(uptime_s / 3600, 1),
         },
         "system": {

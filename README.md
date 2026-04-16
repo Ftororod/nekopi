@@ -5,7 +5,7 @@
 
 **v1.3.0 — Codename: ToManchas 🐱🐱**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-cyan.svg)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-RPi5-orange.svg)](https://www.raspberrypi.com)
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green.svg)](https://fastapi.tiangolo.com)
@@ -167,9 +167,22 @@ wlan1 → MONITOR (USB WiFi)    — passive capture / monitor mode
 
 ---
 
+## License
+
+NekoPi Field Unit is licensed under the **GNU General Public License v3.0**.
+
+This means you are free to use, modify, and distribute NekoPi, but any
+derivative work must also be open source under GPL v3. You cannot take
+this code, close it, and sell it as a proprietary product without
+contributing your changes back to the community.
+
+See [LICENSE](LICENSE) for the full license text.
+
+---
+
 ## Contributing
 
-NekoPi is open source under the MIT License. Contributions, bug reports and feature requests are welcome.
+NekoPi is open source under the GPL v3 License. Contributions, bug reports and feature requests are welcome.
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
@@ -193,5 +206,5 @@ In progress: CCNP Wireless (350-101 WLCOR)
 ---
 
 <div align="center">
-  <sub>NekoPi Field Unit · v1.3.0 · Codename: ToManchas · MIT License</sub>
+  <sub>NekoPi Field Unit · v1.3.0 · Codename: ToManchas · GPL v3 License</sub>
 </div>
