@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  NekoPi Field Unit — Automated Installer v2
 #  Version:   1.3.0  ·  Codename: ToManchas
-#  Generated: 2026-04-16 14:24
+#  Generated: 2026-04-16 15:00
 #  Target:    Ubuntu 24.04 LTS · Raspberry Pi 5 · 8 GB
 #  License:   GPL-3.0-or-later
 # ═══════════════════════════════════════════════════════════════
@@ -14,29 +14,150 @@ NEKOPI_PORT=8080
 REPO_URL="https://github.com/Ftororod/nekopi.git"
 REPO_BRANCH="main"
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-CYAN='\033[0;36m'; NC='\033[0m'
-
-ok()   { echo -e "${GREEN}✅ $1${NC}"; }
-warn() { echo -e "${YELLOW}⚠️  $1${NC}"; }
-fail() { echo -e "${RED}❌ $1${NC}"; }
-info() { echo -e "${CYAN}▶  $1${NC}"; }
+INSTALL_LOG="/var/log/nekopi/install.log"
+mkdir -p "$(dirname "$INSTALL_LOG")"
+: > "$INSTALL_LOG"
 
 # Must be root
 if [[ $EUID -ne 0 ]]; then
-    fail "This script must be run as root (sudo)"
+    echo "❌ This script must be run as root (sudo)"
     exit 1
 fi
 
-STARTED_AT=$(date +%s)
+# ── Progress display helpers ─────────────────────────────────────────
+NEKOPI_TOTAL_STEPS=25
+NEKOPI_CURRENT_STEP=0
+NEKOPI_START_TIME=$(date +%s)
+NEKOPI_STEP_START=0
+NEKOPI_COMPLETED=()   # entries of the form "N:label:seconds"
+NEKOPI_SKIPPED=()     # entries of the form "N:label:reason"
+
+_nk_tty() { [ -t 1 ]; }
+
+_nk_banner() {
+    local version="1.3.0"
+    local codename="ToManchas"
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════╗"
+    printf "║  %-30s %20s  ║\n" "NekoPi Field Unit" "v${version}"
+    printf "║  %-30s %20s  ║\n" "Codename: ${codename} · GPL v3" "~18 min total"
+    echo "╚══════════════════════════════════════════════════════════╝"
+    echo ""
+}
+
+_nk_section() {
+    local title="$1"
+    echo ""
+    printf "── %s " "$title"
+    local n=$((54 - ${#title}))
+    [ "$n" -lt 1 ] && n=1
+    printf '%0.s─' $(seq 1 "$n")
+    echo ""
+    echo ""
+}
+
+_nk_step_start() {
+    NEKOPI_CURRENT_STEP="$1"
+    NEKOPI_STEP_START=$(date +%s)
+    if _nk_tty; then
+        printf "[%s/%s] ⠸  %s\n" "$1" "$NEKOPI_TOTAL_STEPS" "$2"
+    else
+        printf "[%s/%s] ..  %s\n" "$1" "$NEKOPI_TOTAL_STEPS" "$2"
+    fi
+}
+
+_nk_step_done() {
+    local elapsed=$(( $(date +%s) - NEKOPI_STEP_START ))
+    if _nk_tty; then
+        printf "\033[1A\033[2K[%s/%s] ✔  %-45s %ds\n" \
+            "$1" "$NEKOPI_TOTAL_STEPS" "$2" "$elapsed"
+    else
+        printf "[%s/%s] ✔  %s (%ds)\n" "$1" "$NEKOPI_TOTAL_STEPS" "$2" "$elapsed"
+    fi
+    NEKOPI_COMPLETED+=("$1:$2:$elapsed")
+}
+
+_nk_step_skip() {
+    if _nk_tty; then
+        printf "\033[1A\033[2K[%s/%s] –  %s\n" "$1" "$NEKOPI_TOTAL_STEPS" "$2"
+    else
+        printf "[%s/%s] –  %s\n" "$1" "$NEKOPI_TOTAL_STEPS" "$2"
+    fi
+    printf "         (skipped — %s)\n" "$3"
+    NEKOPI_SKIPPED+=("$1:$2:$3")
+    NEKOPI_CURRENT_STEP="$1"
+}
+
+_nk_hw_pills() {
+    printf "         "
+    local pair iface status
+    for pair in "$@"; do
+        iface="${pair%%:*}"
+        status="${pair##*:}"
+        if [ "$status" = "yes" ]; then
+            printf "%s ✔  " "$iface"
+        else
+            printf "%s —  " "$iface"
+        fi
+    done
+    echo ""
+}
+
+_nk_pkg_progress() {
+    local pkg="$1" idx="$2" total="$3"
+    local bar_fill=$(( idx * 20 / total ))
+    local bar=""
+    local i
+    for i in $(seq 1 20); do
+        if [ "$i" -le "$bar_fill" ]; then bar="${bar}█"; else bar="${bar}░"; fi
+    done
+    if _nk_tty; then
+        printf "\033[1A\033[2K[%s/%s] ⠸  Installing %-16s [%s]  %d/%d\n" \
+            "$NEKOPI_CURRENT_STEP" "$NEKOPI_TOTAL_STEPS" "$pkg" "$bar" "$idx" "$total"
+    else
+        printf "    Installing: %s (%d/%d)\n" "$pkg" "$idx" "$total"
+    fi
+}
+
+_nk_overall_progress() {
+    local elapsed=$(( $(date +%s) - NEKOPI_START_TIME ))
+    local pct=$(( NEKOPI_CURRENT_STEP * 100 / NEKOPI_TOTAL_STEPS ))
+    local bar_fill=$(( pct * 30 / 100 ))
+    local bar=""
+    local i
+    for i in $(seq 1 30); do
+        if [ "$i" -le "$bar_fill" ]; then bar="${bar}█"; else bar="${bar}░"; fi
+    done
+    local elapsed_fmt
+    if [ "$elapsed" -lt 60 ]; then
+        elapsed_fmt="${elapsed}s"
+    else
+        elapsed_fmt="$((elapsed/60))m $((elapsed%60))s"
+    fi
+    echo ""
+    echo "─────────────────────────────────────────────────────────"
+    printf "Overall  [%s]  %d%%\n" "$bar" "$pct"
+    printf "Elapsed: %s\n" "$elapsed_fmt"
+    echo ""
+}
+
+_nk_on_error() {
+    local rc="$1"
+    echo ""
+    echo "❌ Installation failed at step $NEKOPI_CURRENT_STEP"
+    echo "   Last 40 lines of $INSTALL_LOG:"
+    echo "   ──────────────────────────────────────────────────────"
+    tail -40 "$INSTALL_LOG" 2>/dev/null | sed 's/^/   /'
+    exit "$rc"
+}
+trap '_nk_on_error $?' ERR
+
+_nk_banner
+_nk_section "starting installation"
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  0 · HARDWARE DETECTION"
-echo "════════════════════════════════════════════════════════════"
-info "Detecting available hardware…"
-
+_nk_step_start 1 "Hardware detection"
+{
 HAS_WLAN0="no"; HAS_WLAN1="no"; HAS_ETH0="no"; HAS_ETH1="no"
 HAS_ETH_MGMT="no"; HAS_ETH_TEST="no"
 MGMT_IFACE=""; TEST_IFACE=""
@@ -46,13 +167,12 @@ detect_iface() {
     ip link show "$name" &>/dev/null && echo "yes" || echo "no"
 }
 
-# Detect kernel interface names
 HAS_WLAN0=$(detect_iface wlan0)
 HAS_WLAN1=$(detect_iface wlan1)
 HAS_ETH0=$(detect_iface eth0)
 HAS_ETH1=$(detect_iface eth1)
 
-# Detect by driver — this is stable across HAT present/absent
+# Driver-based detection — stable across HAT present/absent
 for iface in $(ls /sys/class/net/ 2>/dev/null); do
     [ "$iface" = "lo" ] && continue
     [ -L "/sys/class/net/$iface/device/driver" ] || continue
@@ -63,7 +183,6 @@ for iface in $(ls /sys/class/net/ 2>/dev/null); do
     esac
 done
 
-# Fallbacks if no driver match (generic server / VM)
 [ -z "$MGMT_IFACE" ] && [ "$HAS_ETH1" = "yes" ] && MGMT_IFACE="eth1"
 [ -z "$MGMT_IFACE" ] && [ "$HAS_ETH0" = "yes" ] && MGMT_IFACE="eth0"
 [ -z "$TEST_IFACE" ] && [ "$HAS_ETH0" = "yes" ] && TEST_IFACE="eth0"
@@ -75,7 +194,6 @@ echo "  eth1  (kernel name):     $HAS_ETH1"
 echo "  mgmt  (driver-matched):  $HAS_ETH_MGMT ($MGMT_IFACE)"
 echo "  test  (driver-matched):  $HAS_ETH_TEST ($TEST_IFACE)"
 
-# Write capabilities file so the backend can gate UI modules
 mkdir -p "$NEKOPI_DIR/data"
 cat > "$NEKOPI_DIR/data/hw_caps.json" <<HWCAPS
 {
@@ -93,46 +211,39 @@ cat > "$NEKOPI_DIR/data/hw_caps.json" <<HWCAPS
 }
 HWCAPS
 sed -i 's/^    //' "$NEKOPI_DIR/data/hw_caps.json"
-ok "Hardware capabilities written to $NEKOPI_DIR/data/hw_caps.json"
 
-# Export for rest of the script
 export HAS_WLAN0 HAS_WLAN1 HAS_ETH0 HAS_ETH1 HAS_ETH_MGMT HAS_ETH_TEST
 export MGMT_IFACE TEST_IFACE
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 1 "Hardware detection"
+_nk_hw_pills "eth-mgmt:$HAS_ETH_MGMT" "eth-test:$HAS_ETH_TEST" "wlan0:$HAS_WLAN0" "wlan1:$HAS_WLAN1"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  1 · USER"
-echo "════════════════════════════════════════════════════════════"
-info "Creating user $NEKOPI_USER (if missing)…"
+_nk_step_start 2 "User nekopi"
+{
 if ! id "$NEKOPI_USER" &>/dev/null; then
     adduser --disabled-password --gecos "NekoPi" "$NEKOPI_USER"
-    ok "User $NEKOPI_USER created"
-else
-    ok "User $NEKOPI_USER already exists"
 fi
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 2 "User nekopi"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  2 · DIRECTORIES"
-echo "════════════════════════════════════════════════════════════"
-info "Creating directory tree…"
+_nk_step_start 3 "Directories"
+{
 mkdir -p "$NEKOPI_DIR"/{api,bin,captures/kismet,captures/ota,data,logs,oled,reports,ssl,tftp,ui/assets}
 mkdir -p /srv/tftp
 chmod 777 /srv/tftp
 chown -R "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR"
-# Ensure data dir is writable by nekopi for hw_caps.json, tokens, etc.
 chmod 755 "$NEKOPI_DIR/data"
-ok "Directories ready"
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 3 "Directories"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  3 · APT REPOSITORIES"
-echo "════════════════════════════════════════════════════════════"
-info "Configuring third-party repositories…"
-
+_nk_step_start 4 "APT repositories"
+{
 # InfluxDB
 if [ ! -f /usr/share/keyrings/influxdata-archive-keyring.gpg ]; then
     curl -fsSL https://repos.influxdata.com/influxdata-archive.key \
@@ -140,9 +251,6 @@ if [ ! -f /usr/share/keyrings/influxdata-archive-keyring.gpg ]; then
         | tee /usr/share/keyrings/influxdata-archive-keyring.gpg > /dev/null
     echo "deb [signed-by=/usr/share/keyrings/influxdata-archive-keyring.gpg] https://repos.influxdata.com/debian stable main" \
         | tee /etc/apt/sources.list.d/influxdata.list > /dev/null
-    ok "InfluxDB repo added"
-else
-    ok "InfluxDB repo already present"
 fi
 
 # Grafana
@@ -152,122 +260,94 @@ if [ ! -f /etc/apt/sources.list.d/grafana.list ]; then
         | tee /usr/share/keyrings/grafana-archive-keyring.gpg > /dev/null
     echo "deb [signed-by=/usr/share/keyrings/grafana-archive-keyring.gpg] https://packages.grafana.com/oss/deb stable main" \
         | tee /etc/apt/sources.list.d/grafana.list > /dev/null
-    ok "Grafana repo added"
-else
-    ok "Grafana repo already present"
 fi
 
-# Disable Kismet repo if present (breaks apt on arm64 / unsupported releases)
+# Kismet repo — disable if present (breaks apt on arm64 / unsupported releases)
 if ls /etc/apt/sources.list.d/kismet*.list 2>/dev/null; then
     sed -i 's/^deb /# deb /' /etc/apt/sources.list.d/kismet*.list
-    warn "Kismet repo disabled to avoid apt conflicts"
 fi
 
 apt-get update -qq
-ok "Package lists updated"
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 4 "APT repositories"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  4 · BASE DEPENDENCIES"
-echo "════════════════════════════════════════════════════════════"
-info "Installing system packages…"
+_nk_step_start 5 "Base dependencies"
+{
+    # Preseed wireshark so tshark install doesn't prompt
+    echo "wireshark-common wireshark-common/install-setuid boolean true" \
+        | debconf-set-selections
+} >> "$INSTALL_LOG" 2>&1
 
-# tshark needs non-interactive debconf so it doesn't prompt
-echo "wireshark-common wireshark-common/install-setuid boolean true" \
-    | debconf-set-selections
+PKGS=(
+    python3 python3-venv python3-pip python3-dev
+    git curl wget unzip jq
+    dnsmasq
+    cockpit
+    influxdb2
+    grafana
+    tshark
+    picocom minicom
+    i2c-tools
+    network-manager
+    avahi-daemon
+    ttyd
+    openssl
+    libcap2-bin
+)
+PKG_COUNT=${#PKGS[@]}
+PKG_IDX=0
 
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    python3 python3-venv python3-pip python3-dev \
-    git curl wget unzip jq \
-    dnsmasq \
-    cockpit \
-    influxdb2 \
-    grafana \
-    tshark \
-    picocom minicom \
-    i2c-tools \
-    network-manager \
-    avahi-daemon \
-    ttyd \
-    openssl \
-    libcap2-bin \
-    > /dev/null 2>&1 || {
-        # Retry without -qq on failure so we see the error
-        warn "Silent install failed — retrying with verbose output…"
-        DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            python3 python3-venv python3-pip python3-dev \
-            git curl wget unzip jq \
-            dnsmasq \
-            cockpit \
-            influxdb2 \
-            grafana \
-            tshark \
-            picocom minicom \
-            i2c-tools \
-            network-manager \
-            avahi-daemon \
-            ttyd \
-            openssl \
-            libcap2-bin
-    }
-ok "System packages installed"
+for pkg in "${PKGS[@]}"; do
+    PKG_IDX=$((PKG_IDX + 1))
+    _nk_pkg_progress "$pkg" "$PKG_IDX" "$PKG_COUNT"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$pkg" >> "$INSTALL_LOG" 2>&1 \
+        || echo "WARN: failed to install $pkg" >> "$INSTALL_LOG"
+done
+
+_nk_step_done 5 "Base dependencies"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  5 · USER GROUPS"
-echo "════════════════════════════════════════════════════════════"
-info "Adding $NEKOPI_USER to required groups…"
+_nk_step_start 6 "User groups"
+{
 usermod -a -G dialout   "$NEKOPI_USER" 2>/dev/null || true
 usermod -a -G wireshark "$NEKOPI_USER" 2>/dev/null || true
 usermod -a -G netdev    "$NEKOPI_USER" 2>/dev/null || true
-ok "Groups: dialout, wireshark, netdev"
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 6 "User groups"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  6 · CLONE / UPDATE REPO"
-echo "════════════════════════════════════════════════════════════"
-info "Setting up NekoPi source code…"
+_nk_step_start 7 "Clone / update repo"
+{
 if [ -d "$NEKOPI_DIR/.git" ]; then
     cd "$NEKOPI_DIR"
     sudo -u "$NEKOPI_USER" git fetch origin
     sudo -u "$NEKOPI_USER" git reset --hard "origin/$REPO_BRANCH"
-    ok "Repo updated to latest $REPO_BRANCH"
 else
-    # Clone into temp then move contents (dir already has data/)
     TMP_CLONE=$(mktemp -d)
     git clone --branch "$REPO_BRANCH" "$REPO_URL" "$TMP_CLONE"
     cp -a "$TMP_CLONE/." "$NEKOPI_DIR/"
     rm -rf "$TMP_CLONE"
     chown -R "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR"
-    ok "Repo cloned into $NEKOPI_DIR"
 fi
-
-# Make sure data dir (with hw_caps.json written in step 0) is preserved
-# and owned correctly after the clone/reset.
 chown -R "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR/data"
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 7 "Clone / update repo"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  7 · PYTHON VIRTUAL ENVIRONMENT"
-echo "════════════════════════════════════════════════════════════"
-info "Setting up Python venv…"
+_nk_step_start 8 "Python venv + pip deps"
+{
 if [ ! -d "$NEKOPI_DIR/venv" ]; then
     sudo -u "$NEKOPI_USER" python3 -m venv "$NEKOPI_DIR/venv"
-    ok "Venv created"
-else
-    ok "Venv already exists"
 fi
-
-info "Installing Python dependencies (venv pip — no --break-system-packages needed)…"
 sudo -u "$NEKOPI_USER" "$NEKOPI_DIR/venv/bin/pip" install --upgrade pip -q
 if [ -f "$NEKOPI_DIR/requirements.txt" ]; then
     sudo -u "$NEKOPI_USER" "$NEKOPI_DIR/venv/bin/pip" install -r "$NEKOPI_DIR/requirements.txt" -q
 else
-    # Fallback: install known dependencies
     sudo -u "$NEKOPI_USER" "$NEKOPI_DIR/venv/bin/pip" install -q \
         fastapi==0.111.0 \
         uvicorn==0.29.0 \
@@ -289,14 +369,13 @@ else
         python-dotenv==1.2.2 \
         python-multipart==0.0.24
 fi
-ok "Python dependencies installed"
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 8 "Python venv + pip deps"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  8 · SSL CERTIFICATE"
-echo "════════════════════════════════════════════════════════════"
-info "Generating self-signed SSL certificate…"
+_nk_step_start 9 "SSL certificate"
+{
 if [ ! -f "$NEKOPI_DIR/ssl/cert.pem" ]; then
     openssl req -x509 -newkey rsa:4096 \
         -keyout "$NEKOPI_DIR/ssl/key.pem" \
@@ -305,17 +384,14 @@ if [ ! -f "$NEKOPI_DIR/ssl/cert.pem" ]; then
         -subj "/CN=nekopi.local" 2>/dev/null
     chown -R "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR/ssl"
     chmod 600 "$NEKOPI_DIR/ssl/key.pem"
-    ok "SSL certificate generated (10 years)"
-else
-    ok "SSL certificate already exists"
 fi
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 9 "SSL certificate"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  9 · SYSTEMD SERVICE"
-echo "════════════════════════════════════════════════════════════"
-info "Installing nekopi.service…"
+_nk_step_start 10 "systemd service"
+{
 cat > /etc/systemd/system/nekopi.service << 'UNIT'
 [Unit]
 Description=NekoPi Field Unit — API & Frontend (HTTPS)
@@ -339,30 +415,20 @@ AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 WantedBy=multi-user.target
 UNIT
 
-# Remove leading whitespace from heredoc
 sed -i 's/^    //' /etc/systemd/system/nekopi.service
 
 systemctl daemon-reload
 systemctl enable nekopi
-ok "nekopi.service installed and enabled"
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 10 "systemd service"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  10 · NETPLAN — DRIVER-MATCHED INTERFACES"
-echo "════════════════════════════════════════════════════════════"
-info "Configuring netplan (driver-based match, name-agnostic)…"
-
-# On RPi5 the kernel names interfaces by PCIe enumeration order:
-#   - With HAT attached:    eth0=HAT(r8169)         eth1=native(bcmgenet)
-#   - Without HAT:          eth0=native(bcmgenet)   (no eth1)
-# Matching by driver instead of name means dnsmasq/backend never point
-# at a missing interface when the HAT is removed.
-
-# Remove legacy name-based netplan if present (from older installs)
+_nk_step_start 11 "Netplan (eth-mgmt / eth-test)"
+{
+# Remove legacy name-based netplan if present
 if [ -f /etc/netplan/01-nekopi.yaml ]; then
     rm -f /etc/netplan/01-nekopi.yaml
-    info "Removed legacy /etc/netplan/01-nekopi.yaml (replaced by driver-matched config)"
 fi
 
 cat > /etc/netplan/01-nekopi-mgmt.yaml << 'NETPLAN'
@@ -372,57 +438,44 @@ network:
   ethernets:
     mgmt:
       match:
-        driver: bcmgenet         # RPi5 native NIC (always present)
+        driver: bcmgenet
       set-name: eth-mgmt
       dhcp4: false
       optional: true
       addresses: [192.168.99.1/24]
     test:
       match:
-        driver: r8169            # RTL8125B 2.5GbE HAT (only when present)
+        driver: r8169
       set-name: eth-test
       dhcp4: true
-      optional: true             # Don't block boot when HAT is absent
+      optional: true
 NETPLAN
 
 sed -i 's/^    //' /etc/netplan/01-nekopi-mgmt.yaml
 chmod 600 /etc/netplan/01-nekopi-mgmt.yaml
+netplan apply 2>/dev/null || true
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 11 "Netplan (eth-mgmt / eth-test)"
+_nk_overall_progress
 
-# Apply — if eth-mgmt already exists with expected IP we still want to re-apply
-netplan apply 2>/dev/null \
-    || warn "netplan apply failed (interfaces may not be present yet — normal on generic Linux)"
-ok "Netplan configured (eth-mgmt=bcmgenet, eth-test=r8169)"
 
-
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  11 · DNSMASQ — DHCP FOR MGMT"
-echo "════════════════════════════════════════════════════════════"
-info "Configuring dnsmasq for management network…"
-
-# Free port 53 before dnsmasq starts: Ubuntu ships systemd-resolved
-# listening on 127.0.0.53:53 by default, which collides with dnsmasq.
+_nk_step_start 12 "dnsmasq + systemd-resolved fix"
+{
+# Free port 53 from systemd-resolved stub listener
 if [ -f /etc/systemd/resolved.conf ]; then
     if ! grep -q "^DNSStubListener=no" /etc/systemd/resolved.conf; then
         sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
         systemctl restart systemd-resolved 2>/dev/null || true
-        # Make sure /etc/resolv.conf points to a valid resolver
         [ -L /etc/resolv.conf ] || ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
-        ok "systemd-resolved stub listener disabled (port 53 freed for dnsmasq)"
     fi
 fi
 
-# dnsmasq binds to eth-mgmt (set by netplan via driver match).
-# Fallback: if eth-mgmt doesn't exist at install time, fall back to $MGMT_IFACE
-# detected in step 0, or eth1 as last resort.
 DNSMASQ_IFACE="eth-mgmt"
 if ! ip link show eth-mgmt &>/dev/null; then
     if [ -n "${MGMT_IFACE:-}" ]; then
         DNSMASQ_IFACE="$MGMT_IFACE"
-        warn "eth-mgmt not present — dnsmasq will bind $MGMT_IFACE (fallback)"
     else
         DNSMASQ_IFACE="eth1"
-        warn "No mgmt interface detected — dnsmasq will bind eth1 (may fail)"
     fi
 fi
 
@@ -437,7 +490,6 @@ server=8.8.8.8
 server=8.8.4.4
 DNSMASQ
 
-# Wait for the mgmt interface before starting dnsmasq
 mkdir -p /etc/systemd/system/dnsmasq.service.d/
 cat > /etc/systemd/system/dnsmasq.service.d/wait-mgmt.conf << OVERRIDE
 [Unit]
@@ -446,24 +498,20 @@ Wants=sys-subsystem-net-devices-$DNSMASQ_IFACE.device
 OVERRIDE
 
 mkdir -p /etc/dnsmasq.d
-
 systemctl daemon-reload
 systemctl enable dnsmasq
-systemctl restart dnsmasq 2>/dev/null || warn "dnsmasq restart failed ($DNSMASQ_IFACE may not be up)"
-ok "dnsmasq configured on $DNSMASQ_IFACE"
+systemctl restart dnsmasq 2>/dev/null || true
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 12 "dnsmasq + systemd-resolved fix"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  12 · INFLUXDB — INITIAL SETUP"
-echo "════════════════════════════════════════════════════════════"
-info "Setting up InfluxDB…"
+_nk_step_start 13 "InfluxDB setup"
+{
 if [ -f "$NEKOPI_DIR/data/influx-token.txt" ]; then
-    ok "InfluxDB already configured (token exists)"
+    :  # already configured
 else
     systemctl start influxdb
-    info "Waiting for InfluxDB to start (up to 45s)…"
-    # Give service time to open its socket
     sleep 5
     READY=0
     for i in $(seq 1 40); do
@@ -471,11 +519,6 @@ else
         sleep 1
     done
 
-    if [ "$READY" != "1" ]; then
-        warn "InfluxDB did not become ready — retrying setup anyway"
-    fi
-
-    # Retry setup a few times — first attempt can race with service init
     SETUP_OK=0
     for attempt in 1 2 3; do
         if influx setup \
@@ -485,77 +528,70 @@ else
             --bucket nekopi \
             --retention 30d \
             --force 2>/dev/null; then
-            SETUP_OK=1
-            break
+            SETUP_OK=1; break
         fi
         sleep 3
     done
-    [ "$SETUP_OK" = "1" ] \
-        && ok "InfluxDB initial setup done" \
-        || warn "InfluxDB setup may already exist or service not ready"
 
-    # Save token
     TOKEN=$(influx auth list --json 2>/dev/null \
         | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['token'])" 2>/dev/null || echo "")
     if [ -n "$TOKEN" ]; then
         echo "$TOKEN" > "$NEKOPI_DIR/data/influx-token.txt"
         chmod 600 "$NEKOPI_DIR/data/influx-token.txt"
         chown "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR/data/influx-token.txt"
-        ok "InfluxDB token saved"
-    else
-        warn "Could not retrieve InfluxDB token — configure manually"
     fi
 fi
 
-# Disable auto-start (on-demand via NekoPi API)
+# On-demand only — no auto-start
 systemctl disable influxdb 2>/dev/null || true
 systemctl stop influxdb 2>/dev/null || true
-ok "InfluxDB disabled (on-demand)"
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 13 "InfluxDB setup"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  13 · GRAFANA"
-echo "════════════════════════════════════════════════════════════"
-info "Configuring Grafana (on-demand)…"
+_nk_step_start 14 "Grafana (on-demand)"
+{
 systemctl disable grafana-server 2>/dev/null || true
 systemctl stop grafana-server 2>/dev/null || true
-ok "Grafana disabled (on-demand, datasource auto-configured by NekoPi)"
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 14 "Grafana (on-demand)"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  14 · COCKPIT — IFRAME EMBED"
-echo "════════════════════════════════════════════════════════════"
-info "Configuring Cockpit for iframe embedding…"
+_nk_step_start 15 "Cockpit"
+{
 mkdir -p /etc/cockpit
 cat > /etc/cockpit/cockpit.conf << 'COCKPIT'
 [WebService]
 AllowUnencrypted=true
 Origins=*
 COCKPIT
-
 systemctl enable --now cockpit.socket
-ok "Cockpit configured and enabled"
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 15 "Cockpit"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  15 · KISMET — LOG DIRECTORY"
-echo "════════════════════════════════════════════════════════════"
-info "Configuring Kismet log directory…"
+if [ "$HAS_WLAN1" != "yes" ]; then
+    _nk_step_start 16 "Kismet log dir"
+    _nk_step_skip  16 "Kismet log dir" "wlan1 not detected"
+    _nk_overall_progress
+else
+    _nk_step_start 16 "Kismet log dir"
+    {
 mkdir -p /etc/kismet
 cat > /etc/kismet/kismet_site.conf << 'KISMET'
 log_prefix=/opt/nekopi/captures/kismet/Kismet
 KISMET
-ok "Kismet logs → $NEKOPI_DIR/captures/kismet/"
+    } >> "$INSTALL_LOG" 2>&1
+    _nk_step_done 16 "Kismet log dir"
+    _nk_overall_progress
+fi
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  16 · SUDOERS — SERVICE CONTROL"
-echo "════════════════════════════════════════════════════════════"
-info "Configuring passwordless sudo for NekoPi services…"
+_nk_step_start 17 "Sudoers"
+{
 cat > /etc/sudoers.d/nekopi-services << 'SUDOERS'
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/systemctl start influxdb
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop influxdb
@@ -574,18 +610,15 @@ nekopi ALL=(ALL) NOPASSWD: /usr/bin/airmon-ng
 SUDOERS
 
 chmod 440 /etc/sudoers.d/nekopi-services
-visudo -c -f /etc/sudoers.d/nekopi-services && ok "Sudoers validated" \
-    || { fail "Sudoers syntax error!"; rm -f /etc/sudoers.d/nekopi-services; }
+visudo -c -f /etc/sudoers.d/nekopi-services || { rm -f /etc/sudoers.d/nekopi-services; false; }
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 17 "Sudoers"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  17 · PKTVISOR"
-echo "════════════════════════════════════════════════════════════"
-info "Checking pktvisor…"
-if [ -f "$NEKOPI_DIR/bin/pktvisord" ]; then
-    ok "pktvisord already present"
-else
+_nk_step_start 18 "pktvisor"
+{
+if [ ! -f "$NEKOPI_DIR/bin/pktvisord" ]; then
     PKTVISOR_URL="https://github.com/ns1labs/pktvisor/releases/latest/download/pktvisor-linux-arm64.zip"
     if wget -q --spider "$PKTVISOR_URL" 2>/dev/null; then
         wget -q -O /tmp/pktvisor.zip "$PKTVISOR_URL"
@@ -594,59 +627,46 @@ else
         cp /tmp/pktvisor/bin/* "$NEKOPI_DIR/bin/" 2>/dev/null || cp /tmp/pktvisor/* "$NEKOPI_DIR/bin/" 2>/dev/null
         chmod +x "$NEKOPI_DIR/bin/pktvisord"
         rm -rf /tmp/pktvisor /tmp/pktvisor.zip
-        ok "pktvisord downloaded"
-    else
-        warn "pktvisor download URL not reachable — skip (install manually)"
     fi
 fi
 
-# CAP_NET_RAW for capture without sudo
 if [ -f "$NEKOPI_DIR/bin/pktvisord" ]; then
     setcap cap_net_raw,cap_net_admin=eip "$NEKOPI_DIR/bin/pktvisord" 2>/dev/null || true
-    ok "pktvisord capabilities set"
 fi
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 18 "pktvisor"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  18 · OLLAMA — LOCAL AI"
-echo "════════════════════════════════════════════════════════════"
-info "Installing Ollama…"
-if command -v ollama &>/dev/null; then
-    ok "Ollama already installed"
-else
+_nk_step_start 19 "Ollama local AI"
+{
+if ! command -v ollama &>/dev/null; then
     curl -fsSL https://ollama.ai/install.sh | sh
-    ok "Ollama installed"
 fi
 
 systemctl enable ollama 2>/dev/null || true
 systemctl start ollama 2>/dev/null || true
 
-# Pull base model in background (won't block installer)
-info "Pulling mistral model in background…"
+# Pull base model in background — don't block installer
 nohup ollama pull mistral > /dev/null 2>&1 &
-ok "Ollama running — model download in background"
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 19 "Ollama local AI"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  19 · DATA FILES"
-echo "════════════════════════════════════════════════════════════"
-info "Creating initial data files…"
+_nk_step_start 20 "Data files"
+{
 if [ ! -f "$NEKOPI_DIR/data/dhcp-options.json" ]; then
     echo '{"options": []}' > "$NEKOPI_DIR/data/dhcp-options.json"
     chown "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR/data/dhcp-options.json"
-    ok "dhcp-options.json created"
-else
-    ok "dhcp-options.json already exists"
 fi
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 20 "Data files"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  20 · GITIGNORE"
-echo "════════════════════════════════════════════════════════════"
-info "Writing .gitignore…"
+_nk_step_start 21 ".gitignore"
+{
 cat > "$NEKOPI_DIR/.gitignore" << 'GITIGNORE'
 *.kismet
 *.kismet-journal
@@ -663,40 +683,34 @@ venv/
 ui/assets/ota/
 GITIGNORE
 chown "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR/.gitignore"
-ok ".gitignore written"
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 21 ".gitignore"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  21 · FINAL OWNERSHIP"
-echo "════════════════════════════════════════════════════════════"
-info "Fixing ownership on $NEKOPI_DIR…"
+_nk_step_start 22 "Final ownership"
+{
 chown -R "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR"
-ok "Ownership set to $NEKOPI_USER"
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 22 "Final ownership"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  22 · ASSETS CHECK"
-echo "════════════════════════════════════════════════════════════"
-info "Checking UI assets…"
+_nk_step_start 23 "Assets check"
+{
 [ -f "$NEKOPI_DIR/ui/assets/nekopi-logo-about.png" ] \
-    && ok "Logo about OK" \
-    || warn "Logo about MISSING — copy to $NEKOPI_DIR/ui/assets/nekopi-logo-about.png"
+    || echo "WARN: missing ui/assets/nekopi-logo-about.png"
 [ -f "$NEKOPI_DIR/ui/assets/nekopi-logo-dark.png" ] \
-    && ok "Logo dark OK" \
-    || warn "Logo dark MISSING — copy to $NEKOPI_DIR/ui/assets/nekopi-logo-dark.png"
+    || echo "WARN: missing ui/assets/nekopi-logo-dark.png"
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 23 "Assets check"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  23 · START SERVICES"
-echo "════════════════════════════════════════════════════════════"
-info "Starting NekoPi…"
+_nk_step_start 24 "Start services"
+{
 systemctl restart nekopi
 sleep 3
-
-# Wait up to 15s for NekoPi to respond
 READY=0
 for i in $(seq 1 15); do
     if curl -ks "https://127.0.0.1:$NEKOPI_PORT/api/health" &>/dev/null; then
@@ -704,96 +718,88 @@ for i in $(seq 1 15); do
     fi
     sleep 1
 done
-
-if [ "$READY" = "1" ]; then
-    ok "NekoPi is running on https://0.0.0.0:$NEKOPI_PORT"
-else
-    warn "NekoPi did not respond yet — check: journalctl -u nekopi -f"
+if [ "$READY" != "1" ]; then
+    echo "WARN: NekoPi did not respond yet — check journalctl -u nekopi -f"
 fi
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 24 "Start services"
+_nk_overall_progress
 
 
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  24 · POST-INSTALL VERIFICATION"
-echo "════════════════════════════════════════════════════════════"
-echo ""
-echo "╔══════════════════════════════════════════════╗"
-echo "║       NekoPi — Post-Install Verification     ║"
-echo "╚══════════════════════════════════════════════╝"
-echo ""
+_nk_step_start 25 "Post-install verification"
+{
+INSTALL_ERRORS=0
 
-verify_install() {
-    INSTALL_ERRORS=0
-
-    check() {
-        local label="$1"; local cmd="$2"
-        if eval "$cmd" &>/dev/null; then
-            ok "$label"
-        else
-            fail "$label"
-            INSTALL_ERRORS=$((INSTALL_ERRORS + 1))
-        fi
-    }
-
-    check "systemd service nekopi"        "systemctl is-active --quiet nekopi"
-    check "dnsmasq active"                "systemctl is-active --quiet dnsmasq"
-    check "cockpit socket active"         "systemctl is-active --quiet cockpit.socket"
-    check "ollama service"                "systemctl is-active --quiet ollama"
-    check "Port $NEKOPI_PORT listening"   "ss -tlnp | grep -q ':$NEKOPI_PORT'"
-    check "API /api/health responds"      "curl -sk https://127.0.0.1:$NEKOPI_PORT/api/health"
-    check "API /api/hw-caps responds"     "curl -sk https://127.0.0.1:$NEKOPI_PORT/api/hw-caps"
-    check "hw_caps.json exists"           "test -f $NEKOPI_DIR/data/hw_caps.json"
-    check "Data directory"                "test -d $NEKOPI_DIR/data"
-    check "SSL certificate"               "test -f $NEKOPI_DIR/ssl/cert.pem"
-    check "InfluxDB token"                "test -f $NEKOPI_DIR/data/influx-token.txt"
-    check "DHCP options file"             "test -f $NEKOPI_DIR/data/dhcp-options.json"
-    check "UI index.html"                 "test -f $NEKOPI_DIR/ui/index.html"
-    check "Python fastapi/uvicorn"        "$NEKOPI_DIR/venv/bin/python3 -c 'import fastapi, uvicorn'"
-    check "ttyd binary"                   "command -v ttyd"
-    check "tshark binary"                 "command -v tshark"
-    check "ollama binary"                 "command -v ollama"
-    check "Group: dialout"                "groups $NEKOPI_USER | grep -q dialout"
-    check "Group: wireshark"              "groups $NEKOPI_USER | grep -q wireshark"
-
-    # Hardware-conditional checks
-    if [ "$HAS_ETH_MGMT" = "yes" ]; then
-        check "MGMT iface has 192.168.99.1" "ip addr show | grep -q 192.168.99.1"
+check() {
+    local label="$1"; local cmd="$2"
+    if eval "$cmd" &>/dev/null; then
+        echo "  ✔  $label"
     else
-        warn "No MGMT iface detected — skipping IP check (expected on generic Linux)"
+        echo "  ✗  $label"
+        INSTALL_ERRORS=$((INSTALL_ERRORS + 1))
     fi
-
-    if [ "$HAS_WLAN1" = "yes" ]; then
-        check "wlan1 monitor mode capable" "iw phy | grep -q 'monitor\|managed'"
-    else
-        warn "No wlan1 (USB WiFi) — Kismet/Roaming/Profiler modules will show 'no hardware' in UI"
-    fi
-
-    if [ "$HAS_ETH_TEST" = "yes" ]; then
-        ok "TEST iface detected ($TEST_IFACE) — Wired/Security modules enabled"
-    else
-        warn "No TEST iface (r8169/r8125) — Wired/Security auto-subnet detection will be limited"
-    fi
-
-    ELAPSED=$(( $(date +%s) - STARTED_AT ))
-    MINS=$(( ELAPSED / 60 ))
-    SECS=$(( ELAPSED % 60 ))
-
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    if [ "$INSTALL_ERRORS" -eq 0 ]; then
-        echo -e "  ${GREEN}✅ Installation verified — no errors${NC}"
-    else
-        echo -e "  ${YELLOW}⚠️  $INSTALL_ERRORS checks failed — review output above${NC}"
-    fi
-    echo "  Time:   ${MINS}m ${SECS}s"
-    echo "  Access: https://$(hostname -I | awk '{print $1}'):$NEKOPI_PORT"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-
-    if [ "$INSTALL_ERRORS" -eq 0 ]; then
-        echo -e "${GREEN}🎉 NekoPi installed successfully!${NC}"
-    fi
-    echo ""
 }
 
-verify_install
+check "systemd service nekopi"        "systemctl is-active --quiet nekopi"
+check "dnsmasq active"                "systemctl is-active --quiet dnsmasq"
+check "cockpit socket active"         "systemctl is-active --quiet cockpit.socket"
+check "ollama service"                "systemctl is-active --quiet ollama"
+check "Port $NEKOPI_PORT listening"   "ss -tlnp | grep -q ':$NEKOPI_PORT'"
+check "API /api/health responds"      "curl -sk https://127.0.0.1:$NEKOPI_PORT/api/health"
+check "API /api/hw-caps responds"     "curl -sk https://127.0.0.1:$NEKOPI_PORT/api/hw-caps"
+check "hw_caps.json exists"           "test -f $NEKOPI_DIR/data/hw_caps.json"
+check "Data directory"                "test -d $NEKOPI_DIR/data"
+check "SSL certificate"               "test -f $NEKOPI_DIR/ssl/cert.pem"
+check "InfluxDB token"                "test -f $NEKOPI_DIR/data/influx-token.txt"
+check "DHCP options file"             "test -f $NEKOPI_DIR/data/dhcp-options.json"
+check "UI index.html"                 "test -f $NEKOPI_DIR/ui/index.html"
+check "Python fastapi/uvicorn"        "$NEKOPI_DIR/venv/bin/python3 -c 'import fastapi, uvicorn'"
+check "ttyd binary"                   "command -v ttyd"
+check "tshark binary"                 "command -v tshark"
+check "ollama binary"                 "command -v ollama"
+check "Group: dialout"                "groups $NEKOPI_USER | grep -q dialout"
+check "Group: wireshark"              "groups $NEKOPI_USER | grep -q wireshark"
+
+if [ "$HAS_ETH_MGMT" = "yes" ]; then
+    check "MGMT iface has 192.168.99.1" "ip addr show | grep -q 192.168.99.1"
+fi
+
+if [ "$HAS_WLAN1" = "yes" ]; then
+    check "wlan1 monitor mode capable" "iw phy | grep -q 'monitor\|managed'"
+fi
+
+echo "INSTALL_ERRORS=$INSTALL_ERRORS"
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 25 "Post-install verification"
+_nk_overall_progress
+
+
+_nk_section "completed"
+
+echo "╔══════════════════════════════════════════════════════════╗"
+echo "║  Installation complete                                   ║"
+echo "╚══════════════════════════════════════════════════════════╝"
+echo ""
+
+# Completed steps
+for entry in "${NEKOPI_COMPLETED[@]}"; do
+    IFS=':' read -r num label secs <<< "$entry"
+    printf "  ✔  [%2s]  %-40s %ds\n" "$num" "$label" "$secs"
+done
+
+# Skipped steps, if any
+if [ ${#NEKOPI_SKIPPED[@]} -gt 0 ]; then
+    echo ""
+    echo "  Skipped (hardware not available):"
+    for entry in "${NEKOPI_SKIPPED[@]}"; do
+        IFS=':' read -r num label reason <<< "$entry"
+        printf "  –  [%2s]  %-40s (%s)\n" "$num" "$label" "$reason"
+    done
+fi
+
+TOTAL_TIME=$(( $(date +%s) - NEKOPI_START_TIME ))
+echo ""
+printf "  Total time: %dm %ds\n" "$((TOTAL_TIME/60))" "$((TOTAL_TIME%60))"
+printf "  Access:     https://%s:%s\n" "$(hostname -I | awk '{print $1}')" "$NEKOPI_PORT"
+printf "  Install log: %s\n" "$INSTALL_LOG"
+echo ""
