@@ -13733,6 +13733,7 @@ function tkWolQuick(mac){
 // If ANY required capability is missing, the module is marked unavailable.
 var HW_REQUIREMENTS = {
   'wifi':     ['wifi_uplink'],       // Needs wlan0 or wlan1
+  'wifits':   ['wifi_uplink'],       // WiFi Troubleshooter — any wifi works
   'roaming':  ['wifi_monitor'],      // Needs monitor-mode adapter (wlan1)
   'kismet':   ['wifi_monitor'],      // Kismet IDS needs wlan1
   'profiler': ['wifi_monitor'],      // Virtual AP for capability capture

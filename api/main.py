@@ -242,25 +242,65 @@ def _iface_driver(name: str) -> str:
         pass
     return ""
 
+def _list_wired_ifaces() -> list:
+    """Enumerate real non-wireless Ethernet interfaces by /sys/class/net attrs.
+
+    Matches any name (eth*, ens*, enp*, eno*, end*) so detection works on
+    RPi5, VMs, and arbitrary Linux servers — not just the eth0/eth1 legacy
+    names. Returns interfaces sorted by kernel enumeration order.
+    """
+    result = []
+    try:
+        net_dir = Path("/sys/class/net")
+        for entry in sorted(net_dir.iterdir()):
+            name = entry.name
+            if name == "lo":
+                continue
+            type_file = entry / "type"
+            if not type_file.exists():
+                continue
+            try:
+                if type_file.read_text().strip() != "1":  # ARPHRD_ETHER
+                    continue
+            except Exception:
+                continue
+            if (entry / "wireless").exists():
+                continue  # exclude wifi (also type=1)
+            if not (entry / "device").exists():
+                continue  # exclude bridges/veth/tun/docker/etc.
+            result.append(name)
+    except Exception:
+        pass
+    return result
+
 def get_mgmt_iface() -> str:
-    """MGMT interface (RPi5 built-in) — matched by driver, fallback to eth-mgmt/eth1."""
+    """MGMT interface — driver match first, else first real wired iface."""
     for iface in get_interfaces():
         if iface.get("driver") in _MGMT_DRIVERS:
             return iface["name"]
+    wired = _list_wired_ifaces()
+    if wired:
+        return wired[0]
     for candidate in ("eth-mgmt", "eth1", "eth0"):
         if Path(f"/sys/class/net/{candidate}").exists():
             return candidate
-    return "eth1"
+    return "eth-mgmt"
 
 def get_test_iface() -> str:
-    """TEST interface (HAT or WAN side) — matched by driver, fallback to eth-test/eth0."""
+    """TEST interface — driver match first, else second real wired iface."""
     for iface in get_interfaces():
         if iface.get("driver") in _TEST_DRIVERS:
             return iface["name"]
+    wired = _list_wired_ifaces()
+    # Skip whichever wired iface is already claimed by mgmt
+    mgmt = get_mgmt_iface()
+    for name in wired:
+        if name != mgmt:
+            return name
     for candidate in ("eth-test", "eth0", "eth1"):
-        if Path(f"/sys/class/net/{candidate}").exists():
+        if Path(f"/sys/class/net/{candidate}").exists() and candidate != mgmt:
             return candidate
-    return "eth0"
+    return ""
 
 _HW_CAPS_FILE = BASE_DIR / "data" / "hw_caps.json"
 
@@ -281,17 +321,22 @@ def get_hw_caps() -> dict:
     # Live probe — always refresh from sysfs so hot-plug (USB WiFi) works
     ifaces = get_interfaces()
     by_role = {i["role"]: i["name"] for i in ifaces if i.get("role")}
-    drivers = {i["name"]: i.get("driver", "") for i in ifaces}
+    wired = _list_wired_ifaces()
+    has_wlan0 = _iface_exists("wlan0")
+    has_wlan1 = _iface_exists("wlan1")
 
     live = {
-        "wlan0": _iface_exists("wlan0"),
-        "wlan1": _iface_exists("wlan1"),
+        "wlan0": has_wlan0,
+        "wlan1": has_wlan1,
         "eth0":  _iface_exists("eth0"),
         "eth1":  _iface_exists("eth1"),
-        "eth_mgmt": any(d in _MGMT_DRIVERS for d in drivers.values()),
-        "eth_test": any(d in _TEST_DRIVERS for d in drivers.values()),
-        "wifi_monitor": _iface_exists("wlan1"),  # MT7921AU or similar
-        "wifi_uplink":  _iface_exists("wlan0"),
+        # eth_mgmt / eth_test are true whenever ANY real Ethernet iface
+        # exists — not only the RPi5 driver-matched ones — so VMs with
+        # ens33/enp3s0 still enable the Wired/Security modules.
+        "eth_mgmt": len(wired) >= 1,
+        "eth_test": len(wired) >= 2,
+        "wifi_monitor": has_wlan1,              # MT7921AU or similar
+        "wifi_uplink":  has_wlan0 or has_wlan1, # any wifi works as uplink
         "mgmt_iface": by_role.get("mgmt") or get_mgmt_iface(),
         "test_iface": by_role.get("test") or get_test_iface(),
     }
