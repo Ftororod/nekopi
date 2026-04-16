@@ -3986,32 +3986,23 @@ input,select,textarea { font-family:inherit; }
         style="flex:1;padding:10px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;background:var(--bg2);color:var(--text2);font-family:inherit">📜 System Logs</button>
     </div>
 
-    <!-- HEALTH TAB — embeds Cockpit :9090 -->
+    <!-- HEALTH TAB — opens Cockpit :9090 in a new tab (cross-port iframe blocked) -->
     <div id="conPanelHealth">
       <div class="card">
         <div class="card-header">
           <div class="card-title">📊 Cockpit · :9090</div>
-          <div style="display:flex;gap:6px;align-items:center">
-            <span id="conCockpitUrl" style="font-family:monospace;font-size:11px;color:var(--cyan)">—</span>
-            <button class="btn btn-ghost btn-sm" onclick="conCockpitOpenNewTab()">↗ New tab</button>
-            <button class="btn btn-ghost btn-sm" onclick="conCockpitReload()">↻</button>
-          </div>
+          <span id="conCockpitUrl" style="font-family:monospace;font-size:11px;color:var(--cyan)">—</span>
         </div>
-        <div class="card-body" style="padding:0">
-          <iframe id="conCockpitIframe" src="about:blank"
-            style="width:100%;height:640px;border:none;display:block;background:#000"
-            allow="clipboard-read; clipboard-write"></iframe>
-          <div id="conCockpitFallback" style="display:none;padding:14px;color:var(--text2);font-size:11px;background:rgba(255,193,7,.06);border-top:1px solid rgba(255,193,7,.2);line-height:1.7">
-            💡 Cockpit uses <strong style="color:var(--amber)">HTTPS with a self-signed certificate</strong>.
-            El navegador puede bloquear el iframe la primera vez.
-            <strong>Solution:</strong> open Cockpit in a new tab, accept the certificate, and come back.
-            <div style="margin-top:8px">
-              <button class="btn btn-primary btn-sm" onclick="conCockpitOpenNewTab()">🔗 Open Cockpit in new tab</button>
-              <button class="btn btn-ghost btn-sm" onclick="conCockpitReload()" style="margin-left:6px">↻ Reintentar iframe</button>
-            </div>
-            <div style="margin-top:6px;font-size:10px;color:var(--text2)">
-              If Cockpit is not active: <code style="color:var(--amber)">sudo systemctl enable --now cockpit.socket</code>
-            </div>
+        <div class="card-body" style="text-align:center;padding:40px 20px">
+          <button class="btn btn-primary" onclick="conCockpitOpenNewTab()" style="font-size:14px;padding:12px 28px">🔗 Open Cockpit</button>
+          <div style="margin-top:14px;color:var(--text2);font-size:12px;line-height:1.6">
+            Opens in a new tab — full system management.
+          </div>
+          <div style="margin-top:6px;color:var(--text2);font-size:11px">
+            Cockpit uses HTTPS with a self-signed certificate — accept it once on first use.
+          </div>
+          <div style="margin-top:10px;font-size:10px;color:var(--text2)">
+            If Cockpit is not active: <code style="color:var(--amber)">sudo systemctl enable --now cockpit.socket</code>
           </div>
         </div>
       </div>
@@ -5012,21 +5003,21 @@ input,select,textarea { font-family:inherit; }
         style="flex:1;padding:10px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;background:var(--bg2);color:var(--text2);font-family:inherit">🔐 SSH a equipo remoto</button>
     </div>
 
-    <!-- LOCAL BASH TAB — embeds the systemd ttyd at :7681 -->
+    <!-- LOCAL BASH TAB — opens systemd ttyd at :7681 in a new tab (cross-port iframe blocked) -->
     <div id="termPanelLocal">
       <div class="card">
         <div class="card-header">
           <div class="card-title">🐚 NekoPi · bash local</div>
-          <div style="display:flex;gap:6px;align-items:center">
-            <span id="termLocalUrl" style="font-family:monospace;font-size:11px;color:var(--cyan)">—</span>
-            <button class="btn btn-ghost btn-sm" onclick="termLocalReload()">↻</button>
-            <button class="btn btn-ghost btn-sm" onclick="termLocalNewTab()">↗ New tab</button>
-          </div>
+          <span id="termLocalUrl" style="font-family:monospace;font-size:11px;color:var(--cyan)">—</span>
         </div>
-        <div class="card-body" style="padding:0">
-          <iframe id="termLocalIframe" src="about:blank"
-            style="width:100%;height:560px;border:none;display:block;background:#000"
-            allow="clipboard-read; clipboard-write"></iframe>
+        <div class="card-body" style="text-align:center;padding:40px 20px">
+          <button class="btn btn-primary" onclick="termLocalNewTab()" style="font-size:14px;padding:12px 28px">🔗 Open Terminal</button>
+          <div style="margin-top:14px;color:var(--text2);font-size:12px;line-height:1.6">
+            Opens in a new tab — login: <code style="color:var(--cyan)">nekopi</code> / <code style="color:var(--cyan)">nekopi2024</code>
+          </div>
+          <div style="margin-top:6px;color:var(--text2);font-size:11px">
+            ttyd uses HTTPS with a self-signed certificate — accept it once on first use.
+          </div>
         </div>
       </div>
     </div>
@@ -9026,7 +9017,8 @@ function termSwitchTab(which){
     if(ps) ps.style.display = 'none';
     if(tl){ tl.style.background='rgba(33,150,243,.12)'; tl.style.color='var(--blue-b)'; }
     if(ts){ ts.style.background='var(--bg2)'; ts.style.color='var(--text2)'; }
-    termLocalReload();
+    var lab = document.getElementById('termLocalUrl');
+    if(lab) lab.textContent = _ttydLocalUrl();
   } else {
     if(pl) pl.style.display = 'none';
     if(ps) ps.style.display = '';
@@ -9035,13 +9027,6 @@ function termSwitchTab(which){
   }
 }
 
-function termLocalReload(){
-  var url = _ttydLocalUrl();
-  var lab = document.getElementById('termLocalUrl');
-  if(lab) lab.textContent = url;
-  var iframe = document.getElementById('termLocalIframe');
-  if(iframe) iframe.src = url;
-}
 function termLocalNewTab(){ window.open(_ttydLocalUrl(), '_blank'); }
 
 function termSshConnect(ev){
@@ -9115,7 +9100,8 @@ function conSwitchTab(which){
     if(pl) pl.style.display = 'none';
     if(th){ th.style.background='rgba(33,150,243,.12)'; th.style.color='var(--blue-b)'; }
     if(tl){ tl.style.background='var(--bg2)'; tl.style.color='var(--text2)'; }
-    conCockpitReload();
+    var lab = document.getElementById('conCockpitUrl');
+    if(lab) lab.textContent = _cockpitUrl();
   } else {
     if(ph) ph.style.display = 'none';
     if(pl) pl.style.display = '';
@@ -9126,33 +9112,7 @@ function conSwitchTab(which){
 }
 
 function _cockpitUrl(){
-  // Cockpit listens on HTTPS :9090 with a self-signed cert. The browser
-  // will prompt the user to accept it once — that's expected on a field unit.
   return 'https://' + window.location.hostname + ':9090/';
-}
-
-function conCockpitReload(){
-  var url = _cockpitUrl();
-  var label = document.getElementById('conCockpitUrl');
-  if(label) label.textContent = url;
-  var iframe = document.getElementById('conCockpitIframe');
-  var fb     = document.getElementById('conCockpitFallback');
-  if(fb) fb.style.display = 'none';
-  if(iframe) iframe.src = url;
-  // Cockpit's self-signed cert will often block the iframe on strict browsers.
-  // After 4s, if the iframe is still blank, surface the fallback note with a
-  // "open in new tab" call-to-action so the engineer can accept the cert.
-  setTimeout(function(){
-    try {
-      // Cross-origin iframes throw on contentDocument access — if Cockpit
-      // loaded successfully we'd still get an exception, so instead we
-      // check if the iframe has rendered anything by looking at its height.
-      var loaded = iframe && iframe.contentWindow && iframe.clientHeight > 0;
-      // Can't reliably detect cross-origin load; always surface fallback as
-      // an option after the timeout so the user isn't stuck.
-    } catch(e) {}
-    if(fb) fb.style.display = '';
-  }, 4000);
 }
 
 function conCockpitOpenNewTab(){ window.open(_cockpitUrl(), '_blank'); }
