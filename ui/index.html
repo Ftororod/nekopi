@@ -1774,19 +1774,9 @@ input,select,textarea { font-family:inherit; }
 
       <div class="wizard-panel card" id="wired-step3">
         <div class="card-header"><div class="card-title" id="wiredResultTitle">✅ Results</div></div>
-        <div class="card-body" id="wiredResultBody">
-          <table class="data-table">
-            <tbody>
-              <tr><td>Neighbor hostname</td><td style="color:var(--white)">SW-CORE-01.corp.local</td></tr>
-              <tr><td>System description</td><td style="color:var(--white)">Cisco IOS 17.9.4 · WS-C3850-48P</td></tr>
-              <tr><td>Local port</td><td style="color:var(--white)">eth1 (NekoPi)</td></tr>
-              <tr><td>Remote port</td><td style="color:var(--white)">GigabitEthernet1/0/12</td></tr>
-              <tr><td>Management IP</td><td style="color:var(--blue-b)">10.0.0.1</td></tr>
-              <tr><td>VLAN (access)</td><td style="color:var(--amber)">VLAN 100 — Corp</td></tr>
-              <tr><td>Capabilities</td><td style="color:var(--text2)">Bridge · Router</td></tr>
-            </tbody>
-          </table>
-        </div>
+        <!-- Results body is populated by wiredFinish() from /api/wired/*
+             endpoints. Placeholder is replaced on every run. -->
+        <div class="card-body" id="wiredResultBody"></div>
         <div class="wizard-footer">
           <button class="btn btn-ghost" onclick='wizReset("wired")'>← New Test</button>
           <button class="btn btn-primary btn-sm" data-ai-btn onclick='runWiredAI(event)'>🧠 AI Analysis</button>
@@ -7635,19 +7625,36 @@ function wiredFinish() {
     dot1x:'802.1X', voip:'VoIP/QoS', dhcp:'DHCP Stress', dns:'DNS Benchmark', captive:'Captive Portal'
   };
   var tool = selectedWiredTool || 'lldp';
-  var rows = _wiredRealResults[tool] || wiredResults[tool] || [];
-  var isReal = !!_wiredRealResults[tool];
+  // In live mode, never fall back to hardcoded demo data — show a clear
+  // "no data" message so users don't mistake simulated SW-CORE-01 output
+  // for a real neighbor. Demo fallback is reserved for DEMO_MODE (the
+  // public /demo preview served by the backend).
+  var realRows = _wiredRealResults[tool];
+  var rows = realRows || (DEMO_MODE ? (wiredResults[tool] || []) : []);
+  var isReal = !!realRows;
 
-  if(resultTitle) resultTitle.textContent = '✅ ' + (toolNames[tool] || tool) + ' — Results' + (isReal ? '' : ' (demo)');
+  if(resultTitle) resultTitle.textContent = '✅ ' + (toolNames[tool] || tool) + ' — Results' + (isReal ? '' : (DEMO_MODE ? ' (demo)' : ''));
 
-  if(resultBody && rows.length) {
-    var html2 = '<table class="data-table"><tbody>';
-    rows.forEach(function(r) {
-      html2 += '<tr><td style="color:var(--text2)">' + r.label + '</td>' +
-               '<td style="color:' + r.color + ';font-weight:500">' + r.value + '</td></tr>';
-    });
-    html2 += '</tbody></table>';
-    resultBody.innerHTML = html2;
+  if(resultBody) {
+    if(rows.length) {
+      var html2 = '<table class="data-table"><tbody>';
+      rows.forEach(function(r) {
+        html2 += '<tr><td style="color:var(--text2)">' + r.label + '</td>' +
+                 '<td style="color:' + r.color + ';font-weight:500">' + r.value + '</td></tr>';
+      });
+      html2 += '</tbody></table>';
+      resultBody.innerHTML = html2;
+    } else {
+      var emptyMsg = tool === 'lldp'
+        ? 'No LLDP/CDP neighbors detected'
+        : 'No data returned by ' + (toolNames[tool] || tool);
+      resultBody.innerHTML =
+        '<div style="padding:24px;text-align:center;color:var(--text2);font-size:13px">'
+        + emptyMsg
+        + '<div style="margin-top:6px;font-size:11px;color:var(--text3)">'
+        + 'Check cabling, switch config, and the live terminal above.'
+        + '</div></div>';
+    }
   }
 
   // Add AI panel if not present (remove old one first to refresh)
