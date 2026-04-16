@@ -44,18 +44,43 @@ Built in Bogotá, Colombia 🇨🇴
 ## Installation
 
 ```bash
-# Clone the repository
+# Create the directory with your current sudo user
+sudo mkdir -p /opt/nekopi
+sudo chown $USER:$USER /opt/nekopi
+
+# Clone the repo
 git clone https://github.com/Ftororod/nekopi.git /opt/nekopi
 
-# Run the automated installer (23 steps, ~15-20 min)
-cd /opt/nekopi && sudo ./install_nekopi.sh
-
-# Access NekoPi from your browser
-https://[RPi5-IP]:8080
+# Run the installer — this creates the nekopi user and configures everything
+cd /opt/nekopi
+sudo bash install_nekopi.sh
 ```
 
-> **Note:** The management interface (eth1) provides DHCP on `192.168.99.x`.  
-> Connect your laptop directly to eth1 and access NekoPi at `https://192.168.99.1:8080`
+Connect your laptop to the **eth-mgmt** port (native RPi5 NIC, not the HAT),
+open `https://192.168.99.1:8080`, and accept the self-signed certificate.
+
+**Updating**
+
+```bash
+cd /opt/nekopi && git pull origin main
+sudo systemctl restart nekopi
+```
+
+**Reinstalling from scratch**
+
+```bash
+sudo systemctl stop nekopi && sudo systemctl disable nekopi
+sudo rm -rf /opt/nekopi /etc/systemd/system/nekopi.service
+sudo systemctl daemon-reload
+# Then follow the install steps above
+```
+
+**Troubleshooting**
+
+- Clone fails with "already exists": run the reinstall steps above first
+- No IP on eth-mgmt: make sure you're on the native RPi5 port, not the HAT.
+  Check: `ip addr show eth-mgmt && sudo systemctl status dnsmasq`
+- Service not starting: `sudo journalctl -u nekopi -n 50 --no-pager`
 
 ---
 
