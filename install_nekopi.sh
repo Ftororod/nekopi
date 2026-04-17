@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  NekoPi Field Unit — Automated Installer v2
 #  Version:   1.3.0  ·  Codename: ToManchas
-#  Generated: 2026-04-16 19:09
+#  Generated: 2026-04-16 20:02
 #  Target:    Ubuntu 24.04 LTS · Raspberry Pi 5 · 8 GB
 #  License:   GPL-3.0-or-later
 # ═══════════════════════════════════════════════════════════════
@@ -425,7 +425,8 @@ else
         aiofiles==23.2.1 \
         pillow==12.2.0 \
         python-dotenv==1.2.2 \
-        python-multipart==0.0.24
+        python-multipart==0.0.24 \
+        scapy==2.5.0
 fi
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 8 "Python venv + pip deps"
@@ -787,7 +788,7 @@ check "SSL certificate"               "test -f $NEKOPI_DIR/ssl/cert.pem"
 check "InfluxDB token"                "test -f $NEKOPI_DIR/data/influx-token.txt"
 check "DHCP options file"             "test -f $NEKOPI_DIR/data/dhcp-options.json"
 check "UI index.html"                 "test -f $NEKOPI_DIR/ui/index.html"
-check "Python fastapi/uvicorn"        "$NEKOPI_DIR/venv/bin/python3 -c 'import fastapi, uvicorn'"
+check "Python fastapi/uvicorn/scapy"   "$NEKOPI_DIR/venv/bin/python3 -c 'import fastapi, uvicorn, scapy'"
 check "ttyd binary"                   "command -v ttyd"
 check "tshark binary"                 "command -v tshark"
 check "kismet binary"                 "command -v kismet"
