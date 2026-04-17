@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  NekoPi Field Unit — Automated Installer v2
 #  Version:   1.3.0  ·  Codename: ToManchas
-#  Generated: 2026-04-16 15:53
+#  Generated: 2026-04-16 19:09
 #  Target:    Ubuntu 24.04 LTS · Raspberry Pi 5 · 8 GB
 #  License:   GPL-3.0-or-later
 # ═══════════════════════════════════════════════════════════════
@@ -664,6 +664,7 @@ nekopi ALL=(ALL) NOPASSWD: /usr/sbin/tcpdump
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/tshark
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/airodump-ng
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/airmon-ng
+nekopi ALL=(ALL) NOPASSWD: /opt/nekopi/venv/bin/python3
 SUDOERS
 
 chmod 440 /etc/sudoers.d/nekopi-services
