@@ -2263,10 +2263,24 @@ conf.checkIPaddr = False
 iface = sys.argv[1]
 count = int(sys.argv[2])
 
+VENDOR_OUIS = [
+    "00:50:56",  # VMware
+    "00:0C:29",  # VMware
+    "00:1A:11",  # Google
+    "B8:27:EB",  # Raspberry Pi
+    "DC:A6:32",  # Raspberry Pi
+    "00:11:22",  # Generic
+    "AC:DE:48",  # Private
+    "00:1B:21",  # Intel
+    "3C:97:0E",  # Murata
+    "00:26:B9",  # Dell
+]
+
 def rand_mac():
-    o = [0x02, random.randint(0,255), random.randint(0,255),
-         random.randint(0,255), random.randint(0,255), random.randint(0,255)]
-    return ":".join(f"{b:02x}" for b in o)
+    oui = random.choice(VENDOR_OUIS).replace(":", "")
+    rest = "".join(["%02x" % random.randint(0, 255) for _ in range(3)])
+    mac = oui + rest
+    return ":".join([mac[i:i+2] for i in range(0, 12, 2)])
 
 def mac_to_bytes(m):
     return bytes(int(x, 16) for x in m.split(":")) + b"\x00"*10
