@@ -7521,6 +7521,7 @@ function runWiredTool() {
     if(data.ok){
       addLine('t-ok', '✓ '+selectedWiredTool.toUpperCase()+' complete');
       if(data.rows) _wiredRealResults[selectedWiredTool] = data.rows;
+      if(selectedWiredTool === 'dhcp' && data.clients) _wiredRealResults.dhcp_full = data;
     } else {
       addLine('t-warn', '⚠ '+(data.error||'Check results'));
     }
@@ -7632,7 +7633,9 @@ function wiredFinish() {
   if(resultTitle) resultTitle.textContent = '✅ ' + (toolNames[tool] || tool) + ' — Results' + (isReal ? '' : (DEMO_MODE ? ' (demo)' : ''));
 
   if(resultBody) {
-    if(rows.length) {
+    if(tool === 'dhcp' && _wiredRealResults.dhcp_full) {
+      resultBody.innerHTML = renderDhcpStressResults(_wiredRealResults.dhcp_full);
+    } else if(rows.length) {
       var html2 = '<table class="data-table"><tbody>';
       rows.forEach(function(r) {
         html2 += '<tr><td style="color:var(--text2)">' + r.label + '</td>' +
@@ -7668,6 +7671,142 @@ function wiredFinish() {
       '</div></div>';
     step3.appendChild(aiDiv);
   }
+}
+
+function renderDhcpStressResults(data) {
+  var esc = function(s){ return String(s==null?'':s).replace(/[<>"'&]/g, function(c){ return {'<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','&':'&amp;'}[c]; }); };
+  var clients = data.clients || [];
+  var rows    = data.rows || [];
+
+  var rowMap = {};
+  rows.forEach(function(r){ rowMap[r.label] = r; });
+
+  var okClients    = clients.filter(function(c){ return c.status === 'ok'; });
+  var offerClients = clients.filter(function(c){ return c.offered_ip; });
+  var doraTimes    = okClients.map(function(c){ return c.dora_ms; }).filter(function(v){ return v != null; });
+  var ipSet = {}; offerClients.forEach(function(c){ ipSet[c.offered_ip] = true; });
+  var uniqueIps = Object.keys(ipSet).sort(function(a,b){
+    var pa=a.split('.').map(Number), pb=b.split('.').map(Number);
+    for(var i=0;i<4;i++){ if(pa[i]!==pb[i]) return pa[i]-pb[i]; } return 0;
+  });
+
+  function parseMs(v){ var m = /([0-9.]+)/.exec(v||''); return m ? parseFloat(m[1]) : 0; }
+  function rateDora(ms){
+    if(ms < 100) return {text:'Excellent', color:'var(--green)'};
+    if(ms < 300) return {text:'Good',      color:'var(--green)'};
+    if(ms < 500) return {text:'Slow',      color:'var(--amber)'};
+    return              {text:'Critical',  color:'var(--red)'};
+  }
+  var doraAvg = parseMs((rowMap['DORA avg']||{}).value);
+  var doraRating = rateDora(doraAvg);
+
+  function humanizeLease(secRaw){
+    var s = parseInt(String(secRaw).replace(/[^0-9]/g,''), 10);
+    if(!s || s <= 0) return null;
+    if(s >= 86400){ var d=Math.floor(s/86400); return d+' day'+(d>1?'s':''); }
+    if(s >= 3600){  var h=Math.floor(s/3600);  return h+' hour'+(h>1?'s':''); }
+    if(s >= 60){    var m=Math.floor(s/60);    return m+' minute'+(m>1?'s':''); }
+    return s+'s';
+  }
+  var leaseHuman = humanizeLease((rowMap['Lease Time']||{}).value);
+
+  var trendWarn = null;
+  if(doraTimes.length >= 6){
+    var n = Math.min(3, Math.floor(doraTimes.length/2));
+    var firstAvg = doraTimes.slice(0, n).reduce(function(a,b){return a+b;},0)/n;
+    var lastAvg  = doraTimes.slice(-n).reduce(function(a,b){return a+b;},0)/n;
+    if(lastAvg > firstAvg * 1.5 && lastAvg - firstAvg > 20){
+      trendWarn = 'Server slowing under load — first '+n+' avg '+firstAvg.toFixed(1)+'ms → last '+n+' avg '+lastAvg.toFixed(1)+'ms';
+    }
+  }
+
+  var verdict = (rowMap['Verdict']||{}).value || 'Unknown';
+  var verdictColor = (rowMap['Verdict']||{}).color || 'var(--text2)';
+  var interpretation;
+  if(verdict === 'Pool healthy') {
+    interpretation = 'Pool healthy — server responded to all '+okClients.length+' clients with consistent timing';
+  } else if(verdict === 'Pool stress detected') {
+    interpretation = 'Server dropped DORAs under load — only '+okClients.length+'/'+clients.length+' succeeded';
+  } else if(verdict === 'No DHCP response') {
+    interpretation = 'No DHCP server responded on this interface — check cabling, VLAN, and helper-address';
+  } else {
+    interpretation = verdict;
+  }
+
+  var html = '';
+
+  html += '<div style="padding:14px 16px;border-radius:6px;margin-bottom:12px;'
+       +  'background:rgba(127,127,127,.08);border-left:4px solid '+verdictColor+'">'
+       +  '<div style="font-size:14px;font-weight:700;color:'+verdictColor+';margin-bottom:4px">'+esc(verdict)+'</div>'
+       +  '<div style="font-size:12px;color:var(--text)">'+esc(interpretation)+'</div>'
+       +  '</div>';
+
+  html += '<table class="data-table"><tbody>';
+  rows.forEach(function(r){
+    if(r.label === 'Verdict') return;
+    var cell = esc(r.value);
+    if(r.label === 'DORA avg') {
+      cell += ' <span style="color:'+doraRating.color+';font-weight:600;margin-left:6px">• '+doraRating.text+'</span>';
+    } else if(r.label === 'Lease Time' && leaseHuman) {
+      cell = esc(r.value) + ' <span style="color:var(--text3);margin-left:6px">('+esc(leaseHuman)+')</span>';
+    } else if(r.label === 'IPs Offered') {
+      cell = esc(r.value) + '<div style="color:var(--text3);font-size:11px;margin-top:2px;font-weight:400">Server reuses IPs after release (normal behavior)</div>';
+    }
+    html += '<tr><td style="color:var(--text2)">'+esc(r.label)+'</td>'
+         +  '<td style="color:'+r.color+';font-weight:500">'+cell+'</td></tr>';
+  });
+  html += '</tbody></table>';
+
+  if(clients.length){
+    html += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">'
+         +  '<div style="font-size:12px;font-weight:700;color:var(--cyan);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Pool Analysis</div>'
+         +  '<table class="data-table"><tbody>';
+    html += '<tr><td style="color:var(--text2)">Unique IPs seen</td>'
+         +  '<td style="color:var(--white);font-weight:500">'+uniqueIps.length+' across '+offerClients.length+' offers</td></tr>';
+    html += '<tr><td style="color:var(--text2)">All unique IPs</td>'
+         +  '<td style="color:var(--cyan);font-weight:500;font-family:monospace;font-size:11px;word-break:break-all">'+(uniqueIps.length?esc(uniqueIps.join(', ')):'—')+'</td></tr>';
+    if(doraTimes.length){
+      var mn = Math.min.apply(null, doraTimes);
+      var mx = Math.max.apply(null, doraTimes);
+      var av = doraTimes.reduce(function(a,b){return a+b;},0)/doraTimes.length;
+      html += '<tr><td style="color:var(--text2)">DORA trend</td>'
+           +  '<td style="color:var(--text)">min '+mn.toFixed(1)+'ms · avg '+av.toFixed(1)+'ms · max '+mx.toFixed(1)+'ms</td></tr>';
+    }
+    if(trendWarn){
+      html += '<tr><td style="color:var(--amber)">⚠ Warning</td>'
+           +  '<td style="color:var(--amber);font-weight:500">'+esc(trendWarn)+'</td></tr>';
+    }
+    html += '</tbody></table></div>';
+
+    html += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">'
+         +  '<div style="font-size:12px;font-weight:700;color:var(--cyan);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Per-Client Results</div>'
+         +  '<div style="overflow-x:auto"><table class="data-table" style="font-size:11px"><thead><tr>'
+         +  '<th style="text-align:left;color:var(--text2);padding:6px 8px">Client</th>'
+         +  '<th style="text-align:left;color:var(--text2);padding:6px 8px">MAC</th>'
+         +  '<th style="text-align:left;color:var(--text2);padding:6px 8px">IP Offered</th>'
+         +  '<th style="text-align:right;color:var(--text2);padding:6px 8px">DORA ms</th>'
+         +  '<th style="text-align:right;color:var(--text2);padding:6px 8px">D→O</th>'
+         +  '<th style="text-align:right;color:var(--text2);padding:6px 8px">R→A</th>'
+         +  '<th style="text-align:center;color:var(--text2);padding:6px 8px">Status</th>'
+         +  '</tr></thead><tbody>';
+    clients.forEach(function(c){
+      var isOk = c.status === 'ok';
+      var statusChar = isOk ? '✔' : '✗';
+      var statusColor = isOk ? 'var(--green)' : 'var(--red)';
+      html += '<tr>'
+           +  '<td style="padding:4px 8px;color:var(--text2)">#'+(c.client||'?')+'</td>'
+           +  '<td style="padding:4px 8px;color:var(--white);font-family:monospace">'+esc(c.mac||'—')+'</td>'
+           +  '<td style="padding:4px 8px;color:var(--cyan);font-family:monospace">'+esc(c.offered_ip||'—')+'</td>'
+           +  '<td style="padding:4px 8px;text-align:right;color:var(--white)">'+(c.dora_ms!=null?c.dora_ms:'—')+'</td>'
+           +  '<td style="padding:4px 8px;text-align:right;color:var(--text2)">'+(c.offer_ms!=null?c.offer_ms:'—')+'</td>'
+           +  '<td style="padding:4px 8px;text-align:right;color:var(--text2)">'+(c.ack_ms!=null?c.ack_ms:'—')+'</td>'
+           +  '<td style="padding:4px 8px;text-align:center;color:'+statusColor+';font-weight:700" title="'+esc(c.status||'')+'">'+statusChar+'</td>'
+           +  '</tr>';
+    });
+    html += '</tbody></table></div></div>';
+  }
+
+  return html;
 }
 
 function closeWiredAI() { var p=document.getElementById('wiredAiPanel'); if(p) p.style.display='none'; }
