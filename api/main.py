@@ -2249,55 +2249,204 @@ async def wired_voip(target: str = "", iface: str = "eth0", count: int = 100):
     ]
     return {"ok": True, "rows": rows, "mos": mos}
 
+# Scapy-based DORA script executed as root in the project venv. Kept as a
+# string so the API process doesn't import scapy at startup (saves RAM and
+# avoids needing CAP_NET_RAW on the uvicorn process). Runs via
+#   sudo /opt/nekopi/venv/bin/python3 -c "<_DHCP_DORA_SCRIPT>" <iface> <count>
+# Dependency: scapy (installed in /opt/nekopi/venv — not pinned in a
+# requirements.txt because the repo doesn't have one; keep installed.)
+_DHCP_DORA_SCRIPT = r'''
+import sys, json, time, random
+from scapy.all import Ether, IP, UDP, BOOTP, DHCP, srp1, sendp, conf
+
+conf.checkIPaddr = False
+iface = sys.argv[1]
+count = int(sys.argv[2])
+
+def rand_mac():
+    o = [0x02, random.randint(0,255), random.randint(0,255),
+         random.randint(0,255), random.randint(0,255), random.randint(0,255)]
+    return ":".join(f"{b:02x}" for b in o)
+
+def mac_to_bytes(m):
+    return bytes(int(x, 16) for x in m.split(":")) + b"\x00"*10
+
+def opt(pkt, key):
+    if DHCP not in pkt:
+        return None
+    for o in pkt[DHCP].options:
+        if isinstance(o, tuple) and o[0] == key:
+            return o[1]
+    return None
+
+def as_list(v):
+    if v is None: return []
+    if isinstance(v, (list, tuple)): return [str(x) for x in v]
+    return [str(v)]
+
+results = []
+for i in range(count):
+    if i > 0:
+        time.sleep(0.5)
+    mac = rand_mac()
+    xid = random.randint(1, 0xFFFFFFFF)
+    chaddr = mac_to_bytes(mac)
+    c = {"client": i+1, "mac": mac, "offer_ms": None, "ack_ms": None,
+         "dora_ms": None, "offered_ip": None, "server_id": None,
+         "lease": None, "router": None, "dns": None,
+         "status": "no_offer", "error": None}
+    try:
+        discover = (Ether(src=mac, dst="ff:ff:ff:ff:ff:ff") /
+                    IP(src="0.0.0.0", dst="255.255.255.255") /
+                    UDP(sport=68, dport=67) /
+                    BOOTP(chaddr=chaddr, xid=xid, flags=0x8000) /
+                    DHCP(options=[("message-type","discover"), "end"]))
+        t0 = time.time()
+        offer = srp1(discover, iface=iface, timeout=3, verbose=False)
+        t_off = (time.time() - t0) * 1000.0
+        if offer is None or DHCP not in offer:
+            results.append(c); continue
+        if opt(offer, "message-type") != 2:
+            c["status"] = "unexpected_offer"
+            results.append(c); continue
+        offered_ip = offer[BOOTP].yiaddr
+        server_id  = opt(offer, "server_id")
+        lease      = opt(offer, "lease_time")
+        router     = opt(offer, "router")
+        dns        = opt(offer, "name_server")
+        c["offer_ms"]   = round(t_off, 1)
+        c["offered_ip"] = str(offered_ip)
+        c["server_id"]  = str(server_id) if server_id else None
+        c["lease"]      = int(lease) if lease else None
+        c["router"]     = str(router) if router else None
+        c["dns"]        = as_list(dns)
+        c["status"]     = "offer_only"
+
+        request = (Ether(src=mac, dst="ff:ff:ff:ff:ff:ff") /
+                   IP(src="0.0.0.0", dst="255.255.255.255") /
+                   UDP(sport=68, dport=67) /
+                   BOOTP(chaddr=chaddr, xid=xid, flags=0x8000) /
+                   DHCP(options=[("message-type","request"),
+                                 ("requested_addr", offered_ip),
+                                 ("server_id", server_id),
+                                 "end"]))
+        t1 = time.time()
+        ack = srp1(request, iface=iface, timeout=3, verbose=False)
+        t_ack = (time.time() - t1) * 1000.0
+        if ack is None or DHCP not in ack:
+            results.append(c); continue
+        m2 = opt(ack, "message-type")
+        if m2 == 5:
+            c["ack_ms"]  = round(t_ack, 1)
+            c["dora_ms"] = round(t_off + t_ack, 1)
+            c["status"]  = "ok"
+            release = (Ether(src=mac, dst="ff:ff:ff:ff:ff:ff") /
+                       IP(src=str(offered_ip), dst=str(server_id)) /
+                       UDP(sport=68, dport=67) /
+                       BOOTP(ciaddr=str(offered_ip), chaddr=chaddr, xid=xid) /
+                       DHCP(options=[("message-type","release"),
+                                     ("server_id", server_id), "end"]))
+            try:
+                sendp(release, iface=iface, verbose=False)
+            except Exception:
+                pass
+        elif m2 == 6:
+            c["status"] = "nak"
+        else:
+            c["status"] = "unexpected_ack"
+    except Exception as e:
+        c["error"]  = str(e)
+        c["status"] = "error"
+    results.append(c)
+
+print(json.dumps(results))
+'''
+
 @app.get("/api/wired/dhcp_stress")
 async def wired_dhcp_stress(iface: str = "eth0", count: int = 10):
-    """DHCP stress test — sends N broadcast DHCP DISCOVERs and aggregates response stats."""
-    import time as _time
-    import re as _re
-    count = max(1, min(int(count or 1), 254))
-    log = [f"Sending {count} DHCP DISCOVER on {iface}..."]
+    """DHCP stress test — full DORA per simulated client with randomized MACs.
 
-    server_ip = offered_ip = lease_time = router = dns = ""
-    rtts: list[float] = []
-    successes = 0
+    Runs N sequential DORA exchanges (0.5s apart) using scapy in a privileged
+    subprocess. Each success is followed by a DHCP RELEASE to return the IP
+    to the pool. Reports per-client timings plus aggregate pool health."""
+    count = max(1, min(int(count or 1), 50))
+    log = [f"DORA x{count} on {iface} (scapy, sequential)…"]
 
-    for i in range(count):
-        t0 = _time.time()
-        out = run_cmd(["sudo", "nmap", "--script", "broadcast-dhcp-discover",
-                       "-e", iface, "--host-timeout", "5s"], timeout=8)
-        dt = (_time.time() - t0) * 1000.0
-        ok = ("DHCPOFFER" in out) or ("IP Offered" in out) or ("Server Identifier" in out)
-        if ok:
-            successes += 1
-            rtts.append(dt)
-            if not server_ip:
-                m = _re.search(r"Server Identifier[:\s]+([\d.]+)", out);   server_ip  = m.group(1) if m else server_ip
-                m = _re.search(r"IP Offered[:\s]+([\d.]+)", out);          offered_ip = m.group(1) if m else offered_ip
-                m = _re.search(r"IP Address Lease Time[:\s]+(.+)", out);   lease_time = m.group(1).strip() if m else lease_time
-                m = _re.search(r"Router[:\s]+([\d.]+)", out);              router     = m.group(1) if m else router
-                m = _re.search(r"Domain Name Server[:\s]+([\d., ]+)", out);dns        = m.group(1).strip() if m else dns
+    subprocess_timeout = count * 8 + 10
+    try:
+        r = subprocess.run(
+            ["sudo", "/opt/nekopi/venv/bin/python3", "-c",
+             _DHCP_DORA_SCRIPT, iface, str(count)],
+            capture_output=True, text=True, timeout=subprocess_timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "rows": [
+            {"label": "Error", "value": f"Timeout after {subprocess_timeout}s", "color": "var(--red)"},
+        ], "log": log + ["subprocess timeout"]}
+    except Exception as e:
+        return {"ok": False, "rows": [
+            {"label": "Error", "value": str(e), "color": "var(--red)"},
+        ], "log": log + [f"subprocess error: {e}"]}
 
-    avg = round(sum(rtts)/len(rtts), 1) if rtts else 0
-    pmin = round(min(rtts), 1) if rtts else 0
-    pmax = round(max(rtts), 1) if rtts else 0
-    succ_pct = round(successes / count * 100, 1)
-    responded = successes > 0
+    try:
+        clients = json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else []
+    except Exception as e:
+        return {"ok": False, "rows": [
+            {"label": "Error",  "value": "Parse failure",   "color": "var(--red)"},
+            {"label": "Stderr", "value": (r.stderr or "")[:200], "color": "var(--text2)"},
+        ], "log": log + [f"json parse: {e}", (r.stderr or "")[:300]]}
 
-    color = "var(--green)" if succ_pct >= 90 else "var(--amber)" if succ_pct >= 50 else "var(--red)"
+    ok_clients    = [c for c in clients if c.get("status") == "ok"]
+    offer_clients = [c for c in clients if c.get("offered_ip")]
+    dora_times    = [c["dora_ms"] for c in ok_clients if c.get("dora_ms") is not None]
+    offer_times   = [c["offer_ms"] for c in clients if c.get("offer_ms") is not None]
+    ack_times     = [c["ack_ms"]   for c in clients if c.get("ack_ms")   is not None]
+    offered_ips   = sorted({c["offered_ip"] for c in offer_clients})
+
+    successes = len(ok_clients)
+    succ_pct  = round(successes / count * 100, 1) if count else 0.0
+    dora_avg  = round(sum(dora_times)/len(dora_times), 1) if dora_times else 0
+    dora_min  = round(min(dora_times), 1) if dora_times else 0
+    dora_max  = round(max(dora_times), 1) if dora_times else 0
+    offer_avg = round(sum(offer_times)/len(offer_times), 1) if offer_times else 0
+    ack_avg   = round(sum(ack_times)/len(ack_times), 1) if ack_times else 0
+
+    first_ok  = ok_clients[0] if ok_clients else (offer_clients[0] if offer_clients else {})
+    server_id = first_ok.get("server_id") or "—"
+    lease_s   = first_ok.get("lease")
+    lease_txt = f"{lease_s}s" if lease_s else "—"
+    router    = first_ok.get("router") or "—"
+    dns_list  = first_ok.get("dns") or []
+    dns_txt   = ", ".join(dns_list) if dns_list else "—"
+
+    if not offer_clients:
+        verdict = "No DHCP response"
+        v_color = "var(--red)"
+    elif succ_pct >= 90:
+        verdict = "Pool healthy"
+        v_color = "var(--green)"
+    else:
+        verdict = "Pool stress detected"
+        v_color = "var(--amber)"
+
+    rate_color = "var(--green)" if succ_pct >= 90 else "var(--amber)" if succ_pct > 0 else "var(--red)"
     rows = [
-        {"label": "Sent",          "value": str(count),                    "color": "var(--text2)"},
-        {"label": "Responses",     "value": f"{successes}/{count} ({succ_pct}%)", "color": color},
-        {"label": "DHCP Server",   "value": server_ip or "No response",    "color": "var(--white)" if server_ip else "var(--red)"},
-        {"label": "IP Offered",    "value": offered_ip or "—",             "color": "var(--white)"},
-        {"label": "Lease Time",    "value": lease_time or "—",             "color": "var(--text2)"},
-        {"label": "Router",        "value": router or "—",                 "color": "var(--text2)"},
-        {"label": "DNS",           "value": dns or "—",                    "color": "var(--text2)"},
-        {"label": "Avg RTT",       "value": f"{avg}ms",                    "color": "var(--green)" if avg<200 else "var(--amber)"},
-        {"label": "Min/Max RTT",   "value": f"{pmin}/{pmax}ms",             "color": "var(--text2)"},
-        {"label": "Verdict",       "value": "DHCP healthy" if succ_pct >= 90 else ("DHCP degraded" if succ_pct > 0 else "No DHCP response"), "color": color},
+        {"label": "Clients",       "value": str(count),                              "color": "var(--text2)"},
+        {"label": "Success",       "value": f"{successes}/{count} ({succ_pct}%)",   "color": rate_color},
+        {"label": "DHCP Server",   "value": server_id,                               "color": "var(--white)" if server_id != "—" else "var(--red)"},
+        {"label": "IPs Offered",   "value": f"{len(offered_ips)} unique",           "color": "var(--text2)"},
+        {"label": "IP Sample",     "value": ", ".join(offered_ips[:3]) + (" …" if len(offered_ips) > 3 else "") if offered_ips else "—", "color": "var(--white)"},
+        {"label": "Lease Time",    "value": lease_txt,                               "color": "var(--text2)"},
+        {"label": "Router",        "value": router,                                  "color": "var(--text2)"},
+        {"label": "DNS",           "value": dns_txt,                                 "color": "var(--text2)"},
+        {"label": "DORA avg",      "value": f"{dora_avg}ms",                         "color": "var(--green)" if dora_avg<500 else "var(--amber)"},
+        {"label": "DORA min/max",  "value": f"{dora_min}/{dora_max}ms",              "color": "var(--text2)"},
+        {"label": "Discover→Offer","value": f"{offer_avg}ms avg",                    "color": "var(--text2)"},
+        {"label": "Request→Ack",   "value": f"{ack_avg}ms avg",                      "color": "var(--text2)"},
+        {"label": "Verdict",       "value": verdict,                                 "color": v_color},
     ]
-    log.append(f"{successes}/{count} responses · avg {avg}ms")
-    return {"ok": responded, "rows": rows, "log": log}
+    log.append(f"{successes}/{count} DORA OK · avg {dora_avg}ms · {len(offered_ips)} unique IPs")
+    return {"ok": successes > 0, "rows": rows, "log": log, "clients": clients}
 
 
 # ── ROAMING ANALYZER ───────────────────────────────────────────────────────
