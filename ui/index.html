@@ -11511,16 +11511,25 @@ function addRoamEvent(e){
   var tbody = document.getElementById('roamEventBody');
   if(!tbody) return;
   if(tbody.querySelector('td[colspan]')) tbody.innerHTML='';
-  var ftColor = e.ft_ms>0&&e.ft_ms<50?'var(--green)':e.ft_ms>0&&e.ft_ms<150?'var(--amber)':e.ft_ms>0?'var(--red)':'var(--text2)';
-  var typeClass = e.type.includes('FT')?'sb-ok':e.type.includes('Deauth')?'sb-fail':e.type.includes('Legacy')?'sb-warn':'sb-idle';
+  var isSystem = (e.mac === 'system');
   var tr=document.createElement('tr');
-  tr.innerHTML='<td style="color:var(--text2);font-size:10px">'+e.time+'</td>'
-    +'<td style="font-family:monospace;font-size:10px;color:var(--white)">'+e.mac+'</td>'
-    +'<td style="font-size:10px;color:var(--text2)">'+e.from_ap+'</td>'
-    +'<td style="font-size:10px;color:var(--cyan)">'+e.to_ap+'</td>'
-    +'<td style="font-size:10px;color:'+(e.rssi>=-70?'var(--green)':e.rssi>=-80?'var(--amber)':'var(--red)')+'">'+e.rssi+' dBm</td>'
-    +'<td style="font-weight:600;color:'+ftColor+'">'+e.ft_time+'</td>'
-    +'<td><span class="status-badge '+typeClass+'"><span class="sb-dot"></span>'+e.type+'</span></td>';
+  if(isSystem){
+    tr.innerHTML='<td style="color:var(--text2);font-size:9px">'+e.time+'</td>'
+      +'<td colspan="5" style="font-size:9px;color:var(--text2);font-style:italic">'+e.type+'</td>'
+      +'<td></td>';
+  } else {
+    var ftColor = e.ft_ms>0&&e.ft_ms<50?'var(--green)':e.ft_ms>0&&e.ft_ms<150?'var(--amber)':e.ft_ms>0?'var(--red)':'var(--text2)';
+    var typeClass = e.type.includes('FT')?'sb-ok':e.type.includes('Deauth')?'sb-fail':e.type.includes('Legacy')?'sb-warn':'sb-idle';
+    var rssiText = (e.rssi && e.rssi !== 0) ? e.rssi+' dBm' : '—';
+    var rssiColor = (!e.rssi||e.rssi===0) ? 'var(--text2)' : (e.rssi>=-70?'var(--green)':e.rssi>=-80?'var(--amber)':'var(--red)');
+    tr.innerHTML='<td style="color:var(--text2);font-size:10px">'+e.time+'</td>'
+      +'<td style="font-family:monospace;font-size:10px;color:var(--white)">'+e.mac+'</td>'
+      +'<td style="font-size:10px;color:var(--text2)">'+e.from_ap+'</td>'
+      +'<td style="font-size:10px;color:var(--cyan)">'+e.to_ap+'</td>'
+      +'<td style="font-size:10px;color:'+rssiColor+'">'+rssiText+'</td>'
+      +'<td style="font-weight:600;color:'+ftColor+'">'+e.ft_time+'</td>'
+      +'<td><span class="status-badge '+typeClass+'"><span class="sb-dot"></span>'+e.type+'</span></td>';
+  }
   tbody.insertBefore(tr,tbody.firstChild);
 }
 function stopRoaming(){

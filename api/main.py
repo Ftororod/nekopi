@@ -3349,18 +3349,20 @@ async def roaming_stop():
         run_cmd(["sudo", "ip", "link", "set", iface, "up"])
     return {"ok": True}
 
+def _roam_compute_stats() -> dict:
+    real = [e for e in _ROAM_EVENTS if e.get("mac") != "system"]
+    ft_times = [e["ft_ms"] for e in real if e.get("ft_ms", 0) > 0]
+    return {
+        "total":   len(real),
+        "roams":   len([e for e in real if "FT" in e.get("type", "") or "Legacy" in e.get("type", "") or "Reassoc" in e.get("type", "") or "Assoc" in e.get("type", "")]),
+        "deauths": len([e for e in real if "Deauth" in e.get("type", "") or "Disassoc" in e.get("type", "")]),
+        "avg_ft":  round(sum(ft_times) / len(ft_times)) if ft_times else 0,
+    }
+
 @app.get("/api/roaming/events")
 async def roaming_events(since: int = 0):
-    clients = list(set(e["mac"] for e in _ROAM_EVENTS if e.get("mac")))
-    stats = {
-        "total":   len(_ROAM_EVENTS),
-        "roams":   len([e for e in _ROAM_EVENTS if "FT" in e.get("type","") or "Legacy" in e.get("type","")]),
-        "deauths": len([e for e in _ROAM_EVENTS if "Deauth" in e.get("type","")]),
-        "avg_ft":  0,
-    }
-    ft_times = [e["ft_ms"] for e in _ROAM_EVENTS if e.get("ft_ms",0) > 0]
-    if ft_times:
-        stats["avg_ft"] = round(sum(ft_times) / len(ft_times))
+    clients = list(set(e["mac"] for e in _ROAM_EVENTS if e.get("mac") and e["mac"] != "system"))
+    stats = _roam_compute_stats()
     return {
         "running":              _ROAM_RUNNING,
         "events":               _ROAM_EVENTS[:50],
@@ -3378,17 +3380,11 @@ async def roaming_status():
     mon = _ROAM_IFACE or get_monitor_iface()
     if not mon or not _iface_exists(mon):
         return _no_hw_response("wifi_monitor")
-    ft_times = [e["ft_ms"] for e in _ROAM_EVENTS if e.get("ft_ms", 0) > 0]
-    stats = {
-        "total":   len(_ROAM_EVENTS),
-        "roams":   len([e for e in _ROAM_EVENTS if "FT" in e.get("type", "") or "Legacy" in e.get("type", "") or "Reassoc" in e.get("type", "") or "Assoc" in e.get("type", "")]),
-        "deauths": len([e for e in _ROAM_EVENTS if "Deauth" in e.get("type", "") or "Disassoc" in e.get("type", "")]),
-        "avg_ft":  round(sum(ft_times) / len(ft_times)) if ft_times else 0,
-    }
+    stats = _roam_compute_stats()
     return {
         "running":              _ROAM_RUNNING,
         "iface":                _ROAM_IFACE or mon,
-        "events":               len(_ROAM_EVENTS),
+        "events":               stats["total"],
         "stats":                stats,
         "hop_channels":         list(_ROAM_ACTIVE_CHANNELS),
         "hop_dwell_ms":         _ROAM_HOP_MS,
