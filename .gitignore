@@ -1,72 +1,13 @@
 *.kismet
-*.pcap
-*.pcapng
-__pycache__/
-*.pyc
-
-# pktvisor binaries — installed via build_installer or downloaded
-bin/pktvisord
-bin/pktvisor-cli
-bin/pktvisor-reader
-# Kismet captures
-*.kismet
 *.kismet-journal
 captures/
-
-# Logs
 logs/
-*.log
-
-# SSL certs
 ssl/
-
-# Data (settings, tokens)
 data/
-
-# Temp files
-J
+reports/
 *.tmp
 *.bak
-
-# Python
 __pycache__/
 *.pyc
 venv/
-
-# Reports generados
-reports/
-
-# OTA captures
 ui/assets/ota/
-# Kismet captures
-*.kismet
-*.kismet-journal
-captures/
-
-# Logs
-logs/
-*.log
-
-# SSL certs
-ssl/
-
-# Data (settings, tokens)
-data/
-
-# Temp files
-J
-*.tmp
-*.bak
-
-# Python
-__pycache__/
-*.pyc
-venv/
-
-# Reports generados
-reports/
-
-# OTA captures
-ui/assets/ota/
-CLAUDE.md
-venv/
