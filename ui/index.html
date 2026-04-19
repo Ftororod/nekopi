@@ -3352,12 +3352,24 @@ input,select,textarea { font-family:inherit; }
           </div>
           <!-- Channel selector grid -->
           <div id="roamChannelGrid" style="margin-bottom:10px">
-            <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+            <div class="form-group" style="margin-bottom:8px">
+              <label class="form-label">Channel Width Filter</label>
+              <select class="form-input form-select" id="roamChWidth" onchange="roamChWidthChanged()" style="width:180px">
+                <option value="auto">Auto (all channels)</option>
+                <option value="20">20 MHz</option>
+                <option value="40">40 MHz</option>
+                <option value="80">80 MHz</option>
+                <option value="160">160 MHz</option>
+              </select>
+              <div class="field-note">For roaming analysis, 20MHz is recommended — Auth/Assoc frames always use the primary channel</div>
+            </div>
+            <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
               <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="roamChSelectAll()">Select all</button>
               <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="roamChDeselectAll()">Deselect all</button>
               <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="roamChSelectBand('2.4GHz')">All 2.4GHz</button>
               <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="roamChSelectBand('5GHz')">All 5GHz</button>
               <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="roamChSelectBand('6GHz')">All 6GHz</button>
+              <span id="roamChSummary" style="font-size:10px;color:var(--cyan);margin-left:4px"></span>
             </div>
             <div id="roamChList" style="font-size:10px;color:var(--text2)">Loading channels...</div>
           </div>
@@ -11202,6 +11214,29 @@ function roamLoadChannels(){
   });
 }
 
+var _ROAM_CH_WIDTH_GROUPS = {
+  '20': {
+    '2.4GHz': [[1],[6],[11]],
+    '5GHz': [[36],[40],[44],[48],[52],[56],[60],[64],[100],[104],[108],[112],[116],[120],[124],[128],[132],[136],[140],[144],[149],[153],[157],[161],[165]],
+    '6GHz': 'all'
+  },
+  '40': {
+    '2.4GHz': [[1],[6],[11]],
+    '5GHz': [[36,40],[44,48],[52,56],[60,64],[100,104],[108,112],[116,120],[124,128],[132,136],[140,144],[149,153],[157,161]],
+    '6GHz': 'all'
+  },
+  '80': {
+    '2.4GHz': [[1],[6],[11]],
+    '5GHz': [[36,40,44,48],[52,56,60,64],[100,104,108,112],[116,120,124,128],[132,136,140,144],[149,153,157,161]],
+    '6GHz': 'all'
+  },
+  '160': {
+    '2.4GHz': [[1],[6],[11]],
+    '5GHz': [[36,40,44,48,52,56,60,64],[100,104,108,112,116,120,124,128],[149,153,157,161,165,169,173,177]],
+    '6GHz': 'all'
+  }
+};
+
 function _renderRoamChGrid(channels){
   var el = document.getElementById('roamChList');
   if(!el) return;
@@ -11212,25 +11247,73 @@ function _renderRoamChGrid(channels){
     html += '<div style="margin-bottom:6px"><strong style="color:var(--white);font-size:10px">'+band+'</strong><div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:2px">';
     chs.forEach(function(ch){
       html += '<label style="display:inline-flex;align-items:center;gap:2px;padding:1px 4px;background:var(--bg3);border-radius:3px;cursor:pointer">'
-            + '<input type="checkbox" value="'+ch+'" checked data-band="'+band+'" style="margin:0;width:12px;height:12px"> '+ch
+            + '<input type="checkbox" value="'+ch+'" checked data-band="'+band+'" onchange="roamChUpdateSummary()" style="margin:0;width:12px;height:12px"> '+ch
             + '</label>';
     });
     html += '</div></div>';
   });
   el.innerHTML = html || '<span class="t-muted">No channels detected</span>';
+  roamChUpdateSummary();
+}
+
+function roamChUpdateSummary(){
+  var cbs = document.querySelectorAll('#roamChList input[type=checkbox]:checked');
+  var total = document.querySelectorAll('#roamChList input[type=checkbox]').length;
+  var sel = cbs.length;
+  var el = document.getElementById('roamChSummary');
+  if(!el) return;
+  var w = (document.getElementById('roamChWidth')||{}).value||'auto';
+  var label = sel+'/'+total+' channels';
+  if(w !== 'auto') label += ' ('+w+'MHz groups)';
+  el.textContent = label;
 }
 
 function roamChSelectAll(){
   document.querySelectorAll('#roamChList input[type=checkbox]').forEach(function(cb){ cb.checked=true; });
+  roamChUpdateSummary();
 }
 function roamChDeselectAll(){
   document.querySelectorAll('#roamChList input[type=checkbox]').forEach(function(cb){ cb.checked=false; });
+  roamChUpdateSummary();
 }
 function roamChSelectBand(band){
   document.querySelectorAll('#roamChList input[type=checkbox]').forEach(function(cb){
     if(cb.dataset.band===band) cb.checked=true;
   });
+  roamChUpdateSummary();
 }
+
+function roamChWidthChanged(){
+  var w = (document.getElementById('roamChWidth')||{}).value;
+  if(w === 'auto'){
+    roamChSelectAll();
+    return;
+  }
+  var groups = _ROAM_CH_WIDTH_GROUPS[w];
+  if(!groups) return;
+  // First deselect all
+  document.querySelectorAll('#roamChList input[type=checkbox]').forEach(function(cb){ cb.checked=false; });
+  // Then select channels that belong to width groups
+  ['2.4GHz','5GHz','6GHz'].forEach(function(band){
+    var bandGroups = groups[band];
+    if(bandGroups === 'all'){
+      document.querySelectorAll('#roamChList input[type=checkbox]').forEach(function(cb){
+        if(cb.dataset.band === band) cb.checked = true;
+      });
+      return;
+    }
+    if(!bandGroups) return;
+    var wanted = {};
+    bandGroups.forEach(function(grp){ grp.forEach(function(ch){ wanted[ch] = true; }); });
+    document.querySelectorAll('#roamChList input[type=checkbox]').forEach(function(cb){
+      if(cb.dataset.band === band && wanted[parseInt(cb.value)]){
+        cb.checked = true;
+      }
+    });
+  });
+  roamChUpdateSummary();
+}
+
 function roamChannelModeChanged(){
   var mode = (document.getElementById('roamChannel')||{}).value;
   var grid = document.getElementById('roamChannelGrid');
