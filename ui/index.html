@@ -949,6 +949,9 @@ input,select,textarea { font-family:inherit; }
     <button class="nav-item" data-page="security">
       <span class="nav-icon">🔒</span><span class="nav-label">Security Audit</span>
     </button>
+    <button class="nav-item" data-page="radius">
+      <span class="nav-icon">🔐</span><span class="nav-label">RADIUS Server</span>
+    </button>
     <button class="nav-item" data-page="toolkit">
       <span class="nav-icon">🛠️</span><span class="nav-label">Rescue Toolkit</span>
     </button>
@@ -4882,6 +4885,173 @@ input,select,textarea { font-family:inherit; }
     </div>
 
   </div>
+
+  <!-- ═══════════════════════════════
+       RADIUS SERVER
+  ═══════════════════════════════ -->
+  <div class="page" id="page-radius">
+    <div class="section-title">🔐 RADIUS Server</div>
+    <div class="section-sub">FreeRADIUS test server · EAP/PEAP · 802.1X authentication testing</div>
+
+    <!-- Tabs -->
+    <div style="display:flex;gap:0;margin-bottom:14px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+      <button id="radTabStatus"  onclick='radSwitchTab("status")'  style="flex:1;padding:10px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;background:rgba(33,150,243,.12);color:var(--blue-b);font-family:inherit">Status</button>
+      <button id="radTabUsers"   onclick='radSwitchTab("users")'   style="flex:1;padding:10px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;border-left:1px solid var(--border);background:var(--bg2);color:var(--text2);font-family:inherit">Users</button>
+      <button id="radTabClients" onclick='radSwitchTab("clients")' style="flex:1;padding:10px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;border-left:1px solid var(--border);background:var(--bg2);color:var(--text2);font-family:inherit">NAS Clients</button>
+      <button id="radTabTest"    onclick='radSwitchTab("test")'    style="flex:1;padding:10px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;border-left:1px solid var(--border);background:var(--bg2);color:var(--text2);font-family:inherit">Test Auth</button>
+    </div>
+
+    <!-- Tab 1: Status & Control -->
+    <div id="radPanelStatus">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Server Status</div>
+          <span class="status-badge sb-idle" id="radStatusBadge"><span class="sb-dot"></span>Stopped</span>
+        </div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+            <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center">
+              <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px">Uptime</div>
+              <div style="font-size:16px;color:var(--white);font-weight:700" id="radUptime">--</div>
+            </div>
+            <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center">
+              <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px">Auth Port</div>
+              <div style="font-size:16px;color:var(--cyan);font-weight:700">1812</div>
+            </div>
+            <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center">
+              <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px">Acct Port</div>
+              <div style="font-size:16px;color:var(--cyan);font-weight:700">1813</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
+            <span style="font-size:11px;color:var(--text2)">Listen IP:</span>
+            <strong style="color:var(--white);font-family:monospace" id="radListenIP">--</strong>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px">
+            <span style="font-size:11px;color:var(--text2)">EAP Methods:</span>
+            <span id="radEapPills" style="display:flex;gap:4px"></span>
+          </div>
+          <div class="divider"></div>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button class="btn btn-primary btn-sm" onclick="radStart()">Start</button>
+            <button class="btn btn-danger btn-sm" onclick="radStop()">Stop</button>
+            <button class="btn btn-ghost btn-sm" onclick="radRestart()">Restart</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Certificate -->
+      <div class="card" style="margin-top:12px">
+        <div class="card-header"><div class="card-title">EAP Certificate</div></div>
+        <div class="card-body">
+          <div style="font-size:12px;color:var(--text2);line-height:1.8">
+            <div><strong style="color:var(--white)">Subject:</strong> <span id="radCertSubject">--</span></div>
+            <div><strong style="color:var(--white)">Expires:</strong> <span id="radCertExpires">--</span></div>
+            <div><strong style="color:var(--white)">Fingerprint:</strong> <span id="radCertFP" style="font-family:monospace;font-size:10px">--</span></div>
+          </div>
+          <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="radRegenCert()">Regenerate Certificate</button>
+        </div>
+      </div>
+
+      <!-- Log tail -->
+      <div class="card" style="margin-top:12px">
+        <div class="card-header"><div class="card-title">Log Tail</div><button class="btn btn-ghost btn-sm" onclick="radLoadLogs()">Refresh</button></div>
+        <div class="card-body">
+          <pre id="radLogOutput" style="max-height:200px;overflow-y:auto;font-size:10px;color:var(--text2);margin:0;white-space:pre-wrap;word-break:break-all">Loading...</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: Users -->
+    <div id="radPanelUsers" style="display:none">
+      <div class="card">
+        <div class="card-header"><div class="card-title">RADIUS Users</div></div>
+        <div class="card-body">
+          <table class="tbl" style="width:100%;margin-bottom:12px">
+            <thead><tr><th>Username</th><th>Group</th><th>Comment</th><th style="width:60px"></th></tr></thead>
+            <tbody id="radUsersBody"><tr><td colspan="4" class="t-muted" style="text-align:center;padding:20px">No users configured</td></tr></tbody>
+          </table>
+          <div class="divider"></div>
+          <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Add User</div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Username</label><input class="form-input" id="radNewUser" placeholder="jsmith"></div>
+            <div class="form-group"><label class="form-label">Password</label><input class="form-input" id="radNewPass" placeholder="P@ssw0rd!" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Group</label><input class="form-input" id="radNewGroup" placeholder="corp"></div>
+            <div class="form-group"><label class="form-label">Comment</label><input class="form-input" id="radNewComment" placeholder="Test user"></div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="radAddUser()">+ Add User</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 3: NAS Clients -->
+    <div id="radPanelClients" style="display:none">
+      <div class="card">
+        <div class="card-header"><div class="card-title">NAS Clients</div></div>
+        <div class="card-body">
+          <table class="tbl" style="width:100%;margin-bottom:12px">
+            <thead><tr><th>Name</th><th>IP Address</th><th>Shared Secret</th><th>Description</th><th style="width:60px"></th></tr></thead>
+            <tbody id="radClientsBody"><tr><td colspan="5" class="t-muted" style="text-align:center;padding:20px">No NAS clients configured</td></tr></tbody>
+          </table>
+          <div style="background:rgba(33,150,243,.07);border:1px solid rgba(33,150,243,.2);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px;font-size:11px;color:var(--text2);line-height:1.7">
+            Point your AP or switch RADIUS settings to <strong style="color:var(--white)" id="radNasHelpIP">NekoPi IP</strong> port <strong style="color:var(--white)">1812</strong> with the shared secret configured below.
+          </div>
+          <div class="divider"></div>
+          <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Add NAS Client</div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Name</label><input class="form-input" id="radNewClientName" placeholder="Meraki-AP-01"></div>
+            <div class="form-group"><label class="form-label">IP Address</label><input class="form-input" id="radNewClientIP" placeholder="192.168.1.50" style="font-family:monospace"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Shared Secret</label><input class="form-input" id="radNewClientSecret" placeholder="nekopi" value="nekopi"></div>
+            <div class="form-group"><label class="form-label">Description</label><input class="form-input" id="radNewClientDesc" placeholder="Meraki MR46"></div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary btn-sm" onclick="radAddClient()">+ Add Client</button>
+            <button class="btn btn-ghost btn-sm" onclick="radPresetNekoPiIP()">Use NekoPi IP</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 4: Test Authentication -->
+    <div id="radPanelTest" style="display:none">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Test Authentication</div></div>
+        <div class="card-body">
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Username</label><input class="form-input" id="radTestUser" placeholder="jsmith"></div>
+            <div class="form-group"><label class="form-label">Password</label><input class="form-input" id="radTestPass" placeholder="P@ssw0rd!"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">NAS Client</label>
+              <select class="form-input form-select" id="radTestNas">
+                <option value="127.0.0.1">localhost (direct)</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button class="btn btn-primary btn-sm" onclick="radTestAuth()">Test Authentication</button>
+            <button class="btn btn-ghost btn-sm" onclick="radTestFirst()">Test with first user</button>
+          </div>
+          <!-- Result -->
+          <div id="radTestResult" style="display:none">
+            <div class="divider"></div>
+            <div id="radTestStatus" style="font-size:16px;font-weight:700;margin-bottom:8px"></div>
+            <div id="radTestReason" style="font-size:11px;color:var(--text2);margin-bottom:8px"></div>
+            <details>
+              <summary style="font-size:11px;color:var(--text2);cursor:pointer">Raw radtest output</summary>
+              <pre id="radTestRaw" style="font-size:10px;color:var(--text2);margin-top:6px;white-space:pre-wrap;word-break:break-all"></pre>
+            </details>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="page" id="page-about">
     <div class="section-title">🐱 About</div>
     <div class="section-sub" id="abSubtitle">NekoPi Field Unit · cargando…</div>
@@ -6143,6 +6313,7 @@ const pages = {
     autoSecTarget();
     populateMonitorIfaceSelect('secWifiIface', { extraOptions: [{ value:'none', label:'Skip WiFi audit' }] });
   } },
+  radius:     { title:'RADIUS Server',     sub:'FreeRADIUS test server · EAP/PEAP · 802.1X', onload: function(){ radInit(); } },
   toolkit:    { title:'Rescue Toolkit',    sub:'DHCP · TFTP · MAC · ARP · Captive · Static IP · Syslog · WoL', onload: function(){ tkInit(); } },
   path:       { title:'Path Analyzer',     sub:'Traceroute continuo · dual interface · WiFi vs ETH' },
   sensor:     { title:'Sensor Mode',       sub:'pktvisor live · PCAP snapshot · InfluxDB · Grafana', onload: function(){
@@ -14450,6 +14621,263 @@ function addRoamEvent(event) {
 
 document.addEventListener('DOMContentLoaded', function() { try { nkInit(); } catch(e) {} });
 
+// ═══════════════════════════════════════════════════════════════
+//  RADIUS SERVER
+// ═══════════════════════════════════════════════════════════════
+
+var _radLogIv = null;
+
+function radSwitchTab(which){
+  var tabs = ['status','users','clients','test'];
+  tabs.forEach(function(t){
+    var panel = document.getElementById('radPanel' + t.charAt(0).toUpperCase() + t.slice(1));
+    var btn   = document.getElementById('radTab'   + t.charAt(0).toUpperCase() + t.slice(1));
+    if(panel) panel.style.display = (t === which) ? '' : 'none';
+    if(btn){
+      btn.style.background = (t === which) ? 'rgba(33,150,243,.12)' : 'var(--bg2)';
+      btn.style.color      = (t === which) ? 'var(--blue-b)' : 'var(--text2)';
+    }
+  });
+  if(which === 'users')   radLoadUsers();
+  if(which === 'clients') radLoadClients();
+  if(which === 'test')    radLoadTestNas();
+}
+
+function radInit(){
+  radPollStatus();
+  radLoadLogs();
+  clearInterval(_radLogIv);
+  _radLogIv = setInterval(function(){
+    var badge = document.getElementById('radStatusBadge');
+    if(badge && badge.className.indexOf('sb-run') !== -1) radLoadLogs();
+  }, 3000);
+}
+
+function radPollStatus(){
+  fetchAPI('/api/radius/status').then(function(d){
+    if(!d) return;
+    var badge = document.getElementById('radStatusBadge');
+    if(badge){
+      if(d.running){ badge.className='status-badge sb-run';  badge.innerHTML='<span class="sb-dot"></span>Running'; }
+      else         { badge.className='status-badge sb-idle'; badge.innerHTML='<span class="sb-dot"></span>Stopped'; }
+    }
+    var up = document.getElementById('radUptime');
+    if(up) up.textContent = d.running ? (d.uptime || '0s') : '--';
+    var ip = document.getElementById('radListenIP');
+    if(ip) ip.textContent = d.ip || '--';
+    var pills = document.getElementById('radEapPills');
+    if(pills && d.eap_methods){
+      pills.innerHTML = d.eap_methods.map(function(m){
+        return '<span style="background:rgba(33,150,243,.15);color:var(--blue-b);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">'+m+'</span>';
+      }).join('');
+    }
+    var cs = document.getElementById('radCertSubject');
+    if(cs) cs.textContent = d.cert_subject || '--';
+    var ce = document.getElementById('radCertExpires');
+    if(ce) ce.textContent = d.cert_expires || '--';
+    var cf = document.getElementById('radCertFP');
+    if(cf) cf.textContent = d.cert_fingerprint || '--';
+    var help = document.getElementById('radNasHelpIP');
+    if(help) help.textContent = d.ip || 'NekoPi IP';
+  });
+}
+
+function radStart(){
+  fetchAPI('/api/radius/start', {method:'POST'}).then(function(d){
+    if(d && d.ok) showToast('FreeRADIUS started');
+    else showToast('Failed: '+(d&&d.error||d&&d.message||'unknown'));
+    radPollStatus();
+  });
+}
+function radStop(){
+  fetchAPI('/api/radius/stop', {method:'POST'}).then(function(d){
+    if(d && d.ok) showToast('FreeRADIUS stopped');
+    radPollStatus();
+  });
+}
+function radRestart(){
+  fetchAPI('/api/radius/restart', {method:'POST'}).then(function(d){
+    if(d && d.ok) showToast('FreeRADIUS restarted');
+    else showToast('Restart failed');
+    radPollStatus();
+  });
+}
+
+function radLoadLogs(){
+  fetchAPI('/api/radius/logs').then(function(d){
+    var el = document.getElementById('radLogOutput');
+    if(!el || !d) return;
+    var lines = (d.lines || []).slice(-20);
+    el.textContent = lines.length ? lines.join('\n') : 'No log entries';
+    el.scrollTop = el.scrollHeight;
+  });
+}
+
+function radLoadUsers(){
+  fetchAPI('/api/radius/users').then(function(users){
+    var tb = document.getElementById('radUsersBody');
+    if(!tb) return;
+    if(!users || !users.length){
+      tb.innerHTML = '<tr><td colspan="4" class="t-muted" style="text-align:center;padding:20px">No users configured</td></tr>';
+      return;
+    }
+    tb.innerHTML = users.map(function(u){
+      return '<tr><td style="font-family:monospace">'+u.username+'</td><td>'+u.group+'</td><td>'+u.comment+'</td>'
+        +'<td><button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:10px" onclick="radDeleteUser(\''+u.username+'\')">Del</button></td></tr>';
+    }).join('');
+  });
+}
+
+function radAddUser(){
+  var u = (document.getElementById('radNewUser')||{}).value||'';
+  var p = (document.getElementById('radNewPass')||{}).value||'';
+  var g = (document.getElementById('radNewGroup')||{}).value||'';
+  var c = (document.getElementById('radNewComment')||{}).value||'';
+  if(!u||!p){ showToast('Username and password required'); return; }
+  fetch(API_BASE+'/api/radius/users',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({username:u,password:p,group:g,comment:c})})
+  .then(function(r){return r.json();}).then(function(d){
+    if(d&&d.ok){ showToast('User added: '+u); radLoadUsers();
+      ['radNewUser','radNewPass','radNewGroup','radNewComment'].forEach(function(id){var e=document.getElementById(id);if(e)e.value='';});
+    } else showToast('Error: '+(d&&d.error||'failed'));
+  });
+}
+
+function radDeleteUser(username){
+  fetch(API_BASE+'/api/radius/users/'+encodeURIComponent(username),{method:'DELETE'})
+  .then(function(r){return r.json();}).then(function(d){
+    if(d&&d.ok) showToast('User removed: '+username);
+    else showToast('Error: '+(d&&d.error||'failed'));
+    radLoadUsers();
+  });
+}
+
+function radLoadClients(){
+  fetchAPI('/api/radius/clients').then(function(clients){
+    var tb = document.getElementById('radClientsBody');
+    if(!tb) return;
+    if(!clients || !clients.length){
+      tb.innerHTML = '<tr><td colspan="5" class="t-muted" style="text-align:center;padding:20px">No NAS clients configured</td></tr>';
+      return;
+    }
+    tb.innerHTML = clients.map(function(c){
+      return '<tr><td>'+c.name+'</td><td style="font-family:monospace">'+c.ip+'</td><td style="font-family:monospace">'+c.secret+'</td><td>'+c.description+'</td>'
+        +'<td><button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:10px" onclick="radDeleteClient(\''+c.name+'\')">Del</button></td></tr>';
+    }).join('');
+  });
+}
+
+function radAddClient(){
+  var n = (document.getElementById('radNewClientName')||{}).value||'';
+  var i = (document.getElementById('radNewClientIP')||{}).value||'';
+  var s = (document.getElementById('radNewClientSecret')||{}).value||'';
+  var d = (document.getElementById('radNewClientDesc')||{}).value||'';
+  if(!n||!i||!s){ showToast('Name, IP and secret required'); return; }
+  fetch(API_BASE+'/api/radius/clients',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:n,ip:i,secret:s,description:d})})
+  .then(function(r){return r.json();}).then(function(d){
+    if(d&&d.ok){ showToast('Client added: '+n); radLoadClients();
+      ['radNewClientName','radNewClientIP','radNewClientDesc'].forEach(function(id){var e=document.getElementById(id);if(e)e.value='';});
+    } else showToast('Error: '+(d&&d.error||'failed'));
+  });
+}
+
+function radDeleteClient(name){
+  fetch(API_BASE+'/api/radius/clients/'+encodeURIComponent(name),{method:'DELETE'})
+  .then(function(r){return r.json();}).then(function(d){
+    if(d&&d.ok) showToast('Client removed: '+name);
+    else showToast('Error: '+(d&&d.error||'failed'));
+    radLoadClients();
+  });
+}
+
+function radPresetNekoPiIP(){
+  fetchAPI('/api/hw-caps').then(function(caps){
+    if(!caps) return;
+    var testIf = caps.test_iface;
+    if(testIf){
+      fetchAPI('/api/network/info').then(function(d){
+        if(!d||!d.interfaces) return;
+        var iface = d.interfaces.find(function(i){return i.name===testIf;});
+        var ip = (iface && iface.ip) || caps.test_iface || '192.168.99.1';
+        var el = document.getElementById('radNewClientIP');
+        if(el) el.value = ip;
+        showToast('Set IP to '+ip+' ('+testIf+')');
+      });
+    } else {
+      var el = document.getElementById('radNewClientIP');
+      if(el) el.value = '192.168.99.1';
+      showToast('Set IP to 192.168.99.1 (MGMT fallback)');
+    }
+  });
+}
+
+function radLoadTestNas(){
+  fetchAPI('/api/radius/clients').then(function(clients){
+    var sel = document.getElementById('radTestNas');
+    if(!sel) return;
+    var html = '<option value="127.0.0.1">localhost (direct)</option>';
+    if(clients && clients.length){
+      clients.forEach(function(c){
+        html += '<option value="'+c.ip+'">'+c.name+' ('+c.ip+')</option>';
+      });
+    }
+    sel.innerHTML = html;
+  });
+}
+
+function radTestAuth(){
+  var u = (document.getElementById('radTestUser')||{}).value||'';
+  var p = (document.getElementById('radTestPass')||{}).value||'';
+  var n = (document.getElementById('radTestNas')||{}).value||'127.0.0.1';
+  if(!u||!p){ showToast('Username and password required'); return; }
+  var res = document.getElementById('radTestResult');
+  var st  = document.getElementById('radTestStatus');
+  var re  = document.getElementById('radTestReason');
+  var raw = document.getElementById('radTestRaw');
+  if(res) res.style.display = '';
+  if(st) st.innerHTML = '<span style="color:var(--yellow)">Testing...</span>';
+  if(re) re.textContent = '';
+  if(raw) raw.textContent = '';
+  fetch(API_BASE+'/api/radius/test',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({username:u,password:p,nas_ip:n})})
+  .then(function(r){return r.json();}).then(function(d){
+    if(!d) return;
+    if(d.accepted){
+      if(st) st.innerHTML = '<span style="color:var(--green)">&#9989; Access-Accept</span>';
+    } else if(d.reject_reason && d.reject_reason.indexOf('not responding')!==-1){
+      if(st) st.innerHTML = '<span style="color:var(--yellow)">&#9888;&#65039; No response</span>';
+    } else {
+      if(st) st.innerHTML = '<span style="color:var(--red)">&#10060; Access-Reject</span>';
+    }
+    if(re) re.textContent = d.reject_reason || '';
+    if(raw) raw.textContent = d.output || '';
+  }).catch(function(e){
+    if(st) st.innerHTML = '<span style="color:var(--red)">Error</span>';
+    if(re) re.textContent = e.message;
+  });
+}
+
+function radTestFirst(){
+  fetchAPI('/api/radius/users').then(function(users){
+    if(!users||!users.length){ showToast('No users configured'); return; }
+    var u = users[0];
+    var uel = document.getElementById('radTestUser');
+    var pel = document.getElementById('radTestPass');
+    if(uel) uel.value = u.username;
+    if(pel) pel.value = u.password;
+    showToast('Loaded: '+u.username);
+  });
+}
+
+function radRegenCert(){
+  showToast('Regenerating certificate...');
+  fetchAPI('/api/radius/cert/regenerate',{method:'POST'}).then(function(d){
+    if(d&&d.ok) showToast('Certificate regenerated');
+    else showToast('Error: '+(d&&d.error||'failed'));
+    radPollStatus();
+  });
+}
 
 
 </script>

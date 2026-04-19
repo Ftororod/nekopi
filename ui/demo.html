@@ -945,6 +945,9 @@ input,select,textarea { font-family:inherit; }
     <button class="nav-item" data-page="security">
       <span class="nav-icon">🔒</span><span class="nav-label">Security Audit</span>
     </button>
+    <button class="nav-item" data-page="radius">
+      <span class="nav-icon">🔐</span><span class="nav-label">RADIUS Server</span>
+    </button>
     <button class="nav-item" data-page="toolkit">
       <span class="nav-icon">🛠️</span><span class="nav-label">Rescue Toolkit</span>
     </button>
@@ -4876,6 +4879,185 @@ input,select,textarea { font-family:inherit; }
     </div>
 
   </div>
+
+  <!-- ═══════════════════════════════
+       RADIUS SERVER (DEMO)
+  ═══════════════════════════════ -->
+  <div class="page" id="page-radius">
+    <div class="section-title">🔐 RADIUS Server</div>
+    <div class="section-sub">FreeRADIUS test server · EAP/PEAP · 802.1X authentication testing</div>
+
+    <!-- Tabs -->
+    <div style="display:flex;gap:0;margin-bottom:14px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+      <button id="radTabStatus"  onclick='radSwitchTab("status")'  style="flex:1;padding:10px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;background:rgba(33,150,243,.12);color:var(--blue-b);font-family:inherit">Status</button>
+      <button id="radTabUsers"   onclick='radSwitchTab("users")'   style="flex:1;padding:10px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;border-left:1px solid var(--border);background:var(--bg2);color:var(--text2);font-family:inherit">Users</button>
+      <button id="radTabClients" onclick='radSwitchTab("clients")' style="flex:1;padding:10px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;border-left:1px solid var(--border);background:var(--bg2);color:var(--text2);font-family:inherit">NAS Clients</button>
+      <button id="radTabTest"    onclick='radSwitchTab("test")'    style="flex:1;padding:10px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;border-left:1px solid var(--border);background:var(--bg2);color:var(--text2);font-family:inherit">Test Auth</button>
+    </div>
+
+    <!-- Tab 1: Status (demo) -->
+    <div id="radPanelStatus">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Server Status</div>
+          <span class="status-badge sb-run"><span class="sb-dot"></span>Running</span>
+        </div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+            <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center">
+              <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px">Uptime</div>
+              <div style="font-size:16px;color:var(--white);font-weight:700">0d 02:14:33</div>
+            </div>
+            <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center">
+              <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px">Auth Port</div>
+              <div style="font-size:16px;color:var(--cyan);font-weight:700">1812</div>
+            </div>
+            <div style="background:var(--bg3);border-radius:var(--radius);padding:10px;text-align:center">
+              <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px">Acct Port</div>
+              <div style="font-size:16px;color:var(--cyan);font-weight:700">1813</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
+            <span style="font-size:11px;color:var(--text2)">Listen IP:</span>
+            <strong style="color:var(--white);font-family:monospace">192.168.99.1</strong>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px">
+            <span style="font-size:11px;color:var(--text2)">EAP Methods:</span>
+            <span style="display:flex;gap:4px">
+              <span style="background:rgba(33,150,243,.15);color:var(--blue-b);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">PEAP</span>
+              <span style="background:rgba(33,150,243,.15);color:var(--blue-b);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">EAP-TTLS</span>
+              <span style="background:rgba(33,150,243,.15);color:var(--blue-b);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">EAP-MD5</span>
+            </span>
+          </div>
+          <div class="divider"></div>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button class="btn btn-primary btn-sm" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Start</button>
+            <button class="btn btn-danger btn-sm" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Stop</button>
+            <button class="btn btn-ghost btn-sm" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Restart</button>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-header"><div class="card-title">EAP Certificate</div></div>
+        <div class="card-body">
+          <div style="font-size:12px;color:var(--text2);line-height:1.8">
+            <div><strong style="color:var(--white)">Subject:</strong> CN=nekopi-radius</div>
+            <div><strong style="color:var(--white)">Expires:</strong> Apr 16 23:59:59 2027 GMT</div>
+            <div><strong style="color:var(--white)">Fingerprint:</strong> <span style="font-family:monospace;font-size:10px">A3:B4:C5:D6:E7:F8:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB</span></div>
+          </div>
+          <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Regenerate Certificate</button>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-header"><div class="card-title">Log Tail</div></div>
+        <div class="card-body">
+          <pre style="max-height:200px;overflow-y:auto;font-size:10px;color:var(--text2);margin:0;white-space:pre-wrap">Ready to process requests
+Received Access-Request id 1 from 192.168.99.50
+User 'jsmith' authenticated successfully
+Sending Access-Accept to 192.168.99.50</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: Users (demo) -->
+    <div id="radPanelUsers" style="display:none">
+      <div class="card">
+        <div class="card-header"><div class="card-title">RADIUS Users</div></div>
+        <div class="card-body">
+          <table class="tbl" style="width:100%;margin-bottom:12px">
+            <thead><tr><th>Username</th><th>Group</th><th>Comment</th><th style="width:60px"></th></tr></thead>
+            <tbody>
+              <tr><td style="font-family:monospace">jsmith</td><td>corp</td><td>Corp domain user</td><td><button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:10px" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Del</button></td></tr>
+              <tr><td style="font-family:monospace">guest01</td><td>guest</td><td>Guest network test</td><td><button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:10px" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Del</button></td></tr>
+              <tr><td style="font-family:monospace">svc_wifi</td><td>service</td><td>Service account</td><td><button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:10px" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Del</button></td></tr>
+            </tbody>
+          </table>
+          <div class="divider"></div>
+          <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Add User</div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Username</label><input class="form-input" placeholder="jsmith"></div>
+            <div class="form-group"><label class="form-label">Password</label><input class="form-input" placeholder="P@ssw0rd!"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Group</label><input class="form-input" placeholder="corp"></div>
+            <div class="form-group"><label class="form-label">Comment</label><input class="form-input" placeholder="Test user"></div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">+ Add User</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 3: NAS Clients (demo) -->
+    <div id="radPanelClients" style="display:none">
+      <div class="card">
+        <div class="card-header"><div class="card-title">NAS Clients</div></div>
+        <div class="card-body">
+          <table class="tbl" style="width:100%;margin-bottom:12px">
+            <thead><tr><th>Name</th><th>IP Address</th><th>Shared Secret</th><th>Description</th><th style="width:60px"></th></tr></thead>
+            <tbody>
+              <tr><td>Meraki-AP-01</td><td style="font-family:monospace">192.168.99.50</td><td style="font-family:monospace">nekopi</td><td>Meraki MR46</td><td><button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:10px" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Del</button></td></tr>
+              <tr><td>Core-SW-01</td><td style="font-family:monospace">192.168.99.51</td><td style="font-family:monospace">nekopi</td><td>Cisco C9300</td><td><button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:10px" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Del</button></td></tr>
+            </tbody>
+          </table>
+          <div style="background:rgba(33,150,243,.07);border:1px solid rgba(33,150,243,.2);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px;font-size:11px;color:var(--text2);line-height:1.7">
+            Point your AP or switch RADIUS settings to <strong style="color:var(--white)">192.168.99.1</strong> port <strong style="color:var(--white)">1812</strong> with the shared secret configured below.
+          </div>
+          <div class="divider"></div>
+          <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Add NAS Client</div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Name</label><input class="form-input" placeholder="Meraki-AP-01"></div>
+            <div class="form-group"><label class="form-label">IP Address</label><input class="form-input" placeholder="192.168.1.50" style="font-family:monospace"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Shared Secret</label><input class="form-input" placeholder="nekopi" value="nekopi"></div>
+            <div class="form-group"><label class="form-label">Description</label><input class="form-input" placeholder="Meraki MR46"></div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary btn-sm" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">+ Add Client</button>
+            <button class="btn btn-ghost btn-sm" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Use NekoPi IP</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 4: Test Auth (demo) -->
+    <div id="radPanelTest" style="display:none">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Test Authentication</div></div>
+        <div class="card-body">
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Username</label><input class="form-input" value="jsmith"></div>
+            <div class="form-group"><label class="form-label">Password</label><input class="form-input" value="Test1234!"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">NAS Client</label>
+              <select class="form-input form-select">
+                <option>localhost (direct)</option>
+                <option>Meraki-AP-01 (192.168.99.50)</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button class="btn btn-primary btn-sm" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Test Authentication</button>
+            <button class="btn btn-ghost btn-sm" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Test with first user</button>
+          </div>
+          <div class="divider"></div>
+          <div style="font-size:16px;font-weight:700;margin-bottom:8px"><span style="color:var(--green)">&#9989; Access-Accept</span></div>
+          <details>
+            <summary style="font-size:11px;color:var(--text2);cursor:pointer">Raw radtest output</summary>
+            <pre style="font-size:10px;color:var(--text2);margin-top:6px;white-space:pre-wrap">Sending Access-Request of id 204 to 127.0.0.1 port 1812
+  User-Name = "jsmith"
+  User-Password = "Test1234!"
+  NAS-IP-Address = 127.0.0.1
+  NAS-Port = 0
+Received Access-Accept of id 204 from 127.0.0.1:1812 to 127.0.0.1</pre>
+          </details>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="page" id="page-about">
     <div class="section-title">🐱 About</div>
     <div class="section-sub" id="abSubtitle">NekoPi Field Unit · cargando…</div>
@@ -6195,6 +6377,7 @@ const pages = {
   wired:      { title:'Wired / LAN',       sub:'LLDP · VLAN · iperf3 · 802.1X · VoIP · DHCP · DNS · Captive' },
   iot:        { title:'IoT & Sensors',     sub:'MQTT · LoRa · BLE · v1.1' },
   security:   { title:'Security Audit',    sub:'Network · Wireless · Wired · Compliance', onload: function(){ autoSecTarget(); } },
+  radius:     { title:'RADIUS Server',     sub:'FreeRADIUS test server · EAP/PEAP · 802.1X' },
   toolkit:    { title:'Rescue Toolkit',    sub:'DHCP · TFTP · MAC · ARP · Captive · Static IP · Syslog · WoL', onload: function(){ tkInit(); } },
   path:       { title:'Path Analyzer',     sub:'Traceroute continuo · dual interface · WiFi vs ETH' },
   sensor:     { title:'Sensor Mode',       sub:'pktvisor live · PCAP snapshot · InfluxDB · Grafana', onload: function(){
@@ -14207,6 +14390,19 @@ document.addEventListener('DOMContentLoaded', function() {
   } catch(e) {}
 });
 
+// ── RADIUS tab switching (demo) ──
+function radSwitchTab(which){
+  var tabs = ['status','users','clients','test'];
+  tabs.forEach(function(t){
+    var panel = document.getElementById('radPanel' + t.charAt(0).toUpperCase() + t.slice(1));
+    var btn   = document.getElementById('radTab'   + t.charAt(0).toUpperCase() + t.slice(1));
+    if(panel) panel.style.display = (t === which) ? '' : 'none';
+    if(btn){
+      btn.style.background = (t === which) ? 'rgba(33,150,243,.12)' : 'var(--bg2)';
+      btn.style.color      = (t === which) ? 'var(--blue-b)' : 'var(--text2)';
+    }
+  });
+}
 
 
 </script>

@@ -9169,3 +9169,437 @@ async def settings_set(request: Request):
         cur.pop("ui_lang")
     _settings_save(cur)
     return {"ok": True}
+
+
+# ═══════════════════════════════════════════════════════════════
+#  FREERADIUS TEST SERVER
+# ═══════════════════════════════════════════════════════════════
+
+_RADIUS_CONF_DIR   = Path("/etc/freeradius/3.0")
+_RADIUS_USERS_FILE = _RADIUS_CONF_DIR / "users.d" / "nekopi"
+_RADIUS_CLIENTS_FILE = _RADIUS_CONF_DIR / "clients.d" / "nekopi"
+_RADIUS_CERT_DIR   = _RADIUS_CONF_DIR / "certs"
+_RADIUS_JSON       = BASE_DIR / "data" / "radius.json"
+_RADIUS_LOG        = Path("/var/log/freeradius/radius.log")
+
+def _radius_load_settings() -> dict:
+    defaults = {
+        "enabled": False,
+        "eap_methods": ["PEAP", "EAP-TTLS", "EAP-MD5"],
+        "default_secret": "nekopi",
+        "cert_cn": "nekopi-radius",
+    }
+    try:
+        if _RADIUS_JSON.exists():
+            d = json.loads(_RADIUS_JSON.read_text())
+            defaults.update(d)
+    except Exception:
+        pass
+    return defaults
+
+def _radius_save_settings(cfg: dict):
+    try:
+        _RADIUS_JSON.parent.mkdir(parents=True, exist_ok=True)
+        _RADIUS_JSON.write_text(json.dumps(cfg, indent=2))
+    except Exception:
+        pass
+
+def _radius_is_running() -> tuple:
+    """Returns (running: bool, pid: int|None)."""
+    try:
+        r = subprocess.run(["pgrep", "-x", "freeradius"], capture_output=True, text=True, timeout=3)
+        if r.returncode == 0 and r.stdout.strip():
+            pid = int(r.stdout.strip().splitlines()[0])
+            return True, pid
+    except Exception:
+        pass
+    return False, None
+
+def _radius_uptime() -> str:
+    running, pid = _radius_is_running()
+    if not running or not pid:
+        return ""
+    try:
+        r = subprocess.run(["ps", "-p", str(pid), "-o", "etimes="],
+                           capture_output=True, text=True, timeout=3)
+        secs = int(r.stdout.strip())
+        d, rem = divmod(secs, 86400)
+        h, rem = divmod(rem, 3600)
+        m, s = divmod(rem, 60)
+        return f"{d}d {h:02d}:{m:02d}:{s:02d}"
+    except Exception:
+        return ""
+
+def _radius_parse_users() -> list[dict]:
+    users = []
+    try:
+        if not _RADIUS_USERS_FILE.exists():
+            return []
+        for raw_line in _RADIUS_USERS_FILE.read_text().splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            # Format: username  Cleartext-Password := "password"   # group | comment
+            m = re.match(
+                r'^(\S+)\s+Cleartext-Password\s*:=\s*"([^"]*)"\s*(?:#\s*(.*))?$',
+                line
+            )
+            if m:
+                comment_part = (m.group(3) or "").strip()
+                group = ""
+                comment = comment_part
+                if "|" in comment_part:
+                    parts = comment_part.split("|", 1)
+                    group = parts[0].strip()
+                    comment = parts[1].strip()
+                users.append({
+                    "username": m.group(1),
+                    "password": m.group(2),
+                    "group": group,
+                    "comment": comment,
+                })
+    except Exception:
+        pass
+    return users
+
+def _radius_write_users(users: list[dict]):
+    lines = ["# NekoPi RADIUS test users — managed by NekoPi API\n"]
+    for u in users:
+        comment = ""
+        if u.get("group") or u.get("comment"):
+            comment = f'  # {u.get("group", "")} | {u.get("comment", "")}'
+        lines.append(f'{u["username"]}  Cleartext-Password := "{u["password"]}"{comment}\n')
+    tmp = "/tmp/nekopi_radius_users"
+    Path(tmp).write_text("".join(lines))
+    subprocess.run(["sudo", "mkdir", "-p", str(_RADIUS_USERS_FILE.parent)],
+                   capture_output=True, text=True, timeout=5)
+    subprocess.run(["sudo", "cp", tmp, str(_RADIUS_USERS_FILE)],
+                   capture_output=True, text=True, timeout=5)
+    subprocess.run(["sudo", "chown", "freerad:freerad", str(_RADIUS_USERS_FILE)],
+                   capture_output=True, text=True, timeout=5)
+    subprocess.run(["sudo", "chmod", "640", str(_RADIUS_USERS_FILE)],
+                   capture_output=True, text=True, timeout=5)
+
+def _radius_parse_clients() -> list[dict]:
+    clients = []
+    try:
+        if not _RADIUS_CLIENTS_FILE.exists():
+            return []
+        text = _RADIUS_CLIENTS_FILE.read_text()
+        # Parse: client <name> { ipaddr = ... \n secret = ... \n shortname = ... }
+        for m in re.finditer(
+            r'client\s+(\S+)\s*\{([^}]*)\}', text, re.DOTALL
+        ):
+            name = m.group(1)
+            block = m.group(2)
+            ip = re.search(r'ipaddr\s*=\s*(\S+)', block)
+            secret = re.search(r'secret\s*=\s*(\S+)', block)
+            desc = re.search(r'shortname\s*=\s*(.+)', block)
+            clients.append({
+                "name": name,
+                "ip": ip.group(1) if ip else "",
+                "secret": secret.group(1) if secret else "",
+                "description": desc.group(1).strip() if desc else "",
+            })
+    except Exception:
+        pass
+    return clients
+
+def _radius_write_clients(clients: list[dict]):
+    lines = ["# NekoPi RADIUS NAS clients — managed by NekoPi API\n\n"]
+    for c in clients:
+        lines.append(f'client {c["name"]} {{\n')
+        lines.append(f'    ipaddr    = {c["ip"]}\n')
+        lines.append(f'    secret    = {c["secret"]}\n')
+        if c.get("description"):
+            lines.append(f'    shortname = {c["description"]}\n')
+        lines.append("}\n\n")
+    tmp = "/tmp/nekopi_radius_clients"
+    Path(tmp).write_text("".join(lines))
+    subprocess.run(["sudo", "mkdir", "-p", str(_RADIUS_CLIENTS_FILE.parent)],
+                   capture_output=True, text=True, timeout=5)
+    subprocess.run(["sudo", "cp", tmp, str(_RADIUS_CLIENTS_FILE)],
+                   capture_output=True, text=True, timeout=5)
+    subprocess.run(["sudo", "chown", "freerad:freerad", str(_RADIUS_CLIENTS_FILE)],
+                   capture_output=True, text=True, timeout=5)
+    subprocess.run(["sudo", "chmod", "640", str(_RADIUS_CLIENTS_FILE)],
+                   capture_output=True, text=True, timeout=5)
+
+def _radius_get_cert_info() -> dict:
+    cert_file = _RADIUS_CERT_DIR / "server.pem"
+    info = {"subject": "", "issuer": "", "expires": "", "fingerprint": ""}
+    if not cert_file.exists():
+        return info
+    try:
+        r = subprocess.run(
+            ["openssl", "x509", "-in", str(cert_file),
+             "-noout", "-subject", "-issuer", "-enddate", "-fingerprint"],
+            capture_output=True, text=True, timeout=5
+        )
+        for line in r.stdout.splitlines():
+            if line.startswith("subject="):
+                info["subject"] = line.split("=", 1)[1].strip()
+            elif line.startswith("issuer="):
+                info["issuer"] = line.split("=", 1)[1].strip()
+            elif line.startswith("notAfter="):
+                info["expires"] = line.split("=", 1)[1].strip()
+            elif "Fingerprint=" in line:
+                info["fingerprint"] = line.split("=", 1)[1].strip()
+    except Exception:
+        pass
+    return info
+
+def _radius_restart():
+    subprocess.run(["sudo", "systemctl", "restart", "freeradius"],
+                   capture_output=True, text=True, timeout=10)
+
+def _radius_get_listen_ip() -> str:
+    """Return the IP that NAS clients should point at (TEST iface, fallback MGMT)."""
+    test_if = get_test_iface()
+    if test_if:
+        ip_out = run_cmd(["ip", "-4", "addr", "show", test_if])
+        m = re.search(r"inet\s+([\d.]+)/", ip_out)
+        if m:
+            return m.group(1)
+    mgmt_if = get_mgmt_iface()
+    if mgmt_if:
+        ip_out = run_cmd(["ip", "-4", "addr", "show", mgmt_if])
+        m = re.search(r"inet\s+([\d.]+)/", ip_out)
+        if m:
+            return m.group(1)
+    return "192.168.99.1"
+
+
+# ── RADIUS endpoints ─────────────────────────────────────────────────
+
+@app.get("/api/radius/status")
+async def radius_status():
+    running, pid = _radius_is_running()
+    cert = _radius_get_cert_info()
+    cfg = _radius_load_settings()
+    return {
+        "running": running,
+        "pid": pid,
+        "uptime": _radius_uptime() if running else "",
+        "ip": _radius_get_listen_ip(),
+        "port": 1812,
+        "auth_port": 1812,
+        "acct_port": 1813,
+        "cert_expires": cert.get("expires", ""),
+        "cert_subject": cert.get("subject", ""),
+        "cert_fingerprint": cert.get("fingerprint", ""),
+        "clients": _radius_parse_clients(),
+        "users": _radius_parse_users(),
+        "eap_methods": cfg.get("eap_methods", []),
+    }
+
+@app.post("/api/radius/start")
+async def radius_start():
+    running, _ = _radius_is_running()
+    if running:
+        return {"ok": True, "message": "FreeRADIUS already running"}
+    try:
+        subprocess.run(
+            ["sudo", "systemctl", "start", "freeradius"],
+            capture_output=True, text=True, timeout=10
+        )
+        await asyncio.sleep(1)
+        running, _ = _radius_is_running()
+        if running:
+            return {"ok": True, "message": "FreeRADIUS started"}
+        return {"ok": False, "error": "FreeRADIUS failed to start — check logs"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.post("/api/radius/stop")
+async def radius_stop():
+    try:
+        subprocess.run(
+            ["sudo", "systemctl", "stop", "freeradius"],
+            capture_output=True, text=True, timeout=10
+        )
+        await asyncio.sleep(0.5)
+        return {"ok": True, "message": "FreeRADIUS stopped"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.post("/api/radius/restart")
+async def radius_restart():
+    try:
+        _radius_restart()
+        await asyncio.sleep(1)
+        running, _ = _radius_is_running()
+        return {"ok": running, "message": "FreeRADIUS restarted" if running else "Restart failed"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.get("/api/radius/logs")
+async def radius_logs():
+    try:
+        # Try journal first (more reliable)
+        out = run_cmd(["journalctl", "-u", "freeradius", "-n", "100", "--no-pager"], timeout=5)
+        if out:
+            return {"ok": True, "lines": out.splitlines()[-100:]}
+        # Fallback to log file
+        if _RADIUS_LOG.exists():
+            lines = _RADIUS_LOG.read_text().splitlines()[-100:]
+            return {"ok": True, "lines": lines}
+        return {"ok": True, "lines": []}
+    except Exception as e:
+        return {"ok": False, "lines": [], "error": str(e)}
+
+@app.get("/api/radius/users")
+async def radius_users_list():
+    return _radius_parse_users()
+
+@app.post("/api/radius/users")
+async def radius_users_add(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    username = (body.get("username") or "").strip()
+    password = (body.get("password") or "").strip()
+    if not username or not password:
+        return JSONResponse({"ok": False, "error": "username and password required"}, status_code=400)
+    if not re.match(r'^[a-zA-Z0-9._@-]+$', username):
+        return JSONResponse({"ok": False, "error": "Invalid username characters"}, status_code=400)
+    users = _radius_parse_users()
+    if any(u["username"] == username for u in users):
+        return JSONResponse({"ok": False, "error": f"User '{username}' already exists"}, status_code=409)
+    users.append({
+        "username": username,
+        "password": password,
+        "group": (body.get("group") or "").strip(),
+        "comment": (body.get("comment") or "").strip(),
+    })
+    _radius_write_users(users)
+    running, _ = _radius_is_running()
+    if running:
+        _radius_restart()
+    return {"ok": True, "message": f"User '{username}' added"}
+
+@app.delete("/api/radius/users/{username}")
+async def radius_users_delete(username: str):
+    users = _radius_parse_users()
+    new_users = [u for u in users if u["username"] != username]
+    if len(new_users) == len(users):
+        return JSONResponse({"ok": False, "error": f"User '{username}' not found"}, status_code=404)
+    _radius_write_users(new_users)
+    running, _ = _radius_is_running()
+    if running:
+        _radius_restart()
+    return {"ok": True, "message": f"User '{username}' removed"}
+
+@app.get("/api/radius/clients")
+async def radius_clients_list():
+    return _radius_parse_clients()
+
+@app.post("/api/radius/clients")
+async def radius_clients_add(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    name = (body.get("name") or "").strip()
+    ip = (body.get("ip") or "").strip()
+    secret = (body.get("secret") or "").strip()
+    if not name or not ip or not secret:
+        return JSONResponse({"ok": False, "error": "name, ip and secret required"}, status_code=400)
+    if not re.match(r'^[a-zA-Z0-9._-]+$', name):
+        return JSONResponse({"ok": False, "error": "Invalid client name"}, status_code=400)
+    clients = _radius_parse_clients()
+    if any(c["name"] == name for c in clients):
+        return JSONResponse({"ok": False, "error": f"Client '{name}' already exists"}, status_code=409)
+    clients.append({
+        "name": name,
+        "ip": ip,
+        "secret": secret,
+        "description": (body.get("description") or "").strip(),
+    })
+    _radius_write_clients(clients)
+    running, _ = _radius_is_running()
+    if running:
+        _radius_restart()
+    return {"ok": True, "message": f"Client '{name}' added"}
+
+@app.delete("/api/radius/clients/{name}")
+async def radius_clients_delete(name: str):
+    clients = _radius_parse_clients()
+    new_clients = [c for c in clients if c["name"] != name]
+    if len(new_clients) == len(clients):
+        return JSONResponse({"ok": False, "error": f"Client '{name}' not found"}, status_code=404)
+    _radius_write_clients(new_clients)
+    running, _ = _radius_is_running()
+    if running:
+        _radius_restart()
+    return {"ok": True, "message": f"Client '{name}' removed"}
+
+@app.post("/api/radius/test")
+async def radius_test(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    username = (body.get("username") or "").strip()
+    password = (body.get("password") or "").strip()
+    if not username or not password:
+        return JSONResponse({"ok": False, "error": "username and password required"}, status_code=400)
+    # Find secret for the NAS
+    nas_ip = (body.get("nas_ip") or "127.0.0.1").strip()
+    clients = _radius_parse_clients()
+    secret = "nekopi"  # default
+    for c in clients:
+        if c["ip"] == nas_ip or c["name"] == nas_ip:
+            secret = c["secret"]
+            break
+    cfg = _radius_load_settings()
+    secret = secret or cfg.get("default_secret", "nekopi")
+    try:
+        r = subprocess.run(
+            ["sudo", "radtest", username, password, "127.0.0.1", "0", secret],
+            capture_output=True, text=True, timeout=10
+        )
+        output = (r.stdout + "\n" + r.stderr).strip()
+        accepted = "Access-Accept" in output
+        reject_reason = ""
+        if "Access-Reject" in output:
+            reject_reason = "Authentication failed — wrong username or password"
+        elif r.returncode != 0 and not accepted:
+            reject_reason = "No response from RADIUS server — is it running?"
+        return {
+            "ok": True,
+            "output": output,
+            "accepted": accepted,
+            "reject_reason": reject_reason,
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": True, "output": "", "accepted": False,
+                "reject_reason": "radtest timed out — RADIUS server not responding"}
+    except Exception as e:
+        return {"ok": False, "output": "", "accepted": False,
+                "reject_reason": str(e)}
+
+@app.get("/api/radius/cert")
+async def radius_cert():
+    return _radius_get_cert_info()
+
+@app.post("/api/radius/cert/regenerate")
+async def radius_cert_regenerate():
+    try:
+        cert_dir = str(_RADIUS_CERT_DIR)
+        # Clean old certs and regenerate
+        subprocess.run(
+            ["sudo", "bash", "-c", f"cd {cert_dir} && make destroycerts && make all"],
+            capture_output=True, text=True, timeout=30
+        )
+        subprocess.run(
+            ["sudo", "chown", "-R", "freerad:freerad", cert_dir],
+            capture_output=True, text=True, timeout=5
+        )
+        running, _ = _radius_is_running()
+        if running:
+            _radius_restart()
+        return {"ok": True, "message": "Certificate regenerated"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

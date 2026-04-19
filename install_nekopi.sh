@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  NekoPi Field Unit — Automated Installer v2
 #  Version:   1.3.0  ·  Codename: ToManchas
-#  Generated: 2026-04-18 21:23
+#  Generated: 2026-04-18 23:29
 #  Target:    Ubuntu 24.04 LTS · Raspberry Pi 5 · 8 GB
 #  License:   GPL-3.0-or-later
 # ═══════════════════════════════════════════════════════════════
@@ -35,7 +35,7 @@ else
     GREEN=''; YELLOW=''; CYAN=''; GRAY=''; BOLD=''; RED=''; RESET=''
 fi
 
-NEKOPI_TOTAL_STEPS=26
+NEKOPI_TOTAL_STEPS=27
 
 NEKOPI_CURRENT_STEP=0
 NEKOPI_START_TIME=$(date +%s)
@@ -700,6 +700,18 @@ nekopi ALL=(ALL) NOPASSWD: /usr/bin/tshark
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/airodump-ng
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/airmon-ng
 nekopi ALL=(ALL) NOPASSWD: /opt/nekopi/venv/bin/python3
+nekopi ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/hostapd/nekopi.conf
+nekopi ALL=(ALL) NOPASSWD: /usr/bin/cp /tmp/nekopi_hostapd.conf /etc/hostapd/nekopi.conf
+nekopi ALL=(ALL) NOPASSWD: /bin/mkdir -p /etc/hostapd
+nekopi ALL=(ALL) NOPASSWD: /usr/bin/mkdir -p /etc/hostapd
+nekopi ALL=(ALL) NOPASSWD: /usr/sbin/freeradius
+nekopi ALL=(ALL) NOPASSWD: /usr/bin/radtest
+nekopi ALL=(ALL) NOPASSWD: /usr/bin/systemctl start freeradius
+nekopi ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop freeradius
+nekopi ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart freeradius
+nekopi ALL=(ALL) NOPASSWD: /bin/systemctl start freeradius
+nekopi ALL=(ALL) NOPASSWD: /bin/systemctl stop freeradius
+nekopi ALL=(ALL) NOPASSWD: /bin/systemctl restart freeradius
 SUDOERS
 
 chmod 440 /etc/sudoers.d/nekopi-services
@@ -890,7 +902,76 @@ fi
 _nk_step_done 25 "Start services"
 
 
-_nk_step_start 26 "Post-install verification"
+_nk_step_start 26 "FreeRADIUS"
+{
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq freeradius freeradius-utils || true
+
+    # Create nekopi config directories
+    mkdir -p /etc/freeradius/3.0/users.d
+    mkdir -p /etc/freeradius/3.0/clients.d
+
+    # Create empty nekopi config files
+    touch /etc/freeradius/3.0/users.d/nekopi
+    touch /etc/freeradius/3.0/clients.d/nekopi
+    chown freerad:freerad /etc/freeradius/3.0/users.d/nekopi
+    chown freerad:freerad /etc/freeradius/3.0/clients.d/nekopi
+    chmod 640 /etc/freeradius/3.0/users.d/nekopi
+    chmod 640 /etc/freeradius/3.0/clients.d/nekopi
+
+    # Include nekopi files in main FreeRADIUS config
+    USERS_FILE="/etc/freeradius/3.0/users"
+    if [ -f "$USERS_FILE" ] && ! grep -q 'users.d/nekopi' "$USERS_FILE"; then
+        echo '' >> "$USERS_FILE"
+        echo '# NekoPi test users' >> "$USERS_FILE"
+        echo '$INCLUDE users.d/nekopi' >> "$USERS_FILE"
+    fi
+
+    CLIENTS_FILE="/etc/freeradius/3.0/clients.conf"
+    if [ -f "$CLIENTS_FILE" ] && ! grep -q 'clients.d/nekopi' "$CLIENTS_FILE"; then
+        echo '' >> "$CLIENTS_FILE"
+        echo '# NekoPi NAS clients' >> "$CLIENTS_FILE"
+        echo '$INCLUDE clients.d/nekopi' >> "$CLIENTS_FILE"
+    fi
+
+    # Set default EAP type to PEAP
+    EAP_FILE="/etc/freeradius/3.0/mods-enabled/eap"
+    if [ -f "$EAP_FILE" ]; then
+        sed -i 's/default_eap_type\s*=.*/default_eap_type = peap/' "$EAP_FILE" || true
+    fi
+
+    # Generate EAP certificates if not present
+    CERT_DIR="/etc/freeradius/3.0/certs"
+    if [ -d "$CERT_DIR" ] && [ ! -f "$CERT_DIR/server.pem" ]; then
+        cd "$CERT_DIR" && make all 2>/dev/null || true
+        chown -R freerad:freerad "$CERT_DIR"
+    fi
+
+    # FreeRADIUS must listen on 0.0.0.0 (all interfaces)
+    RADIUSD_CONF="/etc/freeradius/3.0/radiusd.conf"
+    if [ -f "$RADIUSD_CONF" ]; then
+        # Ensure no bind_address restriction
+        sed -i 's/^\s*bind_address\s*=.*/# bind_address = */' "$RADIUSD_CONF" || true
+    fi
+
+    # Do NOT enable autostart — on-demand only
+    systemctl disable freeradius 2>/dev/null || true
+    systemctl stop freeradius 2>/dev/null || true
+
+    # Create default radius.json
+    cat > /opt/nekopi/data/radius.json << 'RADJSON'
+{
+  "enabled": false,
+  "eap_methods": ["PEAP", "EAP-TTLS", "EAP-MD5"],
+  "default_secret": "nekopi",
+  "cert_cn": "nekopi-radius"
+}
+RADJSON
+    chown nekopi:nekopi /opt/nekopi/data/radius.json
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 26 "FreeRADIUS"
+
+
+_nk_step_start 27 "Post-install verification"
 {
 INSTALL_ERRORS=0
 
@@ -940,7 +1021,7 @@ fi
 
 echo "INSTALL_ERRORS=$INSTALL_ERRORS"
 } >> "$INSTALL_LOG" 2>&1
-_nk_step_done 26 "Post-install verification"
+_nk_step_done 27 "Post-install verification"
 
 
 # Overall progress bar — printed once at the end, not between steps
