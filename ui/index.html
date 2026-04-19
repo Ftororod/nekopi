@@ -3337,19 +3337,31 @@ input,select,textarea { font-family:inherit; }
           <div class="form-row">
             <div class="form-group">
               <label class="form-label">Channel Mode</label>
-              <select class="form-input form-select" id="roamChannel">
-                <option value="hop">Hop all channels (recommended)</option>
-                <option value="1">Lock 2.4GHz ch 1</option>
-                <option value="6">Lock 2.4GHz ch 6</option>
-                <option value="11">Lock 2.4GHz ch 11</option>
-                <option value="36">Lock 5GHz ch 36</option>
-                <option value="40">Lock 5GHz ch 40</option>
-                <option value="44">Lock 5GHz ch 44</option>
-                <option value="48">Lock 5GHz ch 48</option>
-                <option value="149">Lock 5GHz ch 149</option>
+              <select class="form-input form-select" id="roamChannel" onchange="roamChannelModeChanged()">
+                <option value="hop">Hop selected channels</option>
+                <option value="lock">Lock to single channel</option>
               </select>
-              <div class="field-note">Lock to client's channel if known for lower latency capture</div>
+              <div class="field-note">Select channels below or lock to a specific one</div>
             </div>
+            <div class="form-group" id="roamLockChannel" style="display:none">
+              <label class="form-label">Lock Channel</label>
+              <select class="form-input form-select" id="roamLockCh">
+                <option value="">Loading...</option>
+              </select>
+            </div>
+          </div>
+          <!-- Channel selector grid -->
+          <div id="roamChannelGrid" style="margin-bottom:10px">
+            <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+              <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="roamChSelectAll()">Select all</button>
+              <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="roamChDeselectAll()">Deselect all</button>
+              <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="roamChSelectBand('2.4GHz')">All 2.4GHz</button>
+              <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="roamChSelectBand('5GHz')">All 5GHz</button>
+              <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="roamChSelectBand('6GHz')">All 6GHz</button>
+            </div>
+            <div id="roamChList" style="font-size:10px;color:var(--text2)">Loading channels...</div>
+          </div>
+          <div class="form-row">
             <div class="form-group">
               <label class="form-label">Capture Duration</label>
               <select class="form-input form-select" id="roamDuration">
@@ -6363,9 +6375,11 @@ const pages = {
         sel.innerHTML = '<option value="">⚠ No monitor-capable adapter found — connect a USB WiFi card</option>';
       }
     }).catch(function(){});
+    // Load available channels for the monitor interface
+    roamLoadChannels();
   } },
   ota:        { title:'OTA Capture',        sub:'Captura pasiva WiFi · monitor mode · Deep Analysis', onload: function(){
-    try { otaRefreshFiles(); otaLoadIfaces(); } catch(e) {}
+    try { otaRefreshFiles(); otaLoadIfaces(); otaLoadChannels(); } catch(e) {}
   } },
   wifits:     { title:'WiFi Troubleshooter', sub:'Assisted diagnostics · symptoms + real data · per layer', onload: function(){
     wtsInit();
@@ -9481,6 +9495,34 @@ function otaLoadIfaces(){
   });
 }
 
+function otaLoadChannels(){
+  fetchAPI('/api/wifi/channels').then(function(d){
+    if(!d||!d.channels) return;
+    // Populate the fixed-channel number input as a dropdown
+    var num = document.getElementById('otaChanNum');
+    if(num && num.tagName === 'INPUT'){
+      // Replace the input with a select
+      var sel = document.createElement('select');
+      sel.className = num.className;
+      sel.id = num.id;
+      sel.style.cssText = num.style.cssText;
+      ['2.4GHz','5GHz','6GHz'].forEach(function(band){
+        var chs = d.channels[band]||[];
+        if(!chs.length) return;
+        var og = document.createElement('optgroup');
+        og.label = band;
+        chs.forEach(function(ch){
+          var opt = document.createElement('option');
+          opt.value = ch; opt.textContent = 'CH '+ch;
+          og.appendChild(opt);
+        });
+        sel.appendChild(og);
+      });
+      num.parentNode.replaceChild(sel, num);
+    }
+  });
+}
+
 // Toggle fixed-channel input
 document.addEventListener('change', function(e){
   if(e.target && e.target.id === 'otaChanMode'){
@@ -11136,6 +11178,66 @@ function saveAISettings(){ loadAISettings(); }
 var roamingRunning=false, roamingInterval=null;
 
 var _roamPollIv = null;
+var _roamChannels = {"2.4GHz":[],"5GHz":[],"6GHz":[]};
+
+function roamLoadChannels(){
+  fetchAPI('/api/wifi/channels').then(function(d){
+    if(!d||!d.channels) return;
+    _roamChannels = d.channels;
+    _renderRoamChGrid(d.channels);
+    // Also populate the lock dropdown
+    var lockSel = document.getElementById('roamLockCh');
+    if(lockSel){
+      var html = '';
+      ['2.4GHz','5GHz','6GHz'].forEach(function(band){
+        var chs = d.channels[band]||[];
+        if(chs.length){
+          html += '<optgroup label="'+band+'">';
+          chs.forEach(function(ch){ html += '<option value="'+ch+'">CH '+ch+'</option>'; });
+          html += '</optgroup>';
+        }
+      });
+      lockSel.innerHTML = html || '<option value="">No channels available</option>';
+    }
+  });
+}
+
+function _renderRoamChGrid(channels){
+  var el = document.getElementById('roamChList');
+  if(!el) return;
+  var html = '';
+  ['2.4GHz','5GHz','6GHz'].forEach(function(band){
+    var chs = channels[band]||[];
+    if(!chs.length) return;
+    html += '<div style="margin-bottom:6px"><strong style="color:var(--white);font-size:10px">'+band+'</strong><div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:2px">';
+    chs.forEach(function(ch){
+      html += '<label style="display:inline-flex;align-items:center;gap:2px;padding:1px 4px;background:var(--bg3);border-radius:3px;cursor:pointer">'
+            + '<input type="checkbox" value="'+ch+'" checked data-band="'+band+'" style="margin:0;width:12px;height:12px"> '+ch
+            + '</label>';
+    });
+    html += '</div></div>';
+  });
+  el.innerHTML = html || '<span class="t-muted">No channels detected</span>';
+}
+
+function roamChSelectAll(){
+  document.querySelectorAll('#roamChList input[type=checkbox]').forEach(function(cb){ cb.checked=true; });
+}
+function roamChDeselectAll(){
+  document.querySelectorAll('#roamChList input[type=checkbox]').forEach(function(cb){ cb.checked=false; });
+}
+function roamChSelectBand(band){
+  document.querySelectorAll('#roamChList input[type=checkbox]').forEach(function(cb){
+    if(cb.dataset.band===band) cb.checked=true;
+  });
+}
+function roamChannelModeChanged(){
+  var mode = (document.getElementById('roamChannel')||{}).value;
+  var grid = document.getElementById('roamChannelGrid');
+  var lock = document.getElementById('roamLockChannel');
+  if(grid) grid.style.display = (mode==='hop') ? '' : 'none';
+  if(lock) lock.style.display = (mode==='lock') ? '' : 'none';
+}
 
 function startRoaming(){
   var iface = (document.getElementById('roamIface')||{}).value||'wlan0';
@@ -11179,9 +11281,20 @@ function startRoaming(){
   if(startBtn){ startBtn.style.opacity='0.4'; startBtn.style.pointerEvents='none'; }
   if(stopBtn){ stopBtn.style.background='var(--blue)'; stopBtn.style.borderColor='var(--blue)'; stopBtn.style.color='#fff'; stopBtn.style.opacity='1'; stopBtn.style.pointerEvents='auto'; }
 
-  var channel = (document.getElementById('roamChannel')||{}).value||'hop';
+  var chanMode = (document.getElementById('roamChannel')||{}).value||'hop';
+  var channel = chanMode;
+  var channelsParam = '';
+  if(chanMode === 'lock'){
+    channel = (document.getElementById('roamLockCh')||{}).value || 'hop';
+  } else {
+    // Gather selected channels from checkboxes
+    var cbs = document.querySelectorAll('#roamChList input[type=checkbox]:checked');
+    var sel = [];
+    cbs.forEach(function(cb){ sel.push(cb.value); });
+    if(sel.length > 0) channelsParam = sel.join(',');
+  }
 
-  fetchAPI('/api/roaming/start?iface='+encodeURIComponent(iface)+'&ssid='+encodeURIComponent(ssid)+'&channel='+encodeURIComponent(channel), {method:'POST'})
+  fetchAPI('/api/roaming/start?iface='+encodeURIComponent(iface)+'&ssid='+encodeURIComponent(ssid)+'&channel='+encodeURIComponent(channel)+(channelsParam?'&channels='+encodeURIComponent(channelsParam):''), {method:'POST'})
   .then(function(d){
     if(d&&d.ok){
       if(st){st.className='status-badge sb-run';st.innerHTML='<span class="sb-dot"></span>Capturing';}

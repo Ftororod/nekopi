@@ -3131,7 +3131,7 @@ def _roam_parse_line(line):
 
     return event
 
-def _roam_capture_thread(iface, ssid, channel="hop"):
+def _roam_capture_thread(iface, ssid, channel="hop", custom_channels=None):
     global _ROAM_RUNNING, _ROAM_EVENTS, _ROAM_CLIENTS
     global _ROAM_ACTIVE_CHANNELS, _ROAM_HOP_MS
     _ROAM_EVENTS          = []
@@ -3207,6 +3207,9 @@ def _roam_capture_thread(iface, ssid, channel="hop"):
         if ssid_channels:
             channels     = ssid_channels
             hop_interval = 0.5   # 500 ms — longer dwell for focused SSID capture
+        elif custom_channels:
+            channels     = list(custom_channels)
+            hop_interval = 0.25
         else:
             channels     = list(_ROAM_DEFAULT_CHANNELS)
             hop_interval = 0.25  # 250 ms — full sweep keeps old behaviour
@@ -3288,7 +3291,8 @@ def _roam_capture_thread(iface, ssid, channel="hop"):
         _ROAM_RUNNING = False
 
 @app.post("/api/roaming/start")
-async def roaming_start(iface: str = "", ssid: str = "", channel: str = "hop"):
+async def roaming_start(iface: str = "", ssid: str = "", channel: str = "hop",
+                        channels: str = ""):
     global _ROAM_RUNNING, _ROAM_IFACE, _ROAM_SSID
     if _ROAM_RUNNING:
         return {"ok": False, "error": "Already running"}
@@ -3296,10 +3300,18 @@ async def roaming_start(iface: str = "", ssid: str = "", channel: str = "hop"):
         iface = get_monitor_iface() or ""
     if not iface:
         return _no_hw_response("wifi_monitor")
+    # Parse custom channel list if provided
+    custom_channels: list[int] = []
+    if channels:
+        for c in channels.split(","):
+            c = c.strip()
+            if c.isdigit():
+                custom_channels.append(int(c))
     _ROAM_RUNNING = True
     _ROAM_IFACE   = iface
     _ROAM_SSID    = ssid
-    t = _threading.Thread(target=_roam_capture_thread, args=(iface, ssid, channel), daemon=True)
+    t = _threading.Thread(target=_roam_capture_thread,
+                          args=(iface, ssid, channel, custom_channels), daemon=True)
     t.start()
     await asyncio.sleep(1)
     return {"ok": True, "iface": iface}
@@ -8142,6 +8154,46 @@ async def wifi_interfaces():
         it["monitor"] = phys.get(phy, False)
     return {"interfaces": items}
 
+@app.get("/api/wifi/channels")
+async def wifi_channels(iface: str = ""):
+    """Return available (non-disabled) channels for a WiFi interface,
+    grouped by band.  Uses `iw phy <phy> channels` for the listing."""
+    if not iface:
+        iface = get_monitor_iface() or ""
+    if not iface:
+        return {"iface": "", "channels": {"2.4GHz": [], "5GHz": [], "6GHz": []}, "all": []}
+    # Resolve phy for the interface
+    dev_info = run_cmd(["iw", "dev", iface, "info"], timeout=4)
+    phy = ""
+    m = re.search(r"wiphy\s+(\d+)", dev_info)
+    if m:
+        phy = "phy" + m.group(1)
+    if not phy:
+        return {"iface": iface, "channels": {"2.4GHz": [], "5GHz": [], "6GHz": []}, "all": []}
+    raw = run_cmd(["iw", "phy", phy, "channels"], timeout=5)
+    bands: dict[str, list[int]] = {"2.4GHz": [], "5GHz": [], "6GHz": []}
+    cur_band = ""
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.startswith("Band "):
+            band_num = ls.replace("Band ", "").rstrip(":")
+            if band_num == "1":
+                cur_band = "2.4GHz"
+            elif band_num == "2":
+                cur_band = "5GHz"
+            elif band_num in ("3", "4"):
+                cur_band = "6GHz"
+            continue
+        if "(disabled)" in ls:
+            continue
+        cm = re.match(r"\*\s+(\d+)\s+MHz\s+\[(\d+)\]", ls)
+        if cm and cur_band:
+            ch = int(cm.group(2))
+            bands[cur_band].append(ch)
+    all_ch = bands["2.4GHz"] + bands["5GHz"] + bands["6GHz"]
+    return {"iface": iface, "phy": phy, "channels": bands, "all": all_ch}
+
+
 # ── Terminal sessions: ttyd local bash + per-host ttyd SSH ───────────
 # We spawn one ttyd process per remote SSH session on a free port and proxy
 # the iframe to the engineer. No SSH password ever touches the backend — the
@@ -8655,6 +8707,13 @@ async def ota_start(request: Request):
     filt_ctrl  = body.get("filter_ctrl", False)
     duration   = int(body.get("duration") or 0)
     mac_filter = (body.get("mac_filter") or "").strip()
+    hop_channels_raw = (body.get("hop_channels") or "").strip()
+    custom_hop_channels: list[int] = []
+    if hop_channels_raw:
+        for c in hop_channels_raw.split(","):
+            c = c.strip()
+            if c.isdigit():
+                custom_hop_channels.append(int(c))
 
     if not re.match(r"^[a-zA-Z0-9]+$", iface):
         return JSONResponse({"ok": False, "error": "invalid iface"}, status_code=400)
@@ -8710,7 +8769,7 @@ async def ota_start(request: Request):
     elif ssid and not ssid_channels:
         # Smart mode requested but SSID not found — fall back to hopping
         hop = True
-        channels_list = [1, 6, 11, 36, 40, 44, 48, 149, 153, 157, 161]
+        channels_list = custom_hop_channels or [1, 6, 11, 36, 40, 44, 48, 149, 153, 157, 161]
         mode_label = "hop"
         mode_detail = f"Hopping mode — SSID '{ssid}' not found, falling back to channel hopping"
     elif channel and not hop:
@@ -8720,7 +8779,7 @@ async def ota_start(request: Request):
         mode_detail = f"Fixed on channel {channel}"
     else:
         hop = True
-        channels_list = [1, 6, 11, 36, 40, 44, 48, 149, 153, 157, 161]
+        channels_list = custom_hop_channels or [1, 6, 11, 36, 40, 44, 48, 149, 153, 157, 161]
 
     if hop and channels_list:
         def _hop_loop():
