@@ -3247,10 +3247,14 @@ async def kismet_start():
     status = _kismet_get("/system/status.json")
     if status:
         return {"ok": True, "message": "Already running"}
-    # Start kismet as daemon
+    # Start kismet as daemon with the detected monitor interface
+    mon = get_monitor_iface()
+    if not mon:
+        return {"ok": False, "error": "No monitor interface available"}
     try:
         proc = await asyncio.create_subprocess_exec(
             "sudo", "kismet", "--daemonize", "--no-ncurses",
+            "-c", mon,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL
         )
