@@ -768,6 +768,7 @@ parts.append(step(17, "Sudoers", """\
     nekopi ALL=(ALL) NOPASSWD: /bin/systemctl start freeradius
     nekopi ALL=(ALL) NOPASSWD: /bin/systemctl stop freeradius
     nekopi ALL=(ALL) NOPASSWD: /bin/systemctl restart freeradius
+    nekopi ALL=(ALL) NOPASSWD: /usr/bin/openssl
     SUDOERS
 
     chmod 440 /etc/sudoers.d/nekopi-services

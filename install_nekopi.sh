@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  NekoPi Field Unit — Automated Installer v2
 #  Version:   1.3.0  ·  Codename: ToManchas
-#  Generated: 2026-04-18 23:29
+#  Generated: 2026-04-18 23:53
 #  Target:    Ubuntu 24.04 LTS · Raspberry Pi 5 · 8 GB
 #  License:   GPL-3.0-or-later
 # ═══════════════════════════════════════════════════════════════
@@ -712,6 +712,7 @@ nekopi ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart freeradius
 nekopi ALL=(ALL) NOPASSWD: /bin/systemctl start freeradius
 nekopi ALL=(ALL) NOPASSWD: /bin/systemctl stop freeradius
 nekopi ALL=(ALL) NOPASSWD: /bin/systemctl restart freeradius
+nekopi ALL=(ALL) NOPASSWD: /usr/bin/openssl
 SUDOERS
 
 chmod 440 /etc/sudoers.d/nekopi-services

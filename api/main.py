@@ -9326,16 +9326,16 @@ def _radius_write_clients(clients: list[dict]):
                    capture_output=True, text=True, timeout=5)
 
 def _radius_get_cert_info() -> dict:
-    cert_file = _RADIUS_CERT_DIR / "server.pem"
+    cert_file = str(_RADIUS_CERT_DIR / "server.pem")
     info = {"subject": "", "issuer": "", "expires": "", "fingerprint": ""}
-    if not cert_file.exists():
-        return info
     try:
         r = subprocess.run(
-            ["openssl", "x509", "-in", str(cert_file),
+            ["sudo", "openssl", "x509", "-in", cert_file,
              "-noout", "-subject", "-issuer", "-enddate", "-fingerprint"],
             capture_output=True, text=True, timeout=5
         )
+        if r.returncode != 0:
+            return info
         for line in r.stdout.splitlines():
             if line.startswith("subject="):
                 info["subject"] = line.split("=", 1)[1].strip()
