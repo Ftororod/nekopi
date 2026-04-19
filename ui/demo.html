@@ -3578,6 +3578,7 @@ input,select,textarea { font-family:inherit; }
         <div style="display:flex;align-items:center;gap:12px">
           <span class="status-badge sb-idle" id="kismetStatus"><span class="sb-dot"></span>Checking...</span>
           <span style="font-size:11px;color:var(--text2)" id="kismetDevCount">—</span>
+          <span style="font-size:10px;color:var(--green)">· Dual source — mon0 + wlan2</span>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-primary btn-sm" onclick="startKismet()" id="kismetStartBtn"
@@ -3896,6 +3897,33 @@ input,select,textarea { font-family:inherit; }
             </tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- Monitor Adapters -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header">
+        <div class="card-title">🔍 Monitor Adapters</div>
+      </div>
+      <div class="card-body" style="padding:10px 14px">
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2)">
+            <strong style="color:var(--white)">mon0</strong> (AX210 — 2.4GHz + 5GHz):
+            <span class="status-badge sb-run" style="margin-left:4px"><span class="sb-dot"></span>Active</span>
+          </div>
+          <div style="font-size:11px;color:var(--text2)">
+            <strong style="color:var(--white)">wlan2</strong> (CF-953AX — 2.4GHz + 5GHz):
+            <span class="status-badge sb-run" style="margin-left:4px"><span class="sb-dot"></span>Active</span>
+          </div>
+          <div style="font-size:11px;color:var(--text2)">
+            Mode:
+            <span class="status-badge sb-run" style="margin-left:4px"><span class="sb-dot"></span>Dual monitor</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-primary btn-sm" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Setup mon0</button>
+          <button class="btn btn-ghost btn-sm" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Remove mon0</button>
+        </div>
       </div>
     </div>
 

@@ -1533,6 +1533,9 @@ input,select,textarea { font-family:inherit; }
             <label class="toggle-wrap"><input type="checkbox" id="wifiFilter24Only"         ><span class="toggle-lbl">2.4GHz only</span></label>
           </div>
         </div>
+        <div style="font-size:10px;color:var(--text2);padding:4px 14px;background:var(--bg2);border-top:1px solid var(--border)">
+          Scans always use the monitor adapter (wlan2) to avoid conflicts with the AX210 capture interface (mon0)
+        </div>
         <div class="wizard-footer">
           <span style="font-size:11px;color:var(--text2)">WiFi7 · BE200 · 2.4/5/6GHz</span>
           <button class="btn btn-primary" onclick='wizNext("wifi")'>Start Scan ▶</button>

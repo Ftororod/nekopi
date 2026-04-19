@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  NekoPi Field Unit — Automated Installer v2
 #  Version:   1.3.0  ·  Codename: ToManchas
-#  Generated: 2026-04-19 17:44
+#  Generated: 2026-04-19 18:27
 #  Target:    Ubuntu 24.04 LTS · Raspberry Pi 5 · 8 GB
 #  License:   GPL-3.0-or-later
 # ═══════════════════════════════════════════════════════════════
@@ -723,6 +723,8 @@ nekopi ALL=(ALL) NOPASSWD: /usr/sbin/iw dev mon0 set channel *
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw phy phy0 interface add mon0 type monitor
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw dev mon0 del
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw dev mon0 set channel *
+nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw dev wlan0 scan
+nekopi ALL=(ALL) NOPASSWD: /usr/sbin/iw dev wlan0 scan
 SUDOERS
 
 chmod 440 /etc/sudoers.d/nekopi-services
@@ -1006,12 +1008,16 @@ Type=oneshot
 RemainAfterExit=yes
 ExecStart=/bin/bash -c '\
     PHY=phy0; \
-    iw phy $PHY info | grep -q monitor || exit 0; \
-    ip link show mon0 2>/dev/null && exit 0; \
-    ip link set wlan0 down 2>/dev/null; \
-    iw phy $PHY interface add mon0 type monitor && \
-    ip link set mon0 up; \
-    ip link set wlan0 up 2>/dev/null'
+    iw phy $PHY info 2>/dev/null | grep -q monitor || exit 0; \
+    ip link show mon0 2>/dev/null | grep -q mon0 && exit 0; \
+    UPLINK=$(iw dev 2>/dev/null | awk "/phy#0/{p=1} p && /Interface/{print \$2; exit}"); \
+    [ -z "$UPLINK" ] && exit 1; \
+    ip link set $UPLINK up 2>/dev/null; \
+    iw dev $UPLINK scan 2>/dev/null | grep -c SSID || true; \
+    ip link set $UPLINK down 2>/dev/null; \
+    iw phy $PHY interface add mon0 type monitor 2>/dev/null && \
+    ip link set mon0 up 2>/dev/null && \
+    echo "mon0 created on $PHY" || echo "mon0 creation failed"'
 ExecStop=/bin/bash -c '\
     ip link show mon0 2>/dev/null && \
     ip link set mon0 down && \

@@ -285,27 +285,33 @@ def _mon0_exists() -> bool:
     return Path("/sys/class/net/mon0").exists()
 
 def _mon0_create() -> bool:
-    """Create mon0 virtual monitor interface on phy0 (AX210)."""
+    """Create mon0 virtual monitor interface on phy0 (AX210).
+    Includes a passive scan on the uplink interface first so the
+    kernel learns the 5 GHz regulatory domain before mon0 is used."""
     try:
-        r = subprocess.run(["sudo", "iw", "phy", "phy0", "info"],
-                           capture_output=True, text=True, timeout=5)
-        if "monitor" not in r.stdout:
-            return False
         if _mon0_exists():
             return True
-        subprocess.run(["sudo", "ip", "link", "set", "wlan0", "down"],
+        # Find the uplink iface on phy0 (usually wlan0)
+        uplink = _classify_wifi_ifaces().get("uplink", "wlan0")
+        # Bring uplink up for regulatory scan
+        subprocess.run(["sudo", "ip", "link", "set", uplink, "up"],
                        capture_output=True, timeout=5)
+        # Quick passive scan — learns 5 GHz regulatory domain
+        subprocess.run(["sudo", "iw", "dev", uplink, "scan"],
+                       capture_output=True, timeout=15)
+        # Bring uplink down — not needed after scan
+        subprocess.run(["sudo", "ip", "link", "set", uplink, "down"],
+                       capture_output=True, timeout=5)
+        # Create mon0 on phy0
         r = subprocess.run(
             ["sudo", "iw", "phy", "phy0", "interface", "add",
              "mon0", "type", "monitor"],
             capture_output=True, text=True, timeout=10)
         if r.returncode != 0:
-            subprocess.run(["sudo", "ip", "link", "set", "wlan0", "up"],
+            subprocess.run(["sudo", "ip", "link", "set", uplink, "up"],
                            capture_output=True, timeout=5)
             return False
         subprocess.run(["sudo", "ip", "link", "set", "mon0", "up"],
-                       capture_output=True, timeout=5)
-        subprocess.run(["sudo", "ip", "link", "set", "wlan0", "up"],
                        capture_output=True, timeout=5)
         return _mon0_exists()
     except Exception:
@@ -440,6 +446,7 @@ def get_hw_caps() -> dict:
         "wifi_monitor2_iface": wifi_roles["monitor2"],
         "mon0_available": _mon0_exists(),
         "dual_monitor": _mon0_exists() and wifi_roles["monitor"] is not None,
+        "mon0_bands": ["2.4GHz", "5GHz"] if _mon0_exists() else [],
     }
     # Merge: file caps may contain extra notes; live wins on availability
     caps.update(live)
@@ -1171,20 +1178,25 @@ async def qc_captive():
 
 # ── WIFI ─────────────────────────────────────────────────────
 def get_best_wifi_iface() -> str:
-    """
-    Selecciona la mejor interfaz WiFi disponible para scan.
-    Prefiere dongles USB (wlan1+) sobre el WiFi integrado (wlan0/brcmfmac)
-    ya que suelen tener mayor sensibilidad y alcance.
-    """
+    """Return the best WiFi interface for scanning.
+    Option B: always use wlan2 (mt7921u) for scans, never wlan0.
+    wlan0 is reserved for mon0 initialization only — using it for
+    scans creates phy0 conflicts with the monitor interface."""
+    # Prefer the mt7921u monitor-capable adapter (wlan2)
+    mon = get_monitor_iface()
+    if mon:
+        return mon
+    # Fallback: any non-brcmfmac, non-mon0 WiFi interface
     ifaces = get_interfaces()
-    wifi_ifaces = [i for i in ifaces if i["type"] == "wifi"]
-    if not wifi_ifaces:
-        return ""
-    # Preferir interfaz no-brcmfmac (dongle externo) si está disponible
-    external = [i for i in wifi_ifaces if i.get("driver") != "brcmfmac"]
+    wifi_ifaces = [i for i in ifaces if i["type"] == "wifi"
+                   and i["name"] != "mon0"]
+    external = [i for i in wifi_ifaces
+                if i.get("driver") not in ("brcmfmac", "iwlwifi")]
     if external:
         return external[0]["name"]
-    return wifi_ifaces[0]["name"]
+    if wifi_ifaces:
+        return wifi_ifaces[0]["name"]
+    return ""
 
 
 # ── WIFI ASSOCIATION ──────────────────────────────────────────
@@ -5889,8 +5901,11 @@ def _wifi_station_stats(iface: str) -> dict:
     }
 
 @app.post("/api/wifits/scan")
-async def wifits_scan(iface: str = "wlan0"):
-    """Recopila datos reales del entorno WiFi para el diagnóstico."""
+async def wifits_scan(iface: str = ""):
+    """Recopila datos reales del entorno WiFi para el diagnóstico.
+    Option B: defaults to wlan2 (mt7921u) — never wlan0."""
+    if not iface:
+        iface = get_best_wifi_iface() or "wlan0"
     result: dict = {}
 
     # 1. Signal / association
@@ -8323,6 +8338,28 @@ async def monitor_teardown():
         "ok": True,
         "mon0": _mon0_exists(),
         "message": "mon0 removed",
+    }
+
+@app.get("/api/monitor/status")
+async def monitor_status():
+    """Current state of monitor interfaces."""
+    mon = get_monitor_iface()
+    mon0 = _mon0_exists()
+    # Get mon0 channel if active
+    mon0_ch = None
+    if mon0:
+        info = run_cmd(["iw", "dev", "mon0", "info"])
+        m = re.search(r"channel\s+(\d+)", info)
+        if m:
+            mon0_ch = int(m.group(1))
+    return {
+        "mon0": mon0,
+        "mon0_channel": mon0_ch,
+        "mon0_bands": ["2.4GHz", "5GHz"] if mon0 else [],
+        "wlan2": mon,
+        "wlan2_available": mon is not None,
+        "dual_monitor": mon0 and mon is not None,
+        "scan_iface": get_best_wifi_iface(),
     }
 
 
