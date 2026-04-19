@@ -4943,7 +4943,7 @@ input,select,textarea { font-family:inherit; }
           <div style="font-size:12px;color:var(--text2);line-height:1.8">
             <div><strong style="color:var(--white)">Subject:</strong> CN=nekopi-radius</div>
             <div><strong style="color:var(--white)">Expires:</strong> Apr 16 23:59:59 2027 GMT</div>
-            <div><strong style="color:var(--white)">Fingerprint:</strong> <span style="font-family:monospace;font-size:10px">A3:B4:C5:D6:E7:F8:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB</span></div>
+            <div><strong style="color:var(--white)">Fingerprint:</strong> <span style="font-family:monospace;font-size:10px">5B:E5:6C:AE:5D:B1:C2:BF:46:87:B7:4E:B9:2A:0C:CD</span></div>
           </div>
           <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Regenerate Certificate</button>
         </div>
@@ -4951,10 +4951,10 @@ input,select,textarea { font-family:inherit; }
       <div class="card" style="margin-top:12px">
         <div class="card-header"><div class="card-title">Log Tail</div></div>
         <div class="card-body">
-          <pre style="max-height:200px;overflow-y:auto;font-size:10px;color:var(--text2);margin:0;white-space:pre-wrap">Ready to process requests
-Received Access-Request id 1 from 192.168.99.50
-User 'jsmith' authenticated successfully
-Sending Access-Accept to 192.168.99.50</pre>
+          <pre style="max-height:200px;overflow-y:auto;font-size:10px;color:var(--text2);margin:0;white-space:pre-wrap">[Mon Apr 19 2026] Ready to process requests
+[Mon Apr 19 2026] Received Access-Request Id 1 from 192.168.99.50
+[Mon Apr 19 2026] Login OK: [jsmith] (from client Meraki-AP-01)
+[Mon Apr 19 2026] Sending Access-Accept to 192.168.99.50</pre>
         </div>
       </div>
     </div>
@@ -5034,7 +5034,8 @@ Sending Access-Accept to 192.168.99.50</pre>
               <label class="form-label">NAS Client</label>
               <select class="form-input form-select">
                 <option>localhost (direct)</option>
-                <option>Meraki-AP-01 (192.168.99.50)</option>
+                <option selected>Meraki-AP-01 (192.168.99.50)</option>
+                <option>Core-SW-01 (192.168.99.51)</option>
               </select>
             </div>
           </div>
@@ -5043,15 +5044,16 @@ Sending Access-Accept to 192.168.99.50</pre>
             <button class="btn btn-ghost btn-sm" onclick="showToast('Demo mode — connect to a real NekoPi to use this feature')">Test with first user</button>
           </div>
           <div class="divider"></div>
-          <div style="font-size:16px;font-weight:700;margin-bottom:8px"><span style="color:var(--green)">&#9989; Access-Accept</span></div>
+          <div style="font-size:16px;font-weight:700;margin-bottom:4px"><span style="color:var(--green)">&#9989; Access-Accept</span></div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:8px">authenticated successfully</div>
           <details>
             <summary style="font-size:11px;color:var(--text2);cursor:pointer">Raw radtest output</summary>
-            <pre style="font-size:10px;color:var(--text2);margin-top:6px;white-space:pre-wrap">Sending Access-Request of id 204 to 127.0.0.1 port 1812
+            <pre style="font-size:10px;color:var(--text2);margin-top:6px;white-space:pre-wrap">Sent Access-Request Id 42 from 0.0.0.0:51234 to 127.0.0.1:1812
   User-Name = "jsmith"
   User-Password = "Test1234!"
   NAS-IP-Address = 127.0.0.1
   NAS-Port = 0
-Received Access-Accept of id 204 from 127.0.0.1:1812 to 127.0.0.1</pre>
+Received Access-Accept Id 42 from 127.0.0.1:1812</pre>
           </details>
         </div>
       </div>
