@@ -9358,6 +9358,9 @@ function otaStart(ev){
       if(btn) btn.style.display = 'none';
       var live = document.getElementById('otaLiveCard');
       if(live) live.style.display = '';
+      var chEl = document.getElementById('otaChanLive');
+      if(chEl) _otaUpdateChanDisplay(chEl, d);
+      if(d.warning) showToast('⚠ '+d.warning, 'warn');
       showToast('✓ Captura OTA iniciada: '+d.file);
       _otaPollIv = setInterval(otaPollStatus, 1500);
     } else {
@@ -9390,6 +9393,29 @@ function _otaResetUI(){
   if(live) live.style.display = 'none';
 }
 
+function _otaUpdateChanDisplay(el, d){
+  var m = (d.mode || '').toLowerCase();
+  if(m.indexOf('smart') === 0){
+    el.textContent = 'Smart — CH '+(d.channel||'?');
+    el.style.color = 'var(--green)';
+  } else if(m === 'hop'){
+    var detail = d.mode_detail || '';
+    if(detail.indexOf('fallback') !== -1 || detail.indexOf('not found') !== -1){
+      el.textContent = 'Hopping (fallback)';
+      el.style.color = 'var(--yellow)';
+    } else {
+      el.textContent = 'Hopping (all)';
+      el.style.color = 'var(--cyan)';
+    }
+  } else if(d.channel){
+    el.textContent = 'Fixed — CH '+d.channel;
+    el.style.color = 'var(--cyan)';
+  } else {
+    el.textContent = d.channel || '—';
+    el.style.color = 'var(--cyan)';
+  }
+}
+
 function otaPollStatus(){
   fetchAPI('/api/ota/status').then(function(d){
     if(!d) return;
@@ -9401,7 +9427,7 @@ function otaPollStatus(){
     var el = document.getElementById('otaElapsed');
     if(el) el.textContent = (d.elapsed||0)+'s';
     var ch = document.getElementById('otaChanLive');
-    if(ch) ch.textContent = d.channel || '—';
+    if(ch) _otaUpdateChanDisplay(ch, d);
     var sz = document.getElementById('otaSizeLive');
     if(sz) sz.textContent = _bytesFmt(d.size_bytes||0);
   });
