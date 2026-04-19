@@ -9233,9 +9233,13 @@ def _radius_uptime() -> str:
 def _radius_parse_users() -> list[dict]:
     users = []
     try:
-        if not _RADIUS_USERS_FILE.exists():
+        r = subprocess.run(
+            ["sudo", "cat", str(_RADIUS_USERS_FILE)],
+            capture_output=True, text=True, timeout=5
+        )
+        if r.returncode != 0:
             return []
-        for raw_line in _RADIUS_USERS_FILE.read_text().splitlines():
+        for raw_line in r.stdout.splitlines():
             line = raw_line.strip()
             if not line or line.startswith("#"):
                 continue
@@ -9283,9 +9287,13 @@ def _radius_write_users(users: list[dict]):
 def _radius_parse_clients() -> list[dict]:
     clients = []
     try:
-        if not _RADIUS_CLIENTS_FILE.exists():
+        r = subprocess.run(
+            ["sudo", "cat", str(_RADIUS_CLIENTS_FILE)],
+            capture_output=True, text=True, timeout=5
+        )
+        if r.returncode != 0:
             return []
-        text = _RADIUS_CLIENTS_FILE.read_text()
+        text = r.stdout
         # Parse: client <name> { ipaddr = ... \n secret = ... \n shortname = ... }
         for m in re.finditer(
             r'client\s+(\S+)\s*\{([^}]*)\}', text, re.DOTALL
