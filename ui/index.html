@@ -862,6 +862,7 @@ input,select,textarea { font-family:inherit; }
 ::-webkit-scrollbar-track { background:transparent; }
 ::-webkit-scrollbar-thumb { background:var(--bg3); border-radius:2px; }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
 <div id="betaBanner" style="background:rgba(255,152,0,.08);border-bottom:1px solid rgba(255,152,0,.25);padding:6px 14px;font-size:0.75rem;color:rgba(255,193,7,.85);text-align:center;position:relative;z-index:300;display:none">
@@ -3856,7 +3857,7 @@ input,select,textarea { font-family:inherit; }
   ═══════════════════════════════ -->
   <div class="page" id="page-connection">
     <div class="section-title">🔗 Connection</div>
-    <div class="section-sub">eth0 management · interfaces · access URLs</div>
+    <div class="section-sub">eth-mgmt management · interfaces · access URLs</div>
 
     <!-- Interface roles -->
     <div class="card" style="margin-bottom:14px">
@@ -3869,28 +3870,34 @@ input,select,textarea { font-family:inherit; }
           <thead><tr><th>Interface</th><th>Role</th><th>IP</th><th>Status</th></tr></thead>
           <tbody>
             <tr>
-              <td><strong>eth0</strong></td>
+              <td><strong>eth-mgmt</strong></td>
               <td style="color:var(--cyan)">🔗 Management (RPi5 GbE)</td>
-              <td id="conn-eth0-ip" style="color:var(--white);font-family:monospace">192.168.42.1</td>
+              <td id="conn-eth-mgmt-ip" style="color:var(--white);font-family:monospace">192.168.99.1</td>
               <td><span class="status-badge sb-ok"><span class="sb-dot"></span>UP</span></td>
             </tr>
             <tr>
-              <td><strong>eth1</strong></td>
+              <td><strong>eth-test</strong></td>
               <td style="color:var(--orange)">🔌 Field Tests (RTL8125B)</td>
-              <td id="conn-eth1-ip" style="color:var(--text);font-family:monospace">—</td>
-              <td id="conn-eth1-status"><span class="status-badge sb-idle"><span class="sb-dot"></span>Ready</span></td>
+              <td id="conn-eth-test-ip" style="color:var(--text);font-family:monospace">—</td>
+              <td id="conn-eth-test-status"><span class="status-badge sb-idle"><span class="sb-dot"></span>Ready</span></td>
             </tr>
             <tr>
-              <td><strong>wlan0</strong></td>
-              <td style="color:var(--green)">📶 WiFi Diag (MT7925)</td>
+              <td><strong id="conn-uplink-name">wlan0</strong></td>
+              <td style="color:var(--green)">📶 AX210 HAT (uplink)</td>
               <td id="conn-wlan0-ip" style="color:var(--text);font-family:monospace">—</td>
               <td id="conn-wlan0-status"><span class="status-badge sb-idle"><span class="sb-dot"></span>Ready</span></td>
             </tr>
             <tr>
-              <td><strong>wlan1</strong></td>
-              <td style="color:var(--purple)">📱 Mobile AP (USB)</td>
-              <td id="conn-wlan1-ip" style="color:var(--text);font-family:monospace">192.168.43.1</td>
-              <td id="conn-wlan1-status"><span class="status-badge sb-idle"><span class="sb-dot"></span>Optional</span></td>
+              <td><strong id="conn-hotspot-name">wlan1</strong></td>
+              <td style="color:var(--amber)">📱 RPi5 native (hotspot)</td>
+              <td id="conn-hotspot-ip" style="color:var(--text);font-family:monospace">192.168.98.1</td>
+              <td id="conn-hotspot-status"><span class="status-badge sb-idle"><span class="sb-dot"></span>Standby</span></td>
+            </tr>
+            <tr>
+              <td><strong id="conn-monitor-name">wlan2</strong></td>
+              <td style="color:var(--purple);opacity:0.6;border-left:2px dashed var(--purple)">🔍 CF-953AX (monitor)</td>
+              <td id="conn-monitor-ip" style="color:var(--text);font-family:monospace">—</td>
+              <td id="conn-monitor-status"><span class="status-badge sb-idle"><span class="sb-dot"></span>Optional</span></td>
             </tr>
           </tbody>
         </table>
@@ -3904,17 +3911,17 @@ input,select,textarea { font-family:inherit; }
         <div class="card-body">
           <div style="margin-bottom:12px">
             <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Primary (laptop · cable)</div>
-            <div style="font-family:monospace;font-size:13px;color:var(--cyan)">http://nekopi.local:8000</div>
-            <div style="font-family:monospace;font-size:11px;color:var(--text2)">http://192.168.42.1:8000</div>
+            <div style="font-family:monospace;font-size:13px;color:var(--cyan)">https://nekopi.local:8080</div>
+            <div style="font-family:monospace;font-size:11px;color:var(--text2)">https://192.168.99.1:8080</div>
           </div>
           <div style="margin-bottom:12px">
             <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Console (ttyd)</div>
             <div style="font-family:monospace;font-size:13px;color:var(--purple)">https://nekopi.local:7681</div>
           </div>
           <div style="margin-bottom:12px">
-            <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Mobile AP (wlan1 dongle)</div>
-            <div style="font-family:monospace;font-size:13px;color:var(--amber)">SSID: nekopi-mgmt</div>
-            <div style="font-family:monospace;font-size:11px;color:var(--text2)">Pass: nekopi2024 · http://192.168.43.1:8000</div>
+            <div style="font-size:11px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Mobile AP (wlan-hotspot)</div>
+            <div style="font-family:monospace;font-size:13px;color:var(--amber)" id="conn-ap-ssid">SSID: NekoPi----</div>
+            <div style="font-family:monospace;font-size:11px;color:var(--text2)" id="conn-ap-details">Pass: ---- · https://192.168.98.1:8080</div>
           </div>
           <div id="conn-ap-row">
             <button class="btn btn-primary btn-sm" onclick="toggleMobileAP(true)" id="btn-ap-on">📱 Start Mobile AP</button>
@@ -3923,13 +3930,22 @@ input,select,textarea { font-family:inherit; }
         </div>
       </div>
 
-      <!-- QR Code -->
+      <!-- QR Codes -->
       <div class="card">
         <div class="card-header"><div class="card-title">📷 QR — Mobile Access</div></div>
         <div class="card-body" style="text-align:center">
-          <canvas id="conn-qr-canvas" style="width:160px;height:160px;background:white;border-radius:4px;display:block;margin:0 auto 10px"></canvas>
-          <div style="font-size:11px;color:var(--text2)">Scan to open NekoPi on your phone</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:4px">Connect to <span style="color:var(--amber)">nekopi-mgmt</span> WiFi first</div>
+          <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap">
+            <div>
+              <div style="font-size:10px;color:var(--amber);margin-bottom:6px;font-weight:700">HOTSPOT WiFi</div>
+              <div id="conn-qr-hotspot" style="display:inline-block;background:white;padding:6px;border-radius:4px"></div>
+              <div id="conn-qr-hotspot-creds" style="font-size:10px;color:var(--text2);margin-top:4px">SSID: --- / Pass: ---</div>
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--cyan);margin-bottom:6px;font-weight:700">CABLE MGMT</div>
+              <div id="conn-qr-cable" style="display:inline-block;background:white;padding:6px;border-radius:4px"></div>
+              <div style="font-size:10px;color:var(--text2);margin-top:4px">https://192.168.99.1:8080</div>
+            </div>
+          </div>
           <button class="btn btn-ghost btn-sm" style="margin-top:10px;width:100%" onclick="generateQR()">↺ Regenerate QR</button>
         </div>
       </div>
@@ -3941,28 +3957,29 @@ input,select,textarea { font-family:inherit; }
       <div class="card-body">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
           <div style="background:rgba(0,229,255,.05);border:1px solid rgba(0,229,255,.15);border-radius:var(--radius);padding:10px;margin-bottom:12px;font-size:11px;color:var(--text2);grid-column:1/-1">
-            📌 RPi5 integrated WiFi (BCM43455) is <strong style="color:var(--green)">disabled</strong> — stable naming guaranteed:
-            <span style="color:var(--white);font-family:monospace">wlan0</span>=MT7925 HAT &nbsp;·&nbsp;
-            <span style="color:var(--white);font-family:monospace">wlan1</span>=USB dongle &nbsp;·&nbsp;
-            <span style="color:var(--white);font-family:monospace">eth0</span>=RPi5 GbE &nbsp;·&nbsp;
-            <span style="color:var(--white);font-family:monospace">eth1</span>=RTL8125B HAT
+            📌 Interface roles assigned by <strong style="color:var(--green)">driver</strong>, not name:
+            <span style="color:var(--white);font-family:monospace">iwlwifi</span>=AX210 (uplink) &nbsp;·&nbsp;
+            <span style="color:var(--white);font-family:monospace">brcmfmac</span>=RPi5 (hotspot) &nbsp;·&nbsp;
+            <span style="color:var(--white);font-family:monospace">mt7921u</span>=CF-953AX (monitor) &nbsp;·&nbsp;
+            <span style="color:var(--white);font-family:monospace">eth-mgmt</span>=RPi5 GbE &nbsp;·&nbsp;
+            <span style="color:var(--white);font-family:monospace">eth-test</span>=RTL8125B HAT
           </div>
           <div style="background:var(--bg3);border-radius:var(--radius);padding:14px;border-left:3px solid var(--cyan)">
             <div style="font-size:11px;font-weight:700;color:var(--cyan);letter-spacing:1px;margin-bottom:8px">💻 LAPTOP (cable)</div>
             <div style="font-size:11px;color:var(--text2);line-height:1.8">
-              1. Cable RJ45: laptop → eth0<br>
-              2. Laptop gets 192.168.42.x auto<br>
-              3. Open: <span style="color:var(--cyan)">http://nekopi.local:8000</span><br>
-              4. wlan0 + eth1 free for tests
+              1. Cable RJ45: laptop → eth-mgmt<br>
+              2. Laptop gets 192.168.99.x auto<br>
+              3. Open: <span style="color:var(--cyan)">https://nekopi.local:8080</span><br>
+              4. WiFi + eth-test free for tests
             </div>
           </div>
           <div style="background:var(--bg3);border-radius:var(--radius);padding:14px;border-left:3px solid var(--amber)">
-            <div style="font-size:11px;font-weight:700;color:var(--amber);letter-spacing:1px;margin-bottom:8px">📱 MOBILE (WiFi dongle)</div>
+            <div style="font-size:11px;font-weight:700;color:var(--amber);letter-spacing:1px;margin-bottom:8px">📱 MOBILE (WiFi hotspot)</div>
             <div style="font-size:11px;color:var(--text2);line-height:1.8">
-              1. Plug USB WiFi dongle (wlan1)<br>
-              2. Run: <span style="color:var(--amber)">nekopi-ap on</span><br>
-              3. Connect to <span style="color:var(--amber)">nekopi-mgmt</span><br>
-              4. Open: <span style="color:var(--amber)">http://192.168.43.1:8000</span>
+              1. Hotspot starts auto if no cable<br>
+              2. Connect to <span style="color:var(--amber)" id="conn-guide-ssid">NekoPiXXXX</span><br>
+              3. Open: <span style="color:var(--amber)">https://192.168.98.1:8080</span><br>
+              4. Or enable via button above
             </div>
           </div>
         </div>
@@ -14089,32 +14106,24 @@ function initAbout() { loadAboutPage(); }
 // ═══════════════════════════════════════
 function refreshConnection() {
   if (DEMO_MODE) {
-    // DEMO: interfaces fijas
-    var ifaces = [
-      {id:'eth0',  ipEl:'conn-eth0-ip',   stEl:null,               ip:'192.168.42.1', st:'sb-ok',   stTxt:'UP'},
-      {id:'eth1',  ipEl:'conn-eth1-ip',   stEl:'conn-eth1-status', ip:'—',            st:'sb-idle', stTxt:'Ready'},
-      {id:'wlan0', ipEl:'conn-wlan0-ip',  stEl:'conn-wlan0-status',ip:'—',            st:'sb-idle', stTxt:'Ready'},
-    ];
-    ifaces.forEach(function(iface) {
-      var ipEl = document.getElementById(iface.ipEl);
-      if (ipEl) ipEl.textContent = iface.ip;
-      if (iface.stEl) {
-        var stEl = document.getElementById(iface.stEl);
-        if (stEl) stEl.innerHTML = '<span class="status-badge '+iface.st+'"><span class="sb-dot"></span>'+iface.stTxt+'</span>';
-      }
-    });
+    // DEMO: simulated interfaces
+    var el;
+    el = document.getElementById('conn-eth-mgmt-ip'); if(el) el.textContent = '192.168.99.1';
+    el = document.getElementById('conn-eth-test-ip');  if(el) el.textContent = '—';
+    el = document.getElementById('conn-wlan0-ip');     if(el) el.textContent = '—';
+    el = document.getElementById('conn-hotspot-ip');   if(el) el.textContent = '192.168.98.1';
+    // Simulate hotspot data
+    _connUpdateHotspot({ssid:'NekoPiA3F2', password:'nekopia3f2', ip:'192.168.98.1', enabled:false});
     generateQR();
     showToast('Connection info refreshed (DEMO)');
     return;
   }
-  // LIVE: interfaces reales
+  // LIVE: fetch real interface data + hotspot status
   fetchAPI('/api/network/info').then(function(data) {
     if (!data) return;
     data.interfaces.forEach(function(iface) {
       var label = iface.label || iface.name;
-      // Actualizar campos genéricos de la página Connection
-      var ipEl = document.getElementById('conn-' + iface.name + '-ip') ||
-                 document.getElementById('conn-eth0-ip');  // fallback
+      var ipEl = document.getElementById('conn-' + iface.name + '-ip');
       if (ipEl) ipEl.textContent = iface.ip || '—';
       var stEl = document.getElementById('conn-' + iface.name + '-status');
       if (stEl) {
@@ -14123,53 +14132,62 @@ function refreshConnection() {
         stEl.innerHTML = '<span class="status-badge '+cls+'"><span class="sb-dot"></span>'+txt+'</span>';
       }
     });
+  });
+  fetchAPI('/api/hotspot/status').then(function(hs) {
+    if (!hs) return;
+    _connUpdateHotspot(hs);
     generateQR();
-    showToast('Connection info actualizado — datos reales');
+    showToast('Connection info updated');
   });
 }
 
-function generateQR() {
-  var canvas = document.getElementById('conn-qr-canvas');
-  if (!canvas) return;
-  var ctx = canvas.getContext('2d');
-  var size = 160;
-  canvas.width  = size;
-  canvas.height = size;
-
-  // Draw simple QR placeholder with NekoPi URL encoded visually
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, size, size);
-
-  // QR finder patterns (corners)
-  var drawFinder = function(x, y) {
-    ctx.fillStyle = '#000';
-    ctx.fillRect(x, y, 28, 28);
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(x+4, y+4, 20, 20);
-    ctx.fillStyle = '#000';
-    ctx.fillRect(x+8, y+8, 12, 12);
-  };
-  drawFinder(8, 8);
-  drawFinder(size-36, 8);
-  drawFinder(8, size-36);
-
-  // Data modules (random-ish but deterministic)
-  ctx.fillStyle = '#000';
-  var url = 'http://192.168.43.1:8000';
-  for (var i = 0; i < url.length * 3; i++) {
-    var code = url.charCodeAt(i % url.length);
-    var cx = ((code * 7 + i * 13) % (size - 24)) + 12;
-    var cy = ((code * 11 + i * 17) % (size - 24)) + 12;
-    // Skip finder pattern areas
-    if ((cx < 44 && cy < 44) || (cx > size-44 && cy < 44) || (cx < 44 && cy > size-44)) continue;
-    ctx.fillRect(cx, cy, 4, 4);
+function _connUpdateHotspot(hs) {
+  var ssidEl  = document.getElementById('conn-ap-ssid');
+  var detEl   = document.getElementById('conn-ap-details');
+  var stEl    = document.getElementById('conn-hotspot-status');
+  var ipEl    = document.getElementById('conn-hotspot-ip');
+  var guideEl = document.getElementById('conn-guide-ssid');
+  var btnOn   = document.getElementById('btn-ap-on');
+  var btnOff  = document.getElementById('btn-ap-off');
+  if (ssidEl)  ssidEl.textContent  = 'SSID: ' + (hs.ssid || '---');
+  if (detEl)   detEl.textContent   = 'Pass: ' + (hs.password || '---') + ' · https://' + (hs.ip || '192.168.98.1') + ':8080';
+  if (ipEl)    ipEl.textContent    = hs.ip || '192.168.98.1';
+  if (guideEl) guideEl.textContent = hs.ssid || 'NekoPiXXXX';
+  // Store for QR generation
+  window._hotspotData = hs;
+  if (hs.enabled) {
+    if (btnOn)  btnOn.style.display  = 'none';
+    if (btnOff) btnOff.style.display = '';
+    if (stEl) stEl.innerHTML = '<span class="status-badge sb-ok"><span class="sb-dot"></span>AP ACTIVE · ' + (hs.clients||[]).length + ' clients</span>';
+  } else {
+    if (btnOn)  btnOn.style.display  = '';
+    if (btnOff) btnOff.style.display = 'none';
+    if (stEl) stEl.innerHTML = '<span class="status-badge sb-idle"><span class="sb-dot"></span>Standby</span>';
   }
+}
 
-  // Label
-  ctx.fillStyle = '#1a6b8a';
-  ctx.font = 'bold 9px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('nekopi-mgmt', size/2, size-3);
+function generateQR() {
+  var hs = window._hotspotData || {ssid:'NekoPi----', password:'----', ip:'192.168.98.1'};
+
+  // Hotspot QR
+  var hotspotEl = document.getElementById('conn-qr-hotspot');
+  if (hotspotEl) {
+    hotspotEl.innerHTML = '';
+    try {
+      new QRCode(hotspotEl, {text:'https://' + (hs.ip||'192.168.98.1') + ':8080', width:120, height:120, correctLevel:QRCode.CorrectLevel.M});
+    } catch(e) { hotspotEl.innerHTML = '<div style="width:120px;height:120px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#999">QR unavailable</div>'; }
+  }
+  var credsEl = document.getElementById('conn-qr-hotspot-creds');
+  if (credsEl) credsEl.textContent = (hs.ssid||'---') + ' / ' + (hs.password||'---');
+
+  // Cable MGMT QR
+  var cableEl = document.getElementById('conn-qr-cable');
+  if (cableEl) {
+    cableEl.innerHTML = '';
+    try {
+      new QRCode(cableEl, {text:'https://192.168.99.1:8080', width:120, height:120, correctLevel:QRCode.CorrectLevel.M});
+    } catch(e) { cableEl.innerHTML = '<div style="width:120px;height:120px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#999">QR unavailable</div>'; }
+  }
 }
 
 var mobileAPActive = false;
@@ -14177,18 +14195,31 @@ function toggleMobileAP(on) {
   mobileAPActive = on;
   var btnOn  = document.getElementById('btn-ap-on');
   var btnOff = document.getElementById('btn-ap-off');
-  var wlan1  = document.getElementById('conn-wlan1-status');
-  if (on) {
-    if (btnOn)  btnOn.style.display  = 'none';
-    if (btnOff) btnOff.style.display = '';
-    if (wlan1)  wlan1.innerHTML = '<span class="status-badge sb-ok"><span class="sb-dot"></span>AP ACTIVE</span>';
-    showToast('Mobile AP started — SSID: nekopi-mgmt');
-  } else {
-    if (btnOn)  btnOn.style.display  = '';
-    if (btnOff) btnOff.style.display = 'none';
-    if (wlan1)  wlan1.innerHTML = '<span class="status-badge sb-idle"><span class="sb-dot"></span>Optional</span>';
-    showToast('Mobile AP stopped');
+  if (DEMO_MODE) {
+    if (on) {
+      if (btnOn) btnOn.style.display = 'none';
+      if (btnOff) btnOff.style.display = '';
+      showToast('Mobile AP started (DEMO)');
+    } else {
+      if (btnOn) btnOn.style.display = '';
+      if (btnOff) btnOff.style.display = 'none';
+      showToast('Mobile AP stopped (DEMO)');
+    }
+    return;
   }
+  var endpoint = on ? '/api/hotspot/enable' : '/api/hotspot/disable';
+  if (btnOn) btnOn.disabled = true;
+  if (btnOff) btnOff.disabled = true;
+  fetchAPI(endpoint, {method:'POST'}).then(function(r) {
+    if (btnOn) btnOn.disabled = false;
+    if (btnOff) btnOff.disabled = false;
+    if (r && r.ok) {
+      showToast(on ? 'Hotspot enabled — SSID: ' + (r.ssid||'') : 'Hotspot disabled');
+      setTimeout(refreshConnection, 1000);
+    } else {
+      showToast(r && r.error ? r.error : 'Hotspot toggle failed', 'error');
+    }
+  });
 }
 
 // ═══════════════════════════════════════

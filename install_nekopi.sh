@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  NekoPi Field Unit — Automated Installer v2
 #  Version:   1.3.0  ·  Codename: ToManchas
-#  Generated: 2026-04-16 20:02
+#  Generated: 2026-04-18 21:23
 #  Target:    Ubuntu 24.04 LTS · Raspberry Pi 5 · 8 GB
 #  License:   GPL-3.0-or-later
 # ═══════════════════════════════════════════════════════════════
@@ -35,7 +35,7 @@ else
     GREEN=''; YELLOW=''; CYAN=''; GRAY=''; BOLD=''; RED=''; RESET=''
 fi
 
-NEKOPI_TOTAL_STEPS=24
+NEKOPI_TOTAL_STEPS=26
 
 NEKOPI_CURRENT_STEP=0
 NEKOPI_START_TIME=$(date +%s)
@@ -245,6 +245,22 @@ for iface in "${WIRED_IFACES[@]}"; do
     fi
 done
 
+# WiFi interface classification by driver
+HOTSPOT_IFACE=""
+UPLINK_IFACE=""
+MONITOR_IFACE=""
+for wif in /sys/class/net/*/wireless; do
+    [ -e "$wif" ] || continue
+    wname=$(basename "$(dirname "$wif")")
+    [ -L "/sys/class/net/$wname/device/driver" ] || continue
+    wdrv=$(basename "$(readlink -f /sys/class/net/$wname/device/driver)")
+    case "$wdrv" in
+        brcmfmac)  [ -z "$HOTSPOT_IFACE" ] && HOTSPOT_IFACE="$wname" ;;
+        iwlwifi)   [ -z "$UPLINK_IFACE"  ] && UPLINK_IFACE="$wname"  ;;
+        mt7921u)   [ -z "$MONITOR_IFACE" ] && MONITOR_IFACE="$wname" ;;
+    esac
+done
+
 echo "  wlan0 (built-in WiFi):   $HAS_WLAN0"
 echo "  wlan1 (USB monitor adp): $HAS_WLAN1"
 echo "  eth0  (kernel name):     $HAS_ETH0"
@@ -252,6 +268,9 @@ echo "  eth1  (kernel name):     $HAS_ETH1"
 echo "  wired ifaces (type=1):   ${WIRED_IFACES[*]:-(none)}"
 echo "  mgmt chosen:             $HAS_ETH_MGMT ($MGMT_IFACE)"
 echo "  test chosen:             $HAS_ETH_TEST ($TEST_IFACE)"
+echo "  wifi hotspot (brcmfmac): ${HOTSPOT_IFACE:-(none)}"
+echo "  wifi uplink  (iwlwifi):  ${UPLINK_IFACE:-(none)}"
+echo "  wifi monitor (mt7921u):  ${MONITOR_IFACE:-(none)}"
 
 mkdir -p "$NEKOPI_DIR/data"
 cat > "$NEKOPI_DIR/data/hw_caps.json" <<HWCAPS
@@ -266,16 +285,20 @@ cat > "$NEKOPI_DIR/data/hw_caps.json" <<HWCAPS
   "wifi_uplink":  $( { [ "$HAS_WLAN0" = "yes" ] || [ "$HAS_WLAN1" = "yes" ]; } && echo true || echo false ),
   "mgmt_iface": "$MGMT_IFACE",
   "test_iface": "$TEST_IFACE",
+  "wifi_hotspot_iface": ${HOTSPOT_IFACE:+"$HOTSPOT_IFACE"}${HOTSPOT_IFACE:-null},
+  "wifi_uplink_iface":  ${UPLINK_IFACE:+"$UPLINK_IFACE"}${UPLINK_IFACE:-null},
+  "wifi_monitor_iface": ${MONITOR_IFACE:+"$MONITOR_IFACE"}${MONITOR_IFACE:-null},
   "generated_at": "$(date -Iseconds)"
 }
 HWCAPS
 sed -i 's/^    //' "$NEKOPI_DIR/data/hw_caps.json"
 
 export HAS_WLAN0 HAS_WLAN1 HAS_ETH0 HAS_ETH1 HAS_ETH_MGMT HAS_ETH_TEST
-export MGMT_IFACE TEST_IFACE
+export MGMT_IFACE TEST_IFACE HOTSPOT_IFACE UPLINK_IFACE MONITOR_IFACE
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 1 "Hardware detection"
 _nk_hw_pills "eth-mgmt:$HAS_ETH_MGMT" "eth-test:$HAS_ETH_TEST" "wlan0:$HAS_WLAN0" "wlan1:$HAS_WLAN1"
+_nk_hw_pills "hotspot:$( [ -n \"$HOTSPOT_IFACE\" ] && echo yes || echo no )" "uplink:$( [ -n \"$UPLINK_IFACE\" ] && echo yes || echo no )" "monitor:$( [ -n \"$MONITOR_IFACE\" ] && echo yes || echo no )"
 
 
 _nk_step_start 2 "User nekopi"
@@ -344,7 +367,7 @@ _nk_step_start 5 "Base dependencies"
 PKGS=(
     python3 python3-venv python3-pip python3-dev
     git curl wget unzip jq
-    dnsmasq
+    dnsmasq hostapd
     cockpit
     influxdb2
     grafana
@@ -552,6 +575,15 @@ After=network-online.target sys-subsystem-net-devices-$DNSMASQ_IFACE.device
 Wants=sys-subsystem-net-devices-$DNSMASQ_IFACE.device
 OVERRIDE
 
+# Hotspot interface DHCP (brcmfmac) — only if detected at install time
+if [ -n "${HOTSPOT_IFACE:-}" ]; then
+    cat >> /etc/dnsmasq.conf << HOTSPOT_DNSMASQ
+# nekopi-hotspot
+interface=$HOTSPOT_IFACE
+dhcp-range=set:hotspot,192.168.98.100,192.168.98.199,255.255.255.0,12h
+HOTSPOT_DNSMASQ
+fi
+
 mkdir -p /etc/dnsmasq.d
 systemctl daemon-reload
 systemctl enable dnsmasq
@@ -659,6 +691,8 @@ nekopi ALL=(ALL) NOPASSWD: /usr/bin/systemctl start cockpit
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop cockpit
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/systemctl start kismet
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop kismet
+nekopi ALL=(ALL) NOPASSWD: /usr/sbin/hostapd
+nekopi ALL=(ALL) NOPASSWD: /usr/bin/hostapd
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/ip
 nekopi ALL=(ALL) NOPASSWD: /usr/sbin/tcpdump
@@ -744,7 +778,101 @@ _nk_step_start 22 "Assets check"
 _nk_step_done 22 "Assets check"
 
 
-_nk_step_start 23 "Start services"
+_nk_step_start 23 "Hotspot setup"
+{
+    # Only configure hotspot if brcmfmac interface was detected
+    if [ -n "${HOTSPOT_IFACE:-}" ]; then
+        # Disable hostapd default service (we manage it ourselves)
+        systemctl unmask hostapd 2>/dev/null || true
+        systemctl disable hostapd 2>/dev/null || true
+        systemctl stop hostapd 2>/dev/null || true
+
+        # Read MAC and compute SSID/password
+        HOTSPOT_MAC=$(cat "/sys/class/net/$HOTSPOT_IFACE/address" 2>/dev/null || echo "00:00:00:00:00:00")
+        HOTSPOT_SUFFIX=$(echo "$HOTSPOT_MAC" | tr -d ':' | tail -c 5 | head -c 4)
+        HOTSPOT_SSID="NekoPi$(echo "$HOTSPOT_SUFFIX" | tr '[:lower:]' '[:upper:]')"
+        HOTSPOT_PASS="nekopi$(echo "$HOTSPOT_SUFFIX" | tr '[:upper:]' '[:lower:]')"
+
+        # Write hostapd config
+        mkdir -p /etc/hostapd
+        cat > /etc/hostapd/nekopi.conf << HOSTAPD_CONF
+interface=$HOTSPOT_IFACE
+driver=nl80211
+ssid=$HOTSPOT_SSID
+hw_mode=g
+channel=0
+ieee80211n=1
+wmm_enabled=1
+auth_algs=1
+wpa=2
+wpa_passphrase=$HOTSPOT_PASS
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
+HOSTAPD_CONF
+
+        # Persist hotspot config to data dir
+        cat > "$NEKOPI_DIR/data/hotspot.json" << HOTSPOT_JSON
+{
+  "ssid": "$HOTSPOT_SSID",
+  "password": "$HOTSPOT_PASS",
+  "survey_mode": false,
+  "auto_start": true
+}
+HOTSPOT_JSON
+        chown "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR/data/hotspot.json"
+
+        echo "  Hotspot SSID: $HOTSPOT_SSID"
+        echo "  Hotspot pass: $HOTSPOT_PASS"
+        echo "  Hotspot iface: $HOTSPOT_IFACE"
+    else
+        echo "  No brcmfmac interface — skipping hotspot config"
+    fi
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 23 "Hotspot setup"
+
+
+_nk_step_start 24 "Hotspot boot service"
+{
+    if [ -n "${HOTSPOT_IFACE:-}" ]; then
+        cat > /etc/systemd/system/nekopi-hotspot.service << 'HOTSPOT_UNIT'
+[Unit]
+Description=NekoPi WiFi Hotspot (auto-start)
+After=network.target dnsmasq.service
+Wants=dnsmasq.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c '\
+  HOTSPOT_CONF=/opt/nekopi/data/hotspot.json; \
+  SURVEY=$(python3 -c "import json;print(json.load(open(\"$HOTSPOT_CONF\")).get(\"survey_mode\",False))" 2>/dev/null || echo False); \
+  if [ "$SURVEY" = "True" ]; then echo "Survey mode — hotspot skipped"; exit 0; fi; \
+  CARRIER=$(cat /sys/class/net/eth-mgmt/carrier 2>/dev/null || echo 0); \
+  if [ "$CARRIER" = "1" ]; then echo "eth-mgmt cable connected — hotspot skipped"; exit 0; fi; \
+  IFACE=$(python3 -c "import json;print(json.load(open(\"/opt/nekopi/data/hw_caps.json\")).get(\"wifi_hotspot_iface\",\"\"))" 2>/dev/null); \
+  [ -z "$IFACE" ] && exit 0; \
+  ip link set "$IFACE" up; \
+  ip addr flush dev "$IFACE"; \
+  ip addr add 192.168.98.1/24 dev "$IFACE"; \
+  hostapd -B /etc/hostapd/nekopi.conf; \
+  echo "Hotspot started on $IFACE"'
+ExecStop=/bin/bash -c '\
+  pkill -f "hostapd.*nekopi" || true'
+
+[Install]
+WantedBy=multi-user.target
+HOTSPOT_UNIT
+
+        systemctl daemon-reload
+        systemctl enable nekopi-hotspot
+    else
+        echo "  No brcmfmac interface — skipping hotspot service"
+    fi
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 24 "Hotspot boot service"
+
+
+_nk_step_start 25 "Start services"
 {
 systemctl restart nekopi
 sleep 3
@@ -759,10 +887,10 @@ if [ "$READY" != "1" ]; then
     echo "WARN: NekoPi did not respond yet — check journalctl -u nekopi -f"
 fi
 } >> "$INSTALL_LOG" 2>&1
-_nk_step_done 23 "Start services"
+_nk_step_done 25 "Start services"
 
 
-_nk_step_start 24 "Post-install verification"
+_nk_step_start 26 "Post-install verification"
 {
 INSTALL_ERRORS=0
 
@@ -803,9 +931,16 @@ if [ "$HAS_WLAN1" = "yes" ]; then
     check "wlan1 monitor mode capable" "iw phy | grep -q 'monitor\|managed'"
 fi
 
+if [ -n "${HOTSPOT_IFACE:-}" ]; then
+    check "hostapd binary"               "command -v hostapd"
+    check "hostapd config"               "test -f /etc/hostapd/nekopi.conf"
+    check "hotspot.json exists"          "test -f $NEKOPI_DIR/data/hotspot.json"
+    check "nekopi-hotspot service"       "systemctl is-enabled nekopi-hotspot"
+fi
+
 echo "INSTALL_ERRORS=$INSTALL_ERRORS"
 } >> "$INSTALL_LOG" 2>&1
-_nk_step_done 24 "Post-install verification"
+_nk_step_done 26 "Post-install verification"
 
 
 # Overall progress bar — printed once at the end, not between steps

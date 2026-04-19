@@ -242,6 +242,36 @@ def _iface_driver(name: str) -> str:
         pass
     return ""
 
+def _classify_wifi_ifaces() -> dict:
+    """Classify WiFi interfaces by driver (kernel name order is unstable).
+
+    Driver → role mapping:
+      brcmfmac → RPi5 native  → hotspot
+      iwlwifi  → AX210 HAT    → uplink
+      mt7921u  → CF-953AX USB → monitor
+    Returns: {"hotspot": "wlanX", "uplink": "wlanY", "monitor": "wlanZ"}
+    Any role not found returns None.
+    """
+    _WIFI_DRIVER_ROLES = {
+        "brcmfmac": "hotspot",
+        "iwlwifi":  "uplink",
+        "mt7921u":  "monitor",
+    }
+    result: dict = {"hotspot": None, "uplink": None, "monitor": None}
+    try:
+        net_dir = Path("/sys/class/net")
+        for entry in sorted(net_dir.iterdir()):
+            name = entry.name
+            if not (entry / "wireless").exists():
+                continue
+            driver = _iface_driver(name)
+            role = _WIFI_DRIVER_ROLES.get(driver)
+            if role and result[role] is None:
+                result[role] = name
+    except Exception:
+        pass
+    return result
+
 def _list_wired_ifaces() -> list:
     """Enumerate real non-wireless Ethernet interfaces by /sys/class/net attrs.
 
@@ -325,6 +355,9 @@ def get_hw_caps() -> dict:
     has_wlan0 = _iface_exists("wlan0")
     has_wlan1 = _iface_exists("wlan1")
 
+    # WiFi classification by driver (stable regardless of wlan0/1/2 order)
+    wifi_roles = _classify_wifi_ifaces()
+
     live = {
         "wlan0": has_wlan0,
         "wlan1": has_wlan1,
@@ -339,6 +372,10 @@ def get_hw_caps() -> dict:
         "wifi_uplink":  has_wlan0 or has_wlan1, # any wifi works as uplink
         "mgmt_iface": by_role.get("mgmt") or get_mgmt_iface(),
         "test_iface": by_role.get("test") or get_test_iface(),
+        # Driver-classified WiFi interfaces (additive — does not replace above)
+        "wifi_hotspot_iface": wifi_roles["hotspot"],
+        "wifi_uplink_iface":  wifi_roles["uplink"],
+        "wifi_monitor_iface": wifi_roles["monitor"],
     }
     # Merge: file caps may contain extra notes; live wins on availability
     caps.update(live)
@@ -1992,6 +2029,296 @@ async def nat_disable():
     run_cmd(["sudo", "conntrack", "-F"])  # Kill existing connections
     run_cmd(["sudo", "netfilter-persistent", "save"])
     return {"ok": True, "enabled": False}
+
+
+# ── WIFI HOTSPOT (brcmfmac / RPi5 native) ────────────────────────────────
+_HOTSPOT_CONF_FILE = Path("/etc/hostapd/nekopi.conf")
+_HOTSPOT_DATA_FILE = BASE_DIR / "data" / "hotspot.json"
+_HOTSPOT_IP = "192.168.98.1"
+_HOTSPOT_SUBNET = "192.168.98"
+_HOTSPOT_DNSMASQ_TAG = "# nekopi-hotspot"
+
+def _hotspot_load() -> dict:
+    """Load persisted hotspot config from data/hotspot.json."""
+    try:
+        return json.loads(_HOTSPOT_DATA_FILE.read_text())
+    except Exception:
+        return {}
+
+def _hotspot_save(cfg: dict):
+    _HOTSPOT_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _HOTSPOT_DATA_FILE.write_text(json.dumps(cfg, indent=2))
+
+def _hotspot_iface() -> str | None:
+    """Return the brcmfmac interface name for hotspot, or None."""
+    return _classify_wifi_ifaces().get("hotspot")
+
+def _hotspot_mac(iface: str) -> str:
+    """Read MAC address of the hotspot interface."""
+    try:
+        return Path(f"/sys/class/net/{iface}/address").read_text().strip()
+    except Exception:
+        return "00:00:00:00:00:00"
+
+def _hotspot_default_creds(iface: str) -> tuple[str, str]:
+    """Compute default SSID and password from last 4 chars of MAC."""
+    mac = _hotspot_mac(iface).replace(":", "")
+    suffix = mac[-4:]
+    return f"NekoPi{suffix.upper()}", f"nekopi{suffix.lower()}"
+
+def _hotspot_is_running() -> bool:
+    return _svc_active("hostapd") or bool(run_cmd(["pgrep", "-f", "hostapd.*nekopi"]))
+
+def _hotspot_write_hostapd_conf(iface: str, ssid: str, password: str):
+    """Write /etc/hostapd/nekopi.conf for 2.4GHz WPA2-PSK."""
+    conf = (
+        f"interface={iface}\n"
+        f"driver=nl80211\n"
+        f"ssid={ssid}\n"
+        f"hw_mode=g\n"
+        f"channel=0\n"
+        f"ieee80211n=1\n"
+        f"wmm_enabled=1\n"
+        f"auth_algs=1\n"
+        f"wpa=2\n"
+        f"wpa_passphrase={password}\n"
+        f"wpa_key_mgmt=WPA-PSK\n"
+        f"rsn_pairwise=CCMP\n"
+    )
+    run_cmd(["sudo", "tee", str(_HOTSPOT_CONF_FILE)], timeout=5)
+    # tee reads stdin — use subprocess directly
+    try:
+        subprocess.run(
+            ["sudo", "tee", str(_HOTSPOT_CONF_FILE)],
+            input=conf, capture_output=True, text=True, timeout=5
+        )
+    except Exception:
+        pass
+
+def _hotspot_get_clients(iface: str) -> list:
+    """List connected hotspot clients from hostapd/arp."""
+    clients = []
+    # Check ARP table for hotspot subnet
+    out = run_cmd(["arp", "-n", "-i", iface])
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[0].startswith(_HOTSPOT_SUBNET):
+            clients.append({"ip": parts[0], "mac": parts[2]})
+    return clients
+
+def _hotspot_add_dnsmasq():
+    """Add hotspot interface to dnsmasq config (non-destructively)."""
+    iface = _hotspot_iface()
+    if not iface:
+        return
+    dnsmasq_conf = Path("/etc/dnsmasq.conf")
+    try:
+        content = dnsmasq_conf.read_text()
+    except Exception:
+        content = ""
+    if _HOTSPOT_DNSMASQ_TAG in content:
+        return  # already configured
+    hotspot_block = (
+        f"\n{_HOTSPOT_DNSMASQ_TAG}\n"
+        f"interface={iface}\n"
+        f"dhcp-range=set:hotspot,{_HOTSPOT_SUBNET}.100,{_HOTSPOT_SUBNET}.199,255.255.255.0,12h\n"
+    )
+    try:
+        subprocess.run(
+            ["sudo", "tee", "-a", str(dnsmasq_conf)],
+            input=hotspot_block, capture_output=True, text=True, timeout=5
+        )
+    except Exception:
+        pass
+
+def _hotspot_remove_dnsmasq():
+    """Remove hotspot lines from dnsmasq config."""
+    dnsmasq_conf = Path("/etc/dnsmasq.conf")
+    try:
+        lines = dnsmasq_conf.read_text().splitlines()
+    except Exception:
+        return
+    # Remove the hotspot block (tag line + next 2 lines)
+    new_lines = []
+    skip = 0
+    for line in lines:
+        if skip > 0:
+            skip -= 1
+            continue
+        if _HOTSPOT_DNSMASQ_TAG in line:
+            skip = 2  # skip the next 2 lines (interface + dhcp-range)
+            continue
+        new_lines.append(line)
+    try:
+        subprocess.run(
+            ["sudo", "tee", str(dnsmasq_conf)],
+            input="\n".join(new_lines) + "\n",
+            capture_output=True, text=True, timeout=5
+        )
+    except Exception:
+        pass
+
+def _hotspot_add_nat(hotspot_iface: str):
+    """Add MASQUERADE for hotspot → uplink (iwlwifi)."""
+    wifi = _classify_wifi_ifaces()
+    uplink = wifi.get("uplink")
+    if not uplink:
+        return
+    run_cmd(["sudo", "sysctl", "-w", "net.ipv4.ip_forward=1"])
+    run_cmd(["sudo", "iptables", "-t", "nat", "-A", "POSTROUTING",
+             "-o", uplink, "-s", f"{_HOTSPOT_SUBNET}.0/24", "-j", "MASQUERADE"])
+    run_cmd(["sudo", "iptables", "-A", "FORWARD",
+             "-i", hotspot_iface, "-o", uplink, "-j", "ACCEPT"])
+    run_cmd(["sudo", "iptables", "-A", "FORWARD",
+             "-i", uplink, "-o", hotspot_iface,
+             "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"])
+
+def _hotspot_remove_nat(hotspot_iface: str):
+    """Remove hotspot-specific NAT rules (leaves existing NAT intact)."""
+    wifi = _classify_wifi_ifaces()
+    uplink = wifi.get("uplink")
+    if not uplink:
+        return
+    run_cmd(["sudo", "iptables", "-t", "nat", "-D", "POSTROUTING",
+             "-o", uplink, "-s", f"{_HOTSPOT_SUBNET}.0/24", "-j", "MASQUERADE"])
+    run_cmd(["sudo", "iptables", "-D", "FORWARD",
+             "-i", hotspot_iface, "-o", uplink, "-j", "ACCEPT"])
+    run_cmd(["sudo", "iptables", "-D", "FORWARD",
+             "-i", uplink, "-o", hotspot_iface,
+             "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"])
+
+@app.get("/api/hotspot/status")
+async def hotspot_status():
+    iface = _hotspot_iface()
+    if not iface:
+        return {"enabled": False, "ssid": None, "password": None,
+                "ip": None, "clients": [], "iface": None,
+                "survey_mode": False, "error": "No brcmfmac interface found"}
+    cfg = _hotspot_load()
+    default_ssid, default_pass = _hotspot_default_creds(iface)
+    ssid = cfg.get("ssid", default_ssid)
+    password = cfg.get("password", default_pass)
+    running = _hotspot_is_running()
+    clients = _hotspot_get_clients(iface) if running else []
+    return {
+        "enabled": running,
+        "ssid": ssid,
+        "password": password,
+        "ip": _HOTSPOT_IP,
+        "clients": clients,
+        "iface": iface,
+        "survey_mode": cfg.get("survey_mode", False),
+        "auto_start": cfg.get("auto_start", True),
+        "mac": _hotspot_mac(iface),
+    }
+
+@app.post("/api/hotspot/enable")
+async def hotspot_enable():
+    iface = _hotspot_iface()
+    if not iface:
+        return {"ok": False, "error": "No brcmfmac interface found"}
+    cfg = _hotspot_load()
+    if cfg.get("survey_mode"):
+        return {"ok": False, "error": "Survey mode active — disable it first"}
+    default_ssid, default_pass = _hotspot_default_creds(iface)
+    ssid = cfg.get("ssid", default_ssid)
+    password = cfg.get("password", default_pass)
+
+    # Write hostapd config
+    _hotspot_write_hostapd_conf(iface, ssid, password)
+
+    # Bring interface up and assign IP
+    run_cmd(["sudo", "ip", "link", "set", iface, "up"])
+    run_cmd(["sudo", "ip", "addr", "flush", "dev", iface])
+    run_cmd(["sudo", "ip", "addr", "add", f"{_HOTSPOT_IP}/24", "dev", iface])
+
+    # Add dnsmasq interface for hotspot DHCP
+    _hotspot_add_dnsmasq()
+    run_cmd(["sudo", "systemctl", "restart", "dnsmasq"])
+
+    # Start hostapd
+    run_cmd(["sudo", "systemctl", "stop", "hostapd"], timeout=5)
+    run_cmd(["sudo", "hostapd", "-B", str(_HOTSPOT_CONF_FILE)], timeout=10)
+
+    # NAT if uplink available
+    _hotspot_add_nat(iface)
+
+    # Persist state
+    cfg.update({"ssid": ssid, "password": password, "survey_mode": False})
+    _hotspot_save(cfg)
+    return {"ok": True, "ssid": ssid, "ip": _HOTSPOT_IP, "iface": iface}
+
+@app.post("/api/hotspot/disable")
+async def hotspot_disable():
+    iface = _hotspot_iface()
+    if not iface:
+        return {"ok": False, "error": "No brcmfmac interface found"}
+
+    # Stop hostapd
+    run_cmd(["sudo", "pkill", "-f", "hostapd"])
+    run_cmd(["sudo", "systemctl", "stop", "hostapd"], timeout=5)
+
+    # Remove IP
+    run_cmd(["sudo", "ip", "addr", "flush", "dev", iface])
+
+    # Remove dnsmasq hotspot lines and restart
+    _hotspot_remove_dnsmasq()
+    run_cmd(["sudo", "systemctl", "restart", "dnsmasq"])
+
+    # Remove NAT rules
+    _hotspot_remove_nat(iface)
+
+    return {"ok": True, "enabled": False}
+
+@app.post("/api/hotspot/password")
+async def hotspot_password(request: Request):
+    body = await request.json()
+    new_pass = body.get("password", "").strip()
+    if len(new_pass) < 8:
+        return {"ok": False, "error": "Password must be at least 8 characters"}
+
+    iface = _hotspot_iface()
+    cfg = _hotspot_load()
+    cfg["password"] = new_pass
+    _hotspot_save(cfg)
+
+    # If running, rewrite config and restart hostapd
+    if _hotspot_is_running() and iface:
+        default_ssid, _ = _hotspot_default_creds(iface)
+        ssid = cfg.get("ssid", default_ssid)
+        _hotspot_write_hostapd_conf(iface, ssid, new_pass)
+        run_cmd(["sudo", "pkill", "-f", "hostapd"])
+        await asyncio.sleep(1)
+        run_cmd(["sudo", "hostapd", "-B", str(_HOTSPOT_CONF_FILE)], timeout=10)
+
+    return {"ok": True}
+
+@app.post("/api/hotspot/survey-mode")
+async def hotspot_survey_mode(request: Request):
+    body = await request.json()
+    enable = body.get("enable", True)
+    iface = _hotspot_iface()
+    cfg = _hotspot_load()
+
+    if enable:
+        # Completely disable hotspot for survey
+        if iface:
+            run_cmd(["sudo", "pkill", "-f", "hostapd"])
+            run_cmd(["sudo", "systemctl", "stop", "hostapd"], timeout=5)
+            run_cmd(["sudo", "ip", "addr", "flush", "dev", iface])
+            run_cmd(["sudo", "ip", "link", "set", iface, "down"])
+            _hotspot_remove_dnsmasq()
+            run_cmd(["sudo", "systemctl", "restart", "dnsmasq"])
+            _hotspot_remove_nat(iface)
+        cfg["survey_mode"] = True
+    else:
+        cfg["survey_mode"] = False
+        # Bring interface back up (user can enable hotspot manually)
+        if iface:
+            run_cmd(["sudo", "ip", "link", "set", iface, "up"])
+
+    _hotspot_save(cfg)
+    return {"ok": True, "survey_mode": cfg["survey_mode"]}
 
 
 # ── WIRED / LAN TOOLS ─────────────────────────────────────────────────────
