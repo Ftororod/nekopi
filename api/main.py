@@ -3378,7 +3378,23 @@ async def roaming_status():
     mon = _ROAM_IFACE or get_monitor_iface()
     if not mon or not _iface_exists(mon):
         return _no_hw_response("wifi_monitor")
-    return {"running": _ROAM_RUNNING, "iface": _ROAM_IFACE or mon, "events": len(_ROAM_EVENTS)}
+    ft_times = [e["ft_ms"] for e in _ROAM_EVENTS if e.get("ft_ms", 0) > 0]
+    stats = {
+        "total":   len(_ROAM_EVENTS),
+        "roams":   len([e for e in _ROAM_EVENTS if "FT" in e.get("type", "") or "Legacy" in e.get("type", "") or "Reassoc" in e.get("type", "") or "Assoc" in e.get("type", "")]),
+        "deauths": len([e for e in _ROAM_EVENTS if "Deauth" in e.get("type", "") or "Disassoc" in e.get("type", "")]),
+        "avg_ft":  round(sum(ft_times) / len(ft_times)) if ft_times else 0,
+    }
+    return {
+        "running":              _ROAM_RUNNING,
+        "iface":                _ROAM_IFACE or mon,
+        "events":               len(_ROAM_EVENTS),
+        "stats":                stats,
+        "hop_channels":         list(_ROAM_ACTIVE_CHANNELS),
+        "hop_dwell_ms":         _ROAM_HOP_MS,
+        "ssid_channels_found":  _ROAM_SSID_CH_FOUND,
+        "target_ssid":          _ROAM_SSID,
+    }
 
 @app.get("/api/wifi/monitor")
 async def wifi_monitor_status():

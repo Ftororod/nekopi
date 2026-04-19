@@ -11353,6 +11353,9 @@ function startRoaming(){
     return;
   }
 
+  // Reset stats to 0 for the new capture
+  _roamResetStats(0);
+
   // Get duration
   var durSel = document.getElementById('roamDuration');
   var durVal = durSel ? durSel.value : '0';
@@ -11486,6 +11489,15 @@ function _roamUpdateChannels(d){
   }
 }
 
+function _roamResetStats(val){
+  var v = (val === undefined) ? '—' : val;
+  var el;
+  el=document.getElementById('roamStatTotal');  if(el) el.textContent=v;
+  el=document.getElementById('roamStatRoams');  if(el) el.textContent=v;
+  el=document.getElementById('roamStatDeauth'); if(el) el.textContent=v;
+  el=document.getElementById('roamStatAvgFT');  if(el) el.textContent=(v==='—'?'—':v+'ms');
+}
+
 function _roamUpdateStats(stats){
   if(!stats) return;
   var el;
@@ -11528,6 +11540,7 @@ function stopRoaming(){
     var info = document.getElementById('roamChannelInfo');
     if(info) info.style.display = 'none';
     showToast('Roaming capture stopped · adapter restored to managed');
+    _roamResetStats();
   });
 }
 
