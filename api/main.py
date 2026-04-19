@@ -2820,6 +2820,7 @@ _ROAM_SSID            = ""
 _ROAM_QUEUE           = _queue.Queue()
 _ROAM_ACTIVE_CHANNELS = []   # channels currently being hopped
 _ROAM_HOP_MS          = 0    # current hop interval in ms (for UI display)
+_ROAM_SSID_CH_FOUND   = 0    # how many APs found for the target SSID
 
 _ROAM_DEFAULT_CHANNELS = [1, 6, 11,
                           36, 40, 44, 48,
@@ -3133,11 +3134,12 @@ def _roam_parse_line(line):
 
 def _roam_capture_thread(iface, ssid, channel="hop", custom_channels=None):
     global _ROAM_RUNNING, _ROAM_EVENTS, _ROAM_CLIENTS
-    global _ROAM_ACTIVE_CHANNELS, _ROAM_HOP_MS
+    global _ROAM_ACTIVE_CHANNELS, _ROAM_HOP_MS, _ROAM_SSID_CH_FOUND
     _ROAM_EVENTS          = []
     _ROAM_CLIENTS         = {}
     _ROAM_ACTIVE_CHANNELS = []
     _ROAM_HOP_MS          = 0
+    _ROAM_SSID_CH_FOUND   = 0
 
     import subprocess as _sp
     import time as _t
@@ -3167,13 +3169,14 @@ def _roam_capture_thread(iface, ssid, channel="hop", custom_channels=None):
     if ssid and channel == "hop":
         _sp.run(["sudo", "ip", "link", "set", iface, "up"], capture_output=True)
         _t.sleep(0.3)
-        _log_event(f"🔍 Escaneando canales para SSID '{ssid}'…")
+        _log_event(f"🔍 Scanning for SSID '{ssid}'…")
         ssid_channels = _get_ssid_channels(iface, ssid)
+        _ROAM_SSID_CH_FOUND = len(ssid_channels)
         if ssid_channels:
-            _log_event("✓ Canales detectados para '" + ssid + "': "
+            _log_event(f"✓ Found '{ssid}' on {len(ssid_channels)} channel(s): "
                        + ", ".join(str(c) for c in ssid_channels))
         else:
-            _log_event(f"⚠ SSID '{ssid}' no encontrado en scan — fallback a hopping completo")
+            _log_event(f"⚠ SSID '{ssid}' not found — falling back to selected channels")
 
     # Step 2: Put interface in monitor mode
     _sp.run(["sudo", "ip", "link", "set", iface, "down"],  capture_output=True)
@@ -3206,13 +3209,13 @@ def _roam_capture_thread(iface, ssid, channel="hop", custom_channels=None):
     if channel == "hop":
         if ssid_channels:
             channels     = ssid_channels
-            hop_interval = 0.5   # 500 ms — longer dwell for focused SSID capture
+            hop_interval = 0.8   # 800 ms — max dwell for SSID-focused capture
         elif custom_channels:
             channels     = list(custom_channels)
-            hop_interval = 0.25
+            hop_interval = 0.5   # 500 ms — user-selected channels
         else:
             channels     = list(_ROAM_DEFAULT_CHANNELS)
-            hop_interval = 0.25  # 250 ms — full sweep keeps old behaviour
+            hop_interval = 0.25  # 250 ms — full sweep default
         _ROAM_ACTIVE_CHANNELS = list(channels)
         _ROAM_HOP_MS          = int(hop_interval * 1000)
 
@@ -3220,15 +3223,25 @@ def _roam_capture_thread(iface, ssid, channel="hop", custom_channels=None):
             idx = 0
             while not _hop_stop.is_set():
                 ch = channels[idx % len(channels)]
-                _sp.run(["sudo", "iw", "dev", iface, "set", "channel", str(ch)],
-                        capture_output=True)
+                try:
+                    _sp.run(["sudo", "iw", "dev", iface, "set", "channel", str(ch)],
+                            capture_output=True, timeout=1)
+                except Exception:
+                    pass
                 idx += 1
                 _hop_stop.wait(hop_interval)
 
         _threading.Thread(target=_channel_hop, daemon=True).start()
-        _log_event(f"↻ Hopping activo: {len(channels)} canal(es) · "
-                   f"{_ROAM_HOP_MS}ms/ch "
-                   + ("(focalizado en SSID)" if ssid_channels else "(cobertura completa)"))
+        if ssid_channels:
+            _log_event(f"↻ Hopping {len(channels)} channel(s) · "
+                       f"{_ROAM_HOP_MS}ms/ch · "
+                       f"{_ROAM_SSID_CH_FOUND} AP(s) found on '{ssid}'")
+        elif custom_channels:
+            _log_event(f"↻ Hopping {len(channels)} channel(s) · "
+                       f"{_ROAM_HOP_MS}ms/ch · user-selected")
+        else:
+            _log_event(f"↻ Hopping {len(channels)} channel(s) · "
+                       f"{_ROAM_HOP_MS}ms/ch · full sweep")
     else:
         # Lock to specific channel
         _sp.run(["sudo", "iw", "dev", iface, "set", "channel", channel],
@@ -3349,14 +3362,15 @@ async def roaming_events(since: int = 0):
     if ft_times:
         stats["avg_ft"] = round(sum(ft_times) / len(ft_times))
     return {
-        "running":         _ROAM_RUNNING,
-        "events":          _ROAM_EVENTS[:50],
-        "clients":         clients,
-        "stats":           stats,
-        "active_channels": list(_ROAM_ACTIVE_CHANNELS),
-        "hop_ms":          _ROAM_HOP_MS,
-        "ssid":            _ROAM_SSID,      # original case as typed
-        "iface":           _ROAM_IFACE,
+        "running":              _ROAM_RUNNING,
+        "events":               _ROAM_EVENTS[:50],
+        "clients":              clients,
+        "stats":                stats,
+        "active_channels":      list(_ROAM_ACTIVE_CHANNELS),
+        "hop_ms":               _ROAM_HOP_MS,
+        "ssid":                 _ROAM_SSID,
+        "iface":                _ROAM_IFACE,
+        "ssid_channels_found":  _ROAM_SSID_CH_FOUND,
     }
 
 @app.get("/api/roaming/status")

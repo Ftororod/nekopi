@@ -11466,14 +11466,22 @@ function _roamUpdateChannels(d){
     return;
   }
   info.style.display = '';
-  var focused = d.ssid && chs.length > 0 && chs.length < 10;
+  var ssidFound = d.ssid_channels_found || 0;
+  var focused = d.ssid && ssidFound > 0;
   if(label){
-    label.textContent = '📡 Monitoreando canales: ' + chs.join(' · ');
+    label.textContent = 'Hopping ' + chs.length + ' channel' + (chs.length!==1?'s':'')
+      + ': ' + chs.join(' · ');
   }
   if(hop){
-    hop.textContent =
-      '· ' + (d.hop_ms || 0) + 'ms/ch'
-      + (focused ? ' · focalizado en "' + d.ssid + '"' : ' · cobertura completa');
+    var detail = (d.hop_ms || 0) + 'ms/ch';
+    if(focused){
+      detail += ' · ' + ssidFound + ' AP' + (ssidFound!==1?'s':'') + ' found on ' + d.ssid;
+    } else if(d.ssid && !ssidFound){
+      detail += ' · "' + d.ssid + '" not found — full sweep';
+    } else {
+      detail += ' · full sweep';
+    }
+    hop.textContent = '· ' + detail;
     hop.style.color = focused ? 'var(--green)' : 'var(--text2)';
   }
 }
