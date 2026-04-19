@@ -3231,17 +3231,17 @@ def _roam_capture_thread(iface, ssid, channel="hop", custom_channels=None):
     _t.sleep(0.5)
 
     # Step 1b: scan for the target SSID's channels BEFORE switching to monitor.
-    # This has to run while the interface is still in managed mode, otherwise
-    # `iw scan` refuses. If the engineer supplied an SSID and we're in hop
-    # mode, we narrow the hop list to just the channels that SSID is on —
-    # tripling the dwell time per channel and catching events we'd miss with
-    # the full 15-channel sweep.
+    # Option B: use wlan0 (managed mode) for the scan, never wlan2 — wlan2 is
+    # about to enter monitor mode and cannot do active scans. wlan0 is in
+    # managed mode and can scan 5GHz after regulatory domain is learned.
     ssid_channels: list[int] = []
     if ssid and channel == "hop":
-        _sp.run(["sudo", "ip", "link", "set", iface, "up"], capture_output=True)
+        uplink = _classify_wifi_ifaces().get("uplink", "wlan0")
+        _sp.run(["sudo", "ip", "link", "set", uplink, "up"], capture_output=True)
         _t.sleep(0.3)
-        _log_event(f"🔍 Scanning for SSID '{ssid}'…")
-        ssid_channels = _get_ssid_channels(iface, ssid)
+        _log_event(f"🔍 Scanning for SSID '{ssid}' via {uplink}…")
+        ssid_channels = _get_ssid_channels(uplink, ssid)
+        _sp.run(["sudo", "ip", "link", "set", uplink, "down"], capture_output=True)
         _ROAM_SSID_CH_FOUND = len(ssid_channels)
         if ssid_channels:
             _log_event(f"✓ Found '{ssid}' on {len(ssid_channels)} channel(s): "
@@ -8293,6 +8293,7 @@ async def wifi_channels(iface: str = ""):
         return {"iface": iface, "channels": {"2.4GHz": [], "5GHz": [], "6GHz": []}, "all": []}
     raw = run_cmd(["iw", "phy", phy, "channels"], timeout=5)
     bands: dict[str, list[int]] = {"2.4GHz": [], "5GHz": [], "6GHz": []}
+    seen: set[int] = set()
     cur_band = ""
     for line in raw.splitlines():
         ls = line.strip()
@@ -8310,7 +8311,9 @@ async def wifi_channels(iface: str = ""):
         cm = re.match(r"\*\s+(\d+)\s+MHz\s+\[(\d+)\]", ls)
         if cm and cur_band:
             ch = int(cm.group(2))
-            bands[cur_band].append(ch)
+            if ch not in seen:
+                seen.add(ch)
+                bands[cur_band].append(ch)
     all_ch = bands["2.4GHz"] + bands["5GHz"] + bands["6GHz"]
     return {"iface": iface, "phy": phy, "channels": bands, "all": all_ch}
 
@@ -8893,12 +8896,16 @@ async def ota_start(request: Request):
     time.sleep(0.3)
 
     # Smart mode: scan before monitor
+    # Option B: use wlan0 (managed mode) for SSID discovery, not the capture
+    # interface which is about to enter monitor mode.
     ssid_channels: list[int] = []
     ssid_rf_info: dict = {}
     if ssid:
-        run_cmd(["sudo", "ip", "link", "set", iface, "up"])
+        scan_iface = _classify_wifi_ifaces().get("uplink", "wlan0")
+        run_cmd(["sudo", "ip", "link", "set", scan_iface, "up"])
         time.sleep(0.3)
-        scan_results = _scan_ssid_info(iface, ssid)
+        scan_results = _scan_ssid_info(scan_iface, ssid)
+        run_cmd(["sudo", "ip", "link", "set", scan_iface, "down"])
         ssid_channels = [r["channel"] for r in scan_results]
         if scan_results:
             ssid_rf_info = scan_results[0]
