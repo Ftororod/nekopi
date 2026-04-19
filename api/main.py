@@ -8433,7 +8433,7 @@ _OTA_TIMER: _threading.Timer | None = None
 _OTA_STATUS = {
     "running": False, "frames": 0, "elapsed": 0,
     "channel": None, "file": None, "size_bytes": 0,
-    "iface": "", "start_ts": 0,
+    "iface": "", "start_ts": 0, "mode": "", "mode_detail": "",
 }
 
 def _ota_cleanup_old():
@@ -8515,11 +8515,28 @@ async def ota_start(request: Request):
     # Set channel or start hopping
     channels_list: list[int] = []
     _OTA_HOP = _threading.Event()
+    smart_fixed_ch: int | None = None
+    mode_label = "hop"
+    mode_detail = "Hopping mode — scanning all channels"
+
     if ssid and ssid_channels:
-        channels_list = ssid_channels
+        # Smart mode: fix on the target SSID's channel (use first found)
+        smart_fixed_ch = ssid_channels[0]
+        run_cmd(["sudo", "iw", "dev", iface, "set", "channel", str(smart_fixed_ch)])
+        _OTA_STATUS["channel"] = smart_fixed_ch
+        mode_label = f"smart-ch{smart_fixed_ch}"
+        mode_detail = f"Smart mode — fixed on channel {smart_fixed_ch} (SSID: {ssid})"
+    elif ssid and not ssid_channels:
+        # Smart mode requested but SSID not found — fall back to hopping
         hop = True
+        channels_list = [1, 6, 11, 36, 40, 44, 48, 149, 153, 157, 161]
+        mode_label = "hop"
+        mode_detail = f"Hopping mode — SSID '{ssid}' not found, falling back to channel hopping"
     elif channel and not hop:
         run_cmd(["sudo", "iw", "dev", iface, "set", "channel", str(int(channel))])
+        _OTA_STATUS["channel"] = int(channel)
+        mode_label = str(channel)
+        mode_detail = f"Fixed on channel {channel}"
     else:
         hop = True
         channels_list = [1, 6, 11, 36, 40, 44, 48, 149, 153, 157, 161]
@@ -8535,12 +8552,10 @@ async def ota_start(request: Request):
                 idx += 1
                 _OTA_HOP.wait(0.3)
         _threading.Thread(target=_hop_loop, daemon=True).start()
-    elif channel:
-        _OTA_STATUS["channel"] = int(channel)
 
     # Build filename + filter
-    ch_label = "hop" if hop else str(channel or "auto")
-    fname = f"ota-{int(time.time())}-ch{ch_label}.pcap"
+    ch_label = mode_label
+    fname = f"ota-{int(time.time())}-{ch_label}.pcap"
     fpath = OTA_DIR / fname
     bpf = _ota_build_filter(filt_mgmt, filt_data, filt_ctrl, mac_filter)
     cmd = ["sudo", "tcpdump", "-i", iface, "-w", str(fpath), "-U"]
@@ -8566,6 +8581,7 @@ async def ota_start(request: Request):
         "running": True, "frames": 0, "elapsed": 0,
         "file": fname, "size_bytes": 0, "iface": iface,
         "start_ts": int(time.time()),
+        "mode": mode_label, "mode_detail": mode_detail,
     })
 
     # Auto-stop timer
@@ -8578,7 +8594,11 @@ async def ota_start(request: Request):
         _OTA_TIMER.start()
 
     _ota_cleanup_old()
-    return {"ok": True, "file": fname, "channel": ch_label, "iface": iface}
+    resp = {"ok": True, "file": fname, "channel": ch_label, "iface": iface,
+            "mode": mode_label, "mode_detail": mode_detail}
+    if ssid and not ssid_channels:
+        resp["warning"] = f"SSID '{ssid}' not found in scan — falling back to channel hopping"
+    return resp
 
 
 def _ota_restore(iface: str):
