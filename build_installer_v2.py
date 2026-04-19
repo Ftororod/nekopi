@@ -771,6 +771,8 @@ parts.append(step(17, "Sudoers", """\
     nekopi ALL=(ALL) NOPASSWD: /usr/bin/openssl
     nekopi ALL=(ALL) NOPASSWD: /usr/bin/cat /etc/freeradius/3.0/users.d/nekopi
     nekopi ALL=(ALL) NOPASSWD: /usr/bin/cat /etc/freeradius/3.0/clients.d/nekopi
+    nekopi ALL=(ALL) NOPASSWD: /usr/bin/cp /tmp/nekopi_radius_users /etc/freeradius/3.0/users.d/nekopi
+    nekopi ALL=(ALL) NOPASSWD: /usr/bin/cp /tmp/nekopi_radius_clients /etc/freeradius/3.0/clients.d/nekopi
     SUDOERS
 
     chmod 440 /etc/sudoers.d/nekopi-services
@@ -959,19 +961,28 @@ parts.append(step(26, "FreeRADIUS", """\
     chmod 640 /etc/freeradius/3.0/users.d/nekopi
     chmod 640 /etc/freeradius/3.0/clients.d/nekopi
 
-    # Include nekopi files in main FreeRADIUS config
-    USERS_FILE="/etc/freeradius/3.0/users"
-    if [ -f "$USERS_FILE" ] && ! grep -q 'users.d/nekopi' "$USERS_FILE"; then
-        echo '' >> "$USERS_FILE"
-        echo '# NekoPi test users' >> "$USERS_FILE"
-        echo '$INCLUDE users.d/nekopi' >> "$USERS_FILE"
+    # Include nekopi users in the authorize file (where FreeRADIUS reads users)
+    AUTH_FILE="/etc/freeradius/3.0/mods-config/files/authorize"
+    if [ -f "$AUTH_FILE" ] && ! grep -q 'users.d/nekopi' "$AUTH_FILE"; then
+        echo '' >> "$AUTH_FILE"
+        echo '# NekoPi test users' >> "$AUTH_FILE"
+        echo '\\$INCLUDE /etc/freeradius/3.0/users.d/nekopi' >> "$AUTH_FILE"
+    fi
+    # Fix any existing relative $INCLUDE to absolute path
+    if [ -f "$AUTH_FILE" ]; then
+        sed -i 's|\\$INCLUDE users.d/nekopi|\\$INCLUDE /etc/freeradius/3.0/users.d/nekopi|' "$AUTH_FILE" || true
     fi
 
+    # Include nekopi NAS clients in clients.conf
     CLIENTS_FILE="/etc/freeradius/3.0/clients.conf"
     if [ -f "$CLIENTS_FILE" ] && ! grep -q 'clients.d/nekopi' "$CLIENTS_FILE"; then
         echo '' >> "$CLIENTS_FILE"
         echo '# NekoPi NAS clients' >> "$CLIENTS_FILE"
-        echo '$INCLUDE clients.d/nekopi' >> "$CLIENTS_FILE"
+        echo '\\$INCLUDE /etc/freeradius/3.0/clients.d/nekopi' >> "$CLIENTS_FILE"
+    fi
+    # Fix any existing relative $INCLUDE to absolute path
+    if [ -f "$CLIENTS_FILE" ]; then
+        sed -i 's|\\$INCLUDE clients.d/nekopi|\\$INCLUDE /etc/freeradius/3.0/clients.d/nekopi|' "$CLIENTS_FILE" || true
     fi
 
     # Set default EAP type to PEAP
