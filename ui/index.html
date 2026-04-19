@@ -9395,8 +9395,11 @@ function _otaResetUI(){
 
 function _otaUpdateChanDisplay(el, d){
   var m = (d.mode || '').toLowerCase();
+  var extra = '';
+  if(d.channel_width && d.channel_width !== '20') extra += ' · '+d.channel_width+'MHz';
+  if(d.standard) extra += ' · '+d.standard;
   if(m.indexOf('smart') === 0){
-    el.textContent = 'Smart — CH '+(d.channel||'?');
+    el.textContent = 'Smart — CH '+(d.channel||'?')+extra;
     el.style.color = 'var(--green)';
   } else if(m === 'hop'){
     var detail = d.mode_detail || '';

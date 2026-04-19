@@ -2887,6 +2887,174 @@ def _get_ssid_channels(iface: str, ssid: str) -> list[int]:
     _flush()
     return sorted(channels)
 
+def _ch_to_band(ch: int) -> str:
+    if 1 <= ch <= 14:       return "2.4GHz"
+    if 32 <= ch <= 177:     return "5GHz"
+    if ch >= 1:             return "6GHz"
+    return ""
+
+def _parse_bss_rf_info(bss_lines: list[str]) -> dict:
+    """Parse a single BSS block from iw scan output and extract RF parameters:
+    channel, width, center_channel, band, standard."""
+    info: dict = {"channel": None, "width": "20", "center_channel": None,
+                  "band": "", "standard": ""}
+    freq: int = 0
+    has_ht = False
+    has_vht = False
+    has_he = False
+    has_eht = False
+    ht_secondary: str = ""       # "above", "below", "no"
+    vht_width_code: int | None = None
+    vht_center_seg0: int | None = None
+    he_width_code: int | None = None
+    he_center_seg0: int | None = None
+
+    for raw in bss_lines:
+        line = raw.strip()
+        # freq: 5745
+        m = re.match(r"freq:\s*(\d+)", line)
+        if m:
+            freq = int(m.group(1))
+            info["channel"] = _freq_to_channel(freq)
+            continue
+        # DS Parameter set: channel 6
+        m = re.match(r"DS Parameter set:\s*channel\s*(\d+)", line)
+        if m:
+            info["channel"] = int(m.group(1))
+            continue
+        # HT capabilities / HT operation
+        if "HT operation:" in line or "HT capabilities:" in line:
+            has_ht = True
+            continue
+        # * secondary channel offset: above / below / no secondary
+        m = re.match(r"\*\s*secondary channel offset:\s*(\S+)", line)
+        if m:
+            ht_secondary = m.group(1).lower()
+            continue
+        # VHT operation:
+        if "VHT operation:" in line or "VHT capabilities:" in line:
+            has_vht = True
+            continue
+        # * channel width: 1 (80 MHz) / 2 (160 MHz) / 3 (80+80 MHz)
+        m = re.match(r"\*\s*channel width:\s*(\d+)", line)
+        if m:
+            vht_width_code = int(m.group(1))
+            continue
+        # * center freq segment 1: 155
+        m = re.match(r"\*\s*center freq segment 1:\s*(\d+)", line)
+        if m:
+            vht_center_seg0 = int(m.group(1))
+            continue
+        # HE operation:
+        if "HE operation:" in line or "HE capabilities" in line:
+            has_he = True
+            continue
+        # * HE Oper Channel Width: 1/2/3
+        m = re.match(r"\*\s*HE Oper Channel Width:\s*(\d+)", line)
+        if m:
+            he_width_code = int(m.group(1))
+            continue
+        # * HE Oper Center Freq Seg0: 155
+        m = re.match(r"\*\s*HE Oper Center Freq Seg0:\s*(\d+)", line)
+        if m:
+            he_center_seg0 = int(m.group(1))
+            continue
+        # EHT operation / EHT capabilities (WiFi 7)
+        if "EHT operation:" in line or "EHT capabilities" in line:
+            has_eht = True
+            continue
+
+    ch = info["channel"] or 0
+    info["band"] = _ch_to_band(ch)
+
+    # Determine width — prefer highest standard info available
+    if has_eht:
+        # WiFi 7 can do 320 MHz; for now mirror HE/VHT width detection
+        # (EHT-specific width parsing can be added when iw output is available)
+        pass
+    if has_he and he_width_code is not None:
+        width_map = {0: "20", 1: "80", 2: "160", 3: "80+80"}
+        info["width"] = width_map.get(he_width_code, "20")
+        if he_center_seg0:
+            info["center_channel"] = he_center_seg0
+        # HE width=0 can still be 40 MHz via HT secondary offset
+        if he_width_code == 0 and ht_secondary in ("above", "below"):
+            info["width"] = "40"
+    elif has_vht and vht_width_code is not None:
+        width_map = {0: "20", 1: "80", 2: "160", 3: "80+80"}
+        info["width"] = width_map.get(vht_width_code, "20")
+        if vht_center_seg0:
+            info["center_channel"] = vht_center_seg0
+        # VHT width=0 can still be 40 MHz via HT secondary offset
+        if vht_width_code == 0 and ht_secondary in ("above", "below"):
+            info["width"] = "40"
+    elif has_ht:
+        if ht_secondary in ("above", "below"):
+            info["width"] = "40"
+        else:
+            info["width"] = "20"
+
+    if not info["center_channel"]:
+        info["center_channel"] = ch
+
+    # Determine standard
+    if has_eht:
+        info["standard"] = "WiFi 7"
+    elif has_he:
+        info["standard"] = "WiFi 6E" if info["band"] == "6GHz" else "WiFi 6"
+    elif has_vht:
+        info["standard"] = "WiFi 5"
+    elif has_ht:
+        info["standard"] = "WiFi 4"
+    else:
+        info["standard"] = "Legacy"
+
+    return info
+
+def _scan_ssid_info(iface: str, ssid: str) -> list[dict]:
+    """Scan for a target SSID and return per-BSS RF info dicts.
+    Each dict: {channel, width, center_channel, band, standard}.
+    Returns empty list if not found."""
+    if not ssid:
+        return []
+    target = ssid.strip().lower()
+    try:
+        r = subprocess.run(
+            ["sudo", "iw", "dev", iface, "scan"],
+            capture_output=True, text=True, timeout=12,
+        )
+    except (subprocess.TimeoutExpired, Exception):
+        return []
+    if r.returncode != 0:
+        return []
+    results: list[dict] = []
+    bss_lines: list[str] = []
+    cur_ssid: str | None = None
+    def _flush():
+        if cur_ssid is not None and cur_ssid.strip().lower() == target and bss_lines:
+            info = _parse_bss_rf_info(bss_lines)
+            if info["channel"]:
+                results.append(info)
+    for raw in r.stdout.splitlines():
+        line = raw.strip()
+        if line.startswith("BSS ") and ("on " + iface in line or "(on " in line):
+            _flush()
+            bss_lines = []
+            cur_ssid = None
+            continue
+        bss_lines.append(raw)
+        if line.startswith("SSID:"):
+            cur_ssid = line[5:].strip()
+    _flush()
+    # Sort by channel, deduplicate by channel
+    seen: set[int] = set()
+    unique: list[dict] = []
+    for info in sorted(results, key=lambda x: x["channel"] or 0):
+        if info["channel"] not in seen:
+            seen.add(info["channel"])
+            unique.append(info)
+    return unique
+
 def _roam_parse_line(line):
     """Parse tcpdump radiotap output for 802.11 management frames."""
     import re as _re, time as _t
@@ -8434,6 +8602,7 @@ _OTA_STATUS = {
     "running": False, "frames": 0, "elapsed": 0,
     "channel": None, "file": None, "size_bytes": 0,
     "iface": "", "start_ts": 0, "mode": "", "mode_detail": "",
+    "channel_width": "", "center_channel": None, "band": "", "standard": "",
 }
 
 def _ota_cleanup_old():
@@ -8497,10 +8666,14 @@ async def ota_start(request: Request):
 
     # Smart mode: scan before monitor
     ssid_channels: list[int] = []
+    ssid_rf_info: dict = {}
     if ssid:
         run_cmd(["sudo", "ip", "link", "set", iface, "up"])
         time.sleep(0.3)
-        ssid_channels = _get_ssid_channels(iface, ssid)
+        scan_results = _scan_ssid_info(iface, ssid)
+        ssid_channels = [r["channel"] for r in scan_results]
+        if scan_results:
+            ssid_rf_info = scan_results[0]
 
     # Enter monitor mode
     run_cmd(["sudo", "ip", "link", "set", iface, "down"])
@@ -8524,8 +8697,16 @@ async def ota_start(request: Request):
         smart_fixed_ch = ssid_channels[0]
         run_cmd(["sudo", "iw", "dev", iface, "set", "channel", str(smart_fixed_ch)])
         _OTA_STATUS["channel"] = smart_fixed_ch
+        width = ssid_rf_info.get("width", "20")
+        band = ssid_rf_info.get("band", "")
+        std = ssid_rf_info.get("standard", "")
+        center = ssid_rf_info.get("center_channel")
+        _OTA_STATUS.update({"channel_width": width, "center_channel": center,
+                            "band": band, "standard": std})
+        width_str = f" · {width}MHz" if width != "20" else ""
+        std_str = f" · {std}" if std else ""
         mode_label = f"smart-ch{smart_fixed_ch}"
-        mode_detail = f"Smart mode — fixed on channel {smart_fixed_ch} (SSID: {ssid})"
+        mode_detail = f"Smart mode — fixed on channel {smart_fixed_ch}{width_str}{std_str} (SSID: {ssid})"
     elif ssid and not ssid_channels:
         # Smart mode requested but SSID not found — fall back to hopping
         hop = True
@@ -8582,6 +8763,10 @@ async def ota_start(request: Request):
         "file": fname, "size_bytes": 0, "iface": iface,
         "start_ts": int(time.time()),
         "mode": mode_label, "mode_detail": mode_detail,
+        "channel_width": ssid_rf_info.get("width", ""),
+        "center_channel": ssid_rf_info.get("center_channel"),
+        "band": ssid_rf_info.get("band", ""),
+        "standard": ssid_rf_info.get("standard", ""),
     })
 
     # Auto-stop timer
@@ -8595,7 +8780,11 @@ async def ota_start(request: Request):
 
     _ota_cleanup_old()
     resp = {"ok": True, "file": fname, "channel": ch_label, "iface": iface,
-            "mode": mode_label, "mode_detail": mode_detail}
+            "mode": mode_label, "mode_detail": mode_detail,
+            "channel_width": ssid_rf_info.get("width", ""),
+            "center_channel": ssid_rf_info.get("center_channel"),
+            "band": ssid_rf_info.get("band", ""),
+            "standard": ssid_rf_info.get("standard", "")}
     if ssid and not ssid_channels:
         resp["warning"] = f"SSID '{ssid}' not found in scan — falling back to channel hopping"
     return resp
