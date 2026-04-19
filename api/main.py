@@ -9307,7 +9307,7 @@ def _radius_parse_clients() -> list[dict]:
                 "name": name,
                 "ip": ip.group(1) if ip else "",
                 "secret": secret.group(1) if secret else "",
-                "description": desc.group(1).strip() if desc else "",
+                "description": desc.group(1).strip().strip('"') if desc else "",
             })
     except Exception:
         pass
@@ -9553,16 +9553,10 @@ async def radius_test(request: Request):
     password = (body.get("password") or "").strip()
     if not username or not password:
         return JSONResponse({"ok": False, "error": "username and password required"}, status_code=400)
-    # Find secret for the NAS
-    nas_ip = (body.get("nas_ip") or "127.0.0.1").strip()
-    clients = _radius_parse_clients()
-    secret = "nekopi"  # default
-    for c in clients:
-        if c["ip"] == nas_ip or c["name"] == nas_ip:
-            secret = c["secret"]
-            break
-    cfg = _radius_load_settings()
-    secret = secret or cfg.get("default_secret", "nekopi")
+    # radtest always sends from 127.0.0.1, so FreeRADIUS matches the
+    # localhost client entry (default secret "testing123"), not the
+    # configured NAS client. nas_ip is kept for UI reference only.
+    secret = "testing123"
     try:
         r = subprocess.run(
             ["sudo", "radtest", username, password, "127.0.0.1", "0", secret],
