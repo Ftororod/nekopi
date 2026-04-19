@@ -756,6 +756,10 @@ parts.append(step(17, "Sudoers", """\
     nekopi ALL=(ALL) NOPASSWD: /usr/bin/airodump-ng
     nekopi ALL=(ALL) NOPASSWD: /usr/bin/airmon-ng
     nekopi ALL=(ALL) NOPASSWD: /opt/nekopi/venv/bin/python3
+    nekopi ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/hostapd/nekopi.conf
+    nekopi ALL=(ALL) NOPASSWD: /usr/bin/cp /tmp/nekopi_hostapd.conf /etc/hostapd/nekopi.conf
+    nekopi ALL=(ALL) NOPASSWD: /bin/mkdir -p /etc/hostapd
+    nekopi ALL=(ALL) NOPASSWD: /usr/bin/mkdir -p /etc/hostapd
     SUDOERS
 
     chmod 440 /etc/sudoers.d/nekopi-services

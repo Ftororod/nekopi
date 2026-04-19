@@ -2087,13 +2087,15 @@ def _hotspot_write_hostapd_conf(iface: str, ssid: str, password: str):
         f"rsn_pairwise=CCMP\n"
     )
     try:
+        tmp = "/tmp/nekopi_hostapd.conf"
+        Path(tmp).write_text(conf)
         subprocess.run(
             ["sudo", "mkdir", "-p", "/etc/hostapd"],
             capture_output=True, text=True, timeout=5
         )
         subprocess.run(
-            ["sudo", "tee", str(_HOTSPOT_CONF_FILE)],
-            input=conf, capture_output=True, text=True, timeout=5
+            ["sudo", "cp", tmp, str(_HOTSPOT_CONF_FILE)],
+            capture_output=True, text=True, timeout=5
         )
     except Exception:
         pass
