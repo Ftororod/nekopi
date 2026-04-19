@@ -2076,18 +2076,21 @@ def _hotspot_write_hostapd_conf(iface: str, ssid: str, password: str):
         f"driver=nl80211\n"
         f"ssid={ssid}\n"
         f"hw_mode=g\n"
-        f"channel=0\n"
-        f"ieee80211n=1\n"
-        f"wmm_enabled=1\n"
+        f"channel=6\n"
+        f"wmm_enabled=0\n"
+        f"macaddr_acl=0\n"
         f"auth_algs=1\n"
+        f"ignore_broadcast_ssid=0\n"
         f"wpa=2\n"
         f"wpa_passphrase={password}\n"
         f"wpa_key_mgmt=WPA-PSK\n"
         f"rsn_pairwise=CCMP\n"
     )
-    run_cmd(["sudo", "tee", str(_HOTSPOT_CONF_FILE)], timeout=5)
-    # tee reads stdin — use subprocess directly
     try:
+        subprocess.run(
+            ["sudo", "mkdir", "-p", "/etc/hostapd"],
+            capture_output=True, text=True, timeout=5
+        )
         subprocess.run(
             ["sudo", "tee", str(_HOTSPOT_CONF_FILE)],
             input=conf, capture_output=True, text=True, timeout=5
