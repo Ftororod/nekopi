@@ -4076,6 +4076,7 @@ input,select,textarea { font-family:inherit; }
                   <option value="smart">Smart (detect SSID)</option>
                   <option value="fixed">Fixed</option>
                 </select>
+                <div id="otaChanResolved" style="display:none;font-size:11px;margin-top:4px;font-weight:600"></div>
               </div>
             </div>
             <div id="otaChanFixed" style="display:none" class="form-group">
@@ -9391,31 +9392,41 @@ function _otaResetUI(){
   if(start){ start.style.display = ''; start.disabled = false; start.textContent = '▶ Iniciar Captura'; }
   var live = document.getElementById('otaLiveCard');
   if(live) live.style.display = 'none';
+  var res = document.getElementById('otaChanResolved');
+  if(res) res.style.display = 'none';
 }
 
 function _otaUpdateChanDisplay(el, d){
   var m = (d.mode || '').toLowerCase();
   var extra = '';
+  if(d.band) extra += ' · '+d.band;
   if(d.channel_width && d.channel_width !== '20') extra += ' · '+d.channel_width+'MHz';
   if(d.standard) extra += ' · '+d.standard;
+  var label = '', color = 'var(--cyan)';
   if(m.indexOf('smart') === 0){
-    el.textContent = 'Smart — CH '+(d.channel||'?')+extra;
-    el.style.color = 'var(--green)';
+    label = 'Smart — CH '+(d.channel||'?')+extra;
+    color = 'var(--green)';
   } else if(m === 'hop'){
     var detail = d.mode_detail || '';
     if(detail.indexOf('fallback') !== -1 || detail.indexOf('not found') !== -1){
-      el.textContent = 'Hopping (fallback)';
-      el.style.color = 'var(--yellow)';
+      label = 'Hopping (fallback)';
+      color = 'var(--yellow)';
     } else {
-      el.textContent = 'Hopping (all)';
-      el.style.color = 'var(--cyan)';
+      label = 'Hopping (all)';
     }
   } else if(d.channel){
-    el.textContent = 'Fixed — CH '+d.channel;
-    el.style.color = 'var(--cyan)';
+    label = 'Fixed — CH '+d.channel;
   } else {
-    el.textContent = d.channel || '—';
-    el.style.color = 'var(--cyan)';
+    label = d.channel || '—';
+  }
+  el.textContent = label;
+  el.style.color = color;
+  // Mirror to config-section resolved indicator
+  var res = document.getElementById('otaChanResolved');
+  if(res){
+    res.textContent = label;
+    res.style.color = color;
+    res.style.display = d.running ? '' : 'none';
   }
 }
 
