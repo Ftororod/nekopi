@@ -257,7 +257,7 @@ def _classify_wifi_ifaces() -> dict:
         "iwlwifi":  "uplink",
         "mt7921u":  "monitor",
     }
-    result: dict = {"hotspot": None, "uplink": None, "monitor": None}
+    result: dict = {"hotspot": None, "uplink": None, "monitor": None, "monitor2": None}
     try:
         net_dir = Path("/sys/class/net")
         for entry in sorted(net_dir.iterdir()):
@@ -265,6 +265,10 @@ def _classify_wifi_ifaces() -> dict:
             if not (entry / "wireless").exists():
                 continue
             driver = _iface_driver(name)
+            # mon0 is a virtual monitor iface on phy0 (iwlwifi/AX210)
+            if name == "mon0" and driver == "iwlwifi":
+                result["monitor2"] = name
+                continue
             role = _WIFI_DRIVER_ROLES.get(driver)
             if role and result[role] is None:
                 result[role] = name
@@ -276,6 +280,58 @@ def get_monitor_iface() -> str | None:
     """Return the monitor-capable WiFi interface (mt7921u driver) or None."""
     caps = _classify_wifi_ifaces()
     return caps.get("monitor")
+
+def _mon0_exists() -> bool:
+    return Path("/sys/class/net/mon0").exists()
+
+def _mon0_create() -> bool:
+    """Create mon0 virtual monitor interface on phy0 (AX210)."""
+    try:
+        r = subprocess.run(["sudo", "iw", "phy", "phy0", "info"],
+                           capture_output=True, text=True, timeout=5)
+        if "monitor" not in r.stdout:
+            return False
+        if _mon0_exists():
+            return True
+        subprocess.run(["sudo", "ip", "link", "set", "wlan0", "down"],
+                       capture_output=True, timeout=5)
+        r = subprocess.run(
+            ["sudo", "iw", "phy", "phy0", "interface", "add",
+             "mon0", "type", "monitor"],
+            capture_output=True, text=True, timeout=10)
+        if r.returncode != 0:
+            subprocess.run(["sudo", "ip", "link", "set", "wlan0", "up"],
+                           capture_output=True, timeout=5)
+            return False
+        subprocess.run(["sudo", "ip", "link", "set", "mon0", "up"],
+                       capture_output=True, timeout=5)
+        subprocess.run(["sudo", "ip", "link", "set", "wlan0", "up"],
+                       capture_output=True, timeout=5)
+        return _mon0_exists()
+    except Exception:
+        return False
+
+def _mon0_destroy():
+    """Remove mon0 virtual interface and restore wlan0."""
+    try:
+        subprocess.run(["sudo", "ip", "link", "set", "mon0", "down"],
+                       capture_output=True, timeout=5)
+        subprocess.run(["sudo", "iw", "dev", "mon0", "del"],
+                       capture_output=True, timeout=5)
+        subprocess.run(["sudo", "ip", "link", "set", "wlan0", "up"],
+                       capture_output=True, timeout=5)
+    except Exception:
+        pass
+
+def _mon0_set_channel(channel: int) -> bool:
+    """Set mon0 to a specific channel."""
+    try:
+        r = subprocess.run(
+            ["sudo", "iw", "dev", "mon0", "set", "channel", str(channel)],
+            capture_output=True, text=True, timeout=5)
+        return r.returncode == 0
+    except Exception:
+        return False
 
 def _list_wired_ifaces() -> list:
     """Enumerate real non-wireless Ethernet interfaces by /sys/class/net attrs.
@@ -381,6 +437,9 @@ def get_hw_caps() -> dict:
         "wifi_hotspot_iface": wifi_roles["hotspot"],
         "wifi_uplink_iface":  wifi_roles["uplink"],
         "wifi_monitor_iface": wifi_roles["monitor"],
+        "wifi_monitor2_iface": wifi_roles["monitor2"],
+        "mon0_available": _mon0_exists(),
+        "dual_monitor": _mon0_exists() and wifi_roles["monitor"] is not None,
     }
     # Merge: file caps may contain extra notes; live wins on availability
     caps.update(live)
@@ -3203,11 +3262,23 @@ def _roam_capture_thread(iface, ssid, channel="hop", custom_channels=None):
 
     _log_event(f"✓ Monitor mode active on {iface}")
 
+    # Dual monitor: if mon0 exists and SSID found, fix mon0 on primary channel
+    _dual_mon0_active = False
+    if ssid_channels and _mon0_exists() and channel == "hop":
+        primary_ch = ssid_channels[0]
+        if _mon0_set_channel(primary_ch):
+            _dual_mon0_active = True
+            _log_event(f"✓ Dual monitor — mon0 fixed on CH {primary_ch} for '{ssid}'")
+
     # Channel hopping or lock
     _hop_stop = _threading.Event()
 
     if channel == "hop":
-        if ssid_channels:
+        if ssid_channels and _dual_mon0_active:
+            # mon0 covers SSID channels — wlan2 does broad sweep for context
+            channels     = custom_channels or list(_ROAM_DEFAULT_CHANNELS)
+            hop_interval = 0.25
+        elif ssid_channels:
             channels     = ssid_channels
             hop_interval = 0.8   # 800 ms — max dwell for SSID-focused capture
         elif custom_channels:
@@ -3232,7 +3303,10 @@ def _roam_capture_thread(iface, ssid, channel="hop", custom_channels=None):
                 _hop_stop.wait(hop_interval)
 
         _threading.Thread(target=_channel_hop, daemon=True).start()
-        if ssid_channels:
+        if ssid_channels and _dual_mon0_active:
+            _log_event(f"↻ Dual: wlan2 hopping {len(channels)} ch · "
+                       f"mon0 fixed on SSID · {_ROAM_SSID_CH_FOUND} AP(s)")
+        elif ssid_channels:
             _log_event(f"↻ Hopping {len(channels)} channel(s) · "
                        f"{_ROAM_HOP_MS}ms/ch · "
                        f"{_ROAM_SSID_CH_FOUND} AP(s) found on '{ssid}'")
@@ -3323,11 +3397,13 @@ async def roaming_start(iface: str = "", ssid: str = "", channel: str = "hop",
     _ROAM_RUNNING = True
     _ROAM_IFACE   = iface
     _ROAM_SSID    = ssid
+    dual = _mon0_exists() and ssid and channel == "hop"
     t = _threading.Thread(target=_roam_capture_thread,
                           args=(iface, ssid, channel, custom_channels), daemon=True)
     t.start()
     await asyncio.sleep(1)
-    return {"ok": True, "iface": iface}
+    return {"ok": True, "iface": iface, "dual_monitor": dual,
+            "mon0": "mon0" if dual else None}
 
 @app.post("/api/roaming/stop")
 async def roaming_stop():
@@ -3373,6 +3449,7 @@ async def roaming_events(since: int = 0):
         "ssid":                 _ROAM_SSID,
         "iface":                _ROAM_IFACE,
         "ssid_channels_found":  _ROAM_SSID_CH_FOUND,
+        "dual_monitor":         _mon0_exists(),
     }
 
 @app.get("/api/roaming/status")
@@ -3453,14 +3530,17 @@ async def kismet_start():
     status = _kismet_get("/system/status.json")
     if status:
         return {"ok": True, "message": "Already running"}
-    # Start kismet as daemon with the detected monitor interface
+    # Start kismet as daemon with detected monitor interface(s)
     mon = get_monitor_iface()
     if not mon:
         return {"ok": False, "error": "No monitor interface available"}
+    cmd = ["sudo", "kismet", "--daemonize", "--no-ncurses", "-c", mon]
+    # Add mon0 (AX210) as second source if available
+    if _mon0_exists():
+        cmd += ["-c", "mon0"]
     try:
         proc = await asyncio.create_subprocess_exec(
-            "sudo", "kismet", "--daemonize", "--no-ncurses",
-            "-c", mon,
+            *cmd,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL
         )
@@ -8218,6 +8298,32 @@ async def wifi_channels(iface: str = ""):
             bands[cur_band].append(ch)
     all_ch = bands["2.4GHz"] + bands["5GHz"] + bands["6GHz"]
     return {"iface": iface, "phy": phy, "channels": bands, "all": all_ch}
+
+
+# ── Mon0 / dual monitor management ──────────────────────────────────
+
+@app.post("/api/monitor/setup")
+async def monitor_setup():
+    """Create mon0 virtual monitor interface on AX210 (phy0)."""
+    mon = get_monitor_iface()
+    ok = _mon0_create()
+    return {
+        "ok": ok,
+        "mon0": _mon0_exists(),
+        "wlan2": mon is not None,
+        "dual_monitor": _mon0_exists() and mon is not None,
+        "message": "mon0 created" if ok else "Failed to create mon0 — check phy0 support",
+    }
+
+@app.post("/api/monitor/teardown")
+async def monitor_teardown():
+    """Destroy mon0 and restore wlan0."""
+    _mon0_destroy()
+    return {
+        "ok": True,
+        "mon0": _mon0_exists(),
+        "message": "mon0 removed",
+    }
 
 
 # ── Terminal sessions: ttyd local bash + per-host ttyd SSH ───────────

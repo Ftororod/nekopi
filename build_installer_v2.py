@@ -47,7 +47,7 @@ def read_version() -> tuple[str, str]:
         return "unknown", "unknown"
 
 VERSION, CODENAME = read_version()
-TOTAL_STEPS = 27
+TOTAL_STEPS = 28
 
 def step(n: int, label: str, body: str) -> str:
     """Wrap a bash step body with progress display + log redirection.
@@ -773,6 +773,12 @@ parts.append(step(17, "Sudoers", """\
     nekopi ALL=(ALL) NOPASSWD: /usr/bin/cat /etc/freeradius/3.0/clients.d/nekopi
     nekopi ALL=(ALL) NOPASSWD: /usr/bin/cp /tmp/nekopi_radius_users /etc/freeradius/3.0/users.d/nekopi
     nekopi ALL=(ALL) NOPASSWD: /usr/bin/cp /tmp/nekopi_radius_clients /etc/freeradius/3.0/clients.d/nekopi
+    nekopi ALL=(ALL) NOPASSWD: /usr/sbin/iw phy phy0 interface add mon0 type monitor
+    nekopi ALL=(ALL) NOPASSWD: /usr/sbin/iw dev mon0 del
+    nekopi ALL=(ALL) NOPASSWD: /usr/sbin/iw dev mon0 set channel *
+    nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw phy phy0 interface add mon0 type monitor
+    nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw dev mon0 del
+    nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw dev mon0 set channel *
     SUDOERS
 
     chmod 440 /etc/sudoers.d/nekopi-services
@@ -1021,8 +1027,45 @@ RADJSON
     chown nekopi:nekopi /opt/nekopi/data/radius.json
 """))
 
-# ── Step 27: Post-install verification ─────────────────────────────
-parts.append(step(27, "Post-install verification", """\
+# ── Step 27: AX210 mon0 boot service ─────────────────────────────
+parts.append(step(27, "AX210 mon0 service", """\
+    # Only create the service if phy0 exists and supports monitor mode
+    if iw phy phy0 info 2>/dev/null | grep -q monitor; then
+        cat > /etc/systemd/system/nekopi-mon0.service << 'MON0SVC'
+[Unit]
+Description=NekoPi — AX210 monitor interface (mon0)
+After=network.target
+Before=nekopi.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c '\\
+    PHY=phy0; \\
+    iw phy $PHY info | grep -q monitor || exit 0; \\
+    ip link show mon0 2>/dev/null && exit 0; \\
+    ip link set wlan0 down 2>/dev/null; \\
+    iw phy $PHY interface add mon0 type monitor && \\
+    ip link set mon0 up; \\
+    ip link set wlan0 up 2>/dev/null'
+ExecStop=/bin/bash -c '\\
+    ip link show mon0 2>/dev/null && \\
+    ip link set mon0 down && \\
+    iw dev mon0 del 2>/dev/null || true'
+
+[Install]
+WantedBy=multi-user.target
+MON0SVC
+        systemctl daemon-reload
+        systemctl enable nekopi-mon0 2>/dev/null || true
+        echo "mon0 boot service installed"
+    else
+        echo "SKIP: phy0 does not support monitor mode — no mon0 service"
+    fi
+"""))
+
+# ── Step 28: Post-install verification ─────────────────────────────
+parts.append(step(28, "Post-install verification", """\
     INSTALL_ERRORS=0
 
     check() {

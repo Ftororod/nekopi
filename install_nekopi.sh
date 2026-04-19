@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  NekoPi Field Unit — Automated Installer v2
 #  Version:   1.3.0  ·  Codename: ToManchas
-#  Generated: 2026-04-19 00:20
+#  Generated: 2026-04-19 17:44
 #  Target:    Ubuntu 24.04 LTS · Raspberry Pi 5 · 8 GB
 #  License:   GPL-3.0-or-later
 # ═══════════════════════════════════════════════════════════════
@@ -35,7 +35,7 @@ else
     GREEN=''; YELLOW=''; CYAN=''; GRAY=''; BOLD=''; RED=''; RESET=''
 fi
 
-NEKOPI_TOTAL_STEPS=27
+NEKOPI_TOTAL_STEPS=28
 
 NEKOPI_CURRENT_STEP=0
 NEKOPI_START_TIME=$(date +%s)
@@ -717,6 +717,12 @@ nekopi ALL=(ALL) NOPASSWD: /usr/bin/cat /etc/freeradius/3.0/users.d/nekopi
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/cat /etc/freeradius/3.0/clients.d/nekopi
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/cp /tmp/nekopi_radius_users /etc/freeradius/3.0/users.d/nekopi
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/cp /tmp/nekopi_radius_clients /etc/freeradius/3.0/clients.d/nekopi
+nekopi ALL=(ALL) NOPASSWD: /usr/sbin/iw phy phy0 interface add mon0 type monitor
+nekopi ALL=(ALL) NOPASSWD: /usr/sbin/iw dev mon0 del
+nekopi ALL=(ALL) NOPASSWD: /usr/sbin/iw dev mon0 set channel *
+nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw phy phy0 interface add mon0 type monitor
+nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw dev mon0 del
+nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw dev mon0 set channel *
 SUDOERS
 
 chmod 440 /etc/sudoers.d/nekopi-services
@@ -985,7 +991,46 @@ RADJSON
 _nk_step_done 26 "FreeRADIUS"
 
 
-_nk_step_start 27 "Post-install verification"
+_nk_step_start 27 "AX210 mon0 service"
+{
+    # Only create the service if phy0 exists and supports monitor mode
+    if iw phy phy0 info 2>/dev/null | grep -q monitor; then
+        cat > /etc/systemd/system/nekopi-mon0.service << 'MON0SVC'
+[Unit]
+Description=NekoPi — AX210 monitor interface (mon0)
+After=network.target
+Before=nekopi.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c '\
+    PHY=phy0; \
+    iw phy $PHY info | grep -q monitor || exit 0; \
+    ip link show mon0 2>/dev/null && exit 0; \
+    ip link set wlan0 down 2>/dev/null; \
+    iw phy $PHY interface add mon0 type monitor && \
+    ip link set mon0 up; \
+    ip link set wlan0 up 2>/dev/null'
+ExecStop=/bin/bash -c '\
+    ip link show mon0 2>/dev/null && \
+    ip link set mon0 down && \
+    iw dev mon0 del 2>/dev/null || true'
+
+[Install]
+WantedBy=multi-user.target
+MON0SVC
+        systemctl daemon-reload
+        systemctl enable nekopi-mon0 2>/dev/null || true
+        echo "mon0 boot service installed"
+    else
+        echo "SKIP: phy0 does not support monitor mode — no mon0 service"
+    fi
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 27 "AX210 mon0 service"
+
+
+_nk_step_start 28 "Post-install verification"
 {
 INSTALL_ERRORS=0
 
@@ -1035,7 +1080,7 @@ fi
 
 echo "INSTALL_ERRORS=$INSTALL_ERRORS"
 } >> "$INSTALL_LOG" 2>&1
-_nk_step_done 27 "Post-install verification"
+_nk_step_done 28 "Post-install verification"
 
 
 # Overall progress bar — printed once at the end, not between steps

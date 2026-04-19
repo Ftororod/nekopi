@@ -3607,6 +3607,7 @@ input,select,textarea { font-family:inherit; }
         <div style="display:flex;align-items:center;gap:12px">
           <span class="status-badge sb-idle" id="kismetStatus"><span class="sb-dot"></span>Checking...</span>
           <span style="font-size:11px;color:var(--text2)" id="kismetDevCount">—</span>
+          <span style="font-size:10px;color:var(--text2)" id="kismetSourceInfo"></span>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-primary btn-sm" onclick="startKismet()" id="kismetStartBtn"
@@ -3925,6 +3926,34 @@ input,select,textarea { font-family:inherit; }
             </tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- Monitor Adapters -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header">
+        <div class="card-title">🔍 Monitor Adapters</div>
+        <button class="btn btn-ghost btn-sm" onclick="monRefreshStatus()">↺ Refresh</button>
+      </div>
+      <div class="card-body" style="padding:10px 14px">
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2)">
+            <strong style="color:var(--white)">mon0</strong> (AX210):
+            <span id="monMon0Badge" class="status-badge sb-idle" style="margin-left:4px"><span class="sb-dot"></span>Inactive</span>
+          </div>
+          <div style="font-size:11px;color:var(--text2)">
+            <strong style="color:var(--white)" id="monWlan2Name">wlan2</strong> (CF-953AX):
+            <span id="monWlan2Badge" class="status-badge sb-idle" style="margin-left:4px"><span class="sb-dot"></span>Inactive</span>
+          </div>
+          <div style="font-size:11px;color:var(--text2)">
+            Dual monitor:
+            <span id="monDualBadge" class="status-badge sb-idle" style="margin-left:4px"><span class="sb-dot"></span>Single</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-primary btn-sm" onclick="monSetup()">Setup mon0</button>
+          <button class="btn btn-ghost btn-sm" onclick="monTeardown()">Remove mon0</button>
+        </div>
       </div>
     </div>
 
@@ -6450,7 +6479,7 @@ const pages = {
   cli:        { title:'Terminal',          sub:'ttyd embebido · bash local · SSH remoto', onload: function(){
     try { termSwitchTab('local'); } catch(e) {}
   } },
-  connection: { title:'Connection',        sub:'Interfaces · IPs · Access URLs · QR', onload: function(){ try { refreshConnection(); } catch(e){} } },
+  connection: { title:'Connection',        sub:'Interfaces · IPs · Access URLs · QR', onload: function(){ try { refreshConnection(); monRefreshStatus(); } catch(e){} } },
   console:    { title:'System Console',    sub:'Cockpit (:9090) · system logs', onload: function(){
     try { conSwitchTab('health'); } catch(e) {}
   } },
@@ -9501,7 +9530,11 @@ function otaLoadIfaces(){
     var ifs = (d.interfaces || []).filter(function(i){ return i.monitor; });
     if(ifs.length){
       sel.innerHTML = ifs.map(function(i){
-        return '<option value="'+i.name+'">'+i.name+' (monitor capable)</option>';
+        var label = i.name;
+        if(i.name === 'mon0') label += ' (AX210 — Auth/Assoc capable)';
+        else if(i.name.startsWith('wlan')) label += ' (CF-953AX — general capture)';
+        else label += ' (monitor capable)';
+        return '<option value="'+i.name+'">'+label+'</option>';
       }).join('');
     }
   });
@@ -11476,16 +11509,19 @@ function _roamUpdateChannels(d){
       + ': ' + chs.join(' · ');
   }
   if(hop){
+    var dual = d.dual_monitor;
     var detail = (d.hop_ms || 0) + 'ms/ch';
-    if(focused){
+    if(dual && focused){
+      detail = 'Dual monitor — mon0 fixed on target · wlan2 hopping';
+    } else if(focused){
       detail += ' · ' + ssidFound + ' AP' + (ssidFound!==1?'s':'') + ' found on ' + d.ssid;
     } else if(d.ssid && !ssidFound){
       detail += ' · "' + d.ssid + '" not found — full sweep';
     } else {
-      detail += ' · full sweep';
+      detail += ' · ' + (dual ? 'dual source' : 'full sweep');
     }
     hop.textContent = '· ' + detail;
-    hop.style.color = focused ? 'var(--green)' : 'var(--text2)';
+    hop.style.color = (focused || dual) ? 'var(--green)' : 'var(--text2)';
   }
 }
 
@@ -14576,6 +14612,51 @@ function initAbout() { loadAboutPage(); }
 // ═══════════════════════════════════════
 //  CONNECTION MODULE
 // ═══════════════════════════════════════
+// ── Monitor adapter management ──────────────────────────────────
+function monRefreshStatus(){
+  fetchAPI('/api/hw-caps').then(function(caps){
+    if(!caps) return;
+    var m0 = document.getElementById('monMon0Badge');
+    var w2 = document.getElementById('monWlan2Badge');
+    var du = document.getElementById('monDualBadge');
+    var wn = document.getElementById('monWlan2Name');
+    if(m0){
+      if(caps.mon0_available){ m0.className='status-badge sb-run'; m0.innerHTML='<span class="sb-dot"></span>Active'; }
+      else                   { m0.className='status-badge sb-idle'; m0.innerHTML='<span class="sb-dot"></span>Inactive'; }
+    }
+    if(w2){
+      if(caps.wifi_monitor_iface){ w2.className='status-badge sb-run'; w2.innerHTML='<span class="sb-dot"></span>Active'; }
+      else                        { w2.className='status-badge sb-idle'; w2.innerHTML='<span class="sb-dot"></span>Inactive'; }
+    }
+    if(wn && caps.wifi_monitor_iface) wn.textContent = caps.wifi_monitor_iface;
+    if(du){
+      if(caps.dual_monitor){ du.className='status-badge sb-run'; du.innerHTML='<span class="sb-dot"></span>Dual'; }
+      else                  { du.className='status-badge sb-idle'; du.innerHTML='<span class="sb-dot"></span>Single'; }
+    }
+    // Kismet source indicator
+    var ki = document.getElementById('kismetSourceInfo');
+    if(ki){
+      ki.textContent = caps.dual_monitor
+        ? '· Dual source — mon0 + ' + (caps.wifi_monitor_iface||'wlan2')
+        : '· Single source — ' + (caps.wifi_monitor_iface||'wlan2');
+    }
+  });
+}
+function monSetup(){
+  showToast('Setting up mon0...');
+  fetchAPI('/api/monitor/setup',{method:'POST'}).then(function(d){
+    if(d&&d.ok) showToast('mon0 created — dual monitor active');
+    else showToast('Failed: '+(d&&d.message||'unknown'));
+    monRefreshStatus();
+  });
+}
+function monTeardown(){
+  fetchAPI('/api/monitor/teardown',{method:'POST'}).then(function(d){
+    showToast('mon0 removed');
+    monRefreshStatus();
+  });
+}
+
 function refreshConnection() {
   if (DEMO_MODE) {
     // DEMO: simulated interfaces
