@@ -272,6 +272,11 @@ def _classify_wifi_ifaces() -> dict:
         pass
     return result
 
+def get_monitor_iface() -> str | None:
+    """Return the monitor-capable WiFi interface (mt7921u driver) or None."""
+    caps = _classify_wifi_ifaces()
+    return caps.get("monitor")
+
 def _list_wired_ifaces() -> list:
     """Enumerate real non-wireless Ethernet interfaces by /sys/class/net attrs.
 
@@ -368,7 +373,7 @@ def get_hw_caps() -> dict:
         # ens33/enp3s0 still enable the Wired/Security modules.
         "eth_mgmt": len(wired) >= 1,
         "eth_test": len(wired) >= 2,
-        "wifi_monitor": has_wlan1,              # MT7921AU or similar
+        "wifi_monitor": wifi_roles["monitor"] is not None,  # MT7921AU by driver
         "wifi_uplink":  has_wlan0 or has_wlan1, # any wifi works as uplink
         "mgmt_iface": by_role.get("mgmt") or get_mgmt_iface(),
         "test_iface": by_role.get("test") or get_test_iface(),
@@ -387,6 +392,7 @@ async def hw_caps():
 
 def _no_hw_response(missing: str) -> dict:
     labels = {
+        "wifi_monitor": "WiFi monitor adapter (MT7921AU)",
         "wlan1": "wlan1 (adaptador WiFi externo MT7921AU)",
         "wlan0": "wlan0 (WiFi built-in)",
         "eth0":  "eth0 (interfaz TEST / HAT 2.5GbE)",
@@ -1280,7 +1286,7 @@ async def wifi_disconnect(iface: str = "wlan1"):
 async def wifi_scan(iface: str = ""):
     if not iface:
         iface = get_best_wifi_iface()
-        if not iface: return _no_hw_response("wlan1")
+        if not iface: return _no_hw_response("wifi_monitor")
     # Forzar interfaz UP antes de escanear (puede estar DORMANT sin AP)
     run_cmd(["ip", "link", "set", iface, "up"])
     await asyncio.sleep(0.5)
@@ -1716,12 +1722,16 @@ PROFILER_BIN = "/root/.local/bin/profiler"
 
 @app.post("/api/profiler/start")
 async def profiler_start(
-    iface: str = "wlan1",
+    iface: str = "",
     ssid:  str = "NekoPi-Profiler",
     channel: int = 6,
     security: str = "wpa2"
 ):
     global _PROFILER_PROC, _PROFILER_FILES, _PROFILER_SEEN
+    if not iface:
+        iface = get_monitor_iface() or ""
+    if not iface:
+        return _no_hw_response("wifi_monitor")
 
     # Stop any running instance
     if _PROFILER_PROC and _PROFILER_PROC.returncode is None:
@@ -2805,7 +2815,7 @@ _ROAM_PROC            = None
 _ROAM_EVENTS          = []
 _ROAM_CLIENTS         = {}   # mac -> {last_bssid, last_ts, last_rssi}
 _ROAM_RUNNING         = False
-_ROAM_IFACE           = "wlan1"
+_ROAM_IFACE           = ""
 _ROAM_SSID            = ""
 _ROAM_QUEUE           = _queue.Queue()
 _ROAM_ACTIVE_CHANNELS = []   # channels currently being hopped
@@ -3110,10 +3120,14 @@ def _roam_capture_thread(iface, ssid, channel="hop"):
         _ROAM_RUNNING = False
 
 @app.post("/api/roaming/start")
-async def roaming_start(iface: str = "wlan1", ssid: str = "", channel: str = "hop"):
+async def roaming_start(iface: str = "", ssid: str = "", channel: str = "hop"):
     global _ROAM_RUNNING, _ROAM_IFACE, _ROAM_SSID
     if _ROAM_RUNNING:
         return {"ok": False, "error": "Already running"}
+    if not iface:
+        iface = get_monitor_iface() or ""
+    if not iface:
+        return _no_hw_response("wifi_monitor")
     _ROAM_RUNNING = True
     _ROAM_IFACE   = iface
     _ROAM_SSID    = ssid
@@ -3167,26 +3181,29 @@ async def roaming_events(since: int = 0):
 
 @app.get("/api/roaming/status")
 async def roaming_status():
-    if not _iface_exists(_ROAM_IFACE) and not _iface_exists("wlan1"):
-        return _no_hw_response("wlan1")
-    return {"running": _ROAM_RUNNING, "iface": _ROAM_IFACE, "events": len(_ROAM_EVENTS)}
+    mon = _ROAM_IFACE or get_monitor_iface()
+    if not mon or not _iface_exists(mon):
+        return _no_hw_response("wifi_monitor")
+    return {"running": _ROAM_RUNNING, "iface": _ROAM_IFACE or mon, "events": len(_ROAM_EVENTS)}
 
 @app.get("/api/wifi/monitor")
 async def wifi_monitor_status():
-    """Status of monitor-mode capable adapter (wlan1). Returns no_hardware if absent."""
-    if not _iface_exists("wlan1"):
-        return _no_hw_response("wlan1")
-    mode = run_cmd(["iw", "dev", "wlan1", "info"])
+    """Status of monitor-mode capable adapter. Returns no_hardware if absent."""
+    mon = get_monitor_iface()
+    if not mon:
+        return _no_hw_response("wifi_monitor")
+    mode = run_cmd(["iw", "dev", mon, "info"])
     m = re.search(r"type\s+(\S+)", mode or "")
-    return {"status": "ok", "iface": "wlan1", "mode": m.group(1) if m else "unknown"}
+    return {"status": "ok", "iface": mon, "mode": m.group(1) if m else "unknown"}
 
 @app.get("/api/kismet/status")
 async def kismet_status():
     """Kismet running + hardware availability check."""
-    if not _iface_exists("wlan1"):
-        return _no_hw_response("wlan1")
+    mon = get_monitor_iface()
+    if not mon:
+        return _no_hw_response("wifi_monitor")
     status = _kismet_get("/system/status.json")
-    return {"status": "ok", "running": bool(status), "iface": "wlan1"}
+    return {"status": "ok", "running": bool(status), "iface": mon}
 
 
 # ── KISMET IDS ─────────────────────────────────────────────────────────────
@@ -4133,7 +4150,7 @@ def _run_security_audit(subnet, wifi_iface, ssid_filter: str = "", vendor_overri
         _SEC_RUNNING = False
 
 @app.post("/api/security/start")
-async def security_start(subnet: str = "", iface: str = "wlan1",
+async def security_start(subnet: str = "", iface: str = "",
                          ssid_filter: str = "", vendor: str = ""):
     global _SEC_RUNNING, _SEC_STATUS, _SEC_PROGRESS
     if _SEC_RUNNING:
@@ -8454,7 +8471,9 @@ async def ota_start(request: Request):
         body = await request.json()
     except Exception:
         body = {}
-    iface      = (body.get("iface") or "wlan1").strip()
+    iface      = (body.get("iface") or get_monitor_iface() or "").strip()
+    if not iface:
+        return _no_hw_response("wifi_monitor")
     channel    = body.get("channel")      # int or None
     hop        = body.get("hop", False)
     ssid       = (body.get("ssid") or "").strip()
@@ -8582,7 +8601,7 @@ def _ota_stop_inner():
             try: _OTA_PROC.kill()
             except: pass
     _OTA_PROC = None
-    iface = _OTA_STATUS.get("iface") or "wlan1"
+    iface = _OTA_STATUS.get("iface") or get_monitor_iface() or ""
     _ota_restore(iface)
     # Final frame count + size
     fname = _OTA_STATUS.get("file")

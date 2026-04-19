@@ -2892,8 +2892,7 @@ input,select,textarea { font-family:inherit; }
               <div class="form-group">
                 <label class="form-label">WiFi Interface</label>
                 <select class="form-input form-select" id="wtsIface">
-                  <option value="wlan1">wlan1</option>
-                  <option value="wlan0">wlan0</option>
+                  <option value="">Loading…</option>
               </div>
               <div class="form-group">
                 <label class="form-label">Affected client</label>
@@ -3323,8 +3322,7 @@ input,select,textarea { font-family:inherit; }
             <div class="form-group">
               <label class="form-label">Monitor Interface</label>
               <select class="form-input form-select" id="roamIface">
-                <option value="wlan0">wlan0 — MT7925 HAT (recommended)</option>
-                <option value="wlan1">wlan1 — USB adapter</option>
+                <option value="">Loading…</option>
               </select>
               <div class="field-note">Interface will be put in monitor mode during capture</div>
             </div>
@@ -3382,7 +3380,7 @@ input,select,textarea { font-family:inherit; }
             <strong style="color:var(--blue-b)">&#128161; How it works:</strong>
             NekoPi stays connected to the network (no battery needed).
             The <strong style="color:var(--white)">client device</strong> (phone, laptop) moves between APs.
-            NekoPi captures 802.11 frames passively via wlan1 in monitor mode.<br>
+            NekoPi captures 802.11 frames passively via the monitor adapter.<br>
             <span style="color:var(--text2)">&#128267; Optional: use a power bank to take NekoPi with you while walking the site.</span>
           </div>
           <div class="divider"></div>
@@ -3469,8 +3467,7 @@ input,select,textarea { font-family:inherit; }
             <div class="form-group">
               <label class="form-label">Interface</label>
               <select class="form-input form-select" id="profilerIface">
-                <option value="wlan1">wlan1 — recommended (keeps wlan0 up)</option>
-                <option value="wlan0">wlan0 — disconnects NekoPi from network</option>
+                <option value="">Loading…</option>
               </select>
             </div>
             <div class="form-group">
@@ -4069,7 +4066,7 @@ input,select,textarea { font-family:inherit; }
               <div class="form-group">
                 <label class="form-label">Interface (monitor mode)</label>
                 <select class="form-input form-select" id="otaIface">
-                  <option value="wlan1">wlan1</option>
+                  <option value="">Loading…</option>
                 </select>
               </div>
               <div class="form-group">
@@ -4135,7 +4132,7 @@ input,select,textarea { font-family:inherit; }
               </div>
             </div>
             <div style="font-size:11px;color:var(--text2);padding:6px 0">
-              ℹ wlan1 enters monitor mode during capture. NekoPi's WiFi connection (wlan0) is not interrupted.
+              ℹ The monitor adapter enters monitor mode during capture. NekoPi's WiFi connection (wlan0) is not interrupted.
             </div>
           </div>
         </div>
@@ -4713,9 +4710,7 @@ input,select,textarea { font-family:inherit; }
               <div class="form-group">
                 <label class="form-label">WiFi Interface</label>
                 <select class="form-input form-select" id="secWifiIface">
-                  <option value="wlan1">wlan1 — external adapter</option>
-                  <option value="wlan0">wlan0 — built-in</option>
-                  <option value="none">Skip WiFi audit</option>
+                  <option value="">Loading…</option>
                 </select>
               </div>
             </div>
@@ -6143,7 +6138,10 @@ const pages = {
   } },
   wired:      { title:'Wired / LAN',       sub:'LLDP · VLAN · iperf3 · 802.1X · VoIP · DHCP · DNS · Captive' },
   iot:        { title:'IoT & Sensors',     sub:'MQTT · LoRa · BLE · v1.1' },
-  security:   { title:'Security Audit',    sub:'Network · Wireless · Wired · Compliance', onload: function(){ autoSecTarget(); } },
+  security:   { title:'Security Audit',    sub:'Network · Wireless · Wired · Compliance', onload: function(){
+    autoSecTarget();
+    populateMonitorIfaceSelect('secWifiIface', { extraOptions: [{ value:'none', label:'Skip WiFi audit' }] });
+  } },
   toolkit:    { title:'Rescue Toolkit',    sub:'DHCP · TFTP · MAC · ARP · Captive · Static IP · Syslog · WoL', onload: function(){ tkInit(); } },
   path:       { title:'Path Analyzer',     sub:'Traceroute continuo · dual interface · WiFi vs ETH' },
   sensor:     { title:'Sensor Mode',       sub:'pktvisor live · PCAP snapshot · InfluxDB · Grafana', onload: function(){
@@ -6219,7 +6217,7 @@ const pages = {
         var hint = i.monitor ? ' — monitor capable' : ' — managed only';
         return '<option value="'+i.name+'">'+i.name+hint+'</option>';
       }).join('');
-      // Pick the first monitor-capable adapter (usually wlan1)
+      // Pick the first monitor-capable adapter
       var pref = ifs.find(function(i){return i.monitor;});
       if(pref) sel.value = pref.name;
     });
@@ -9325,7 +9323,7 @@ document.addEventListener('change', function(e){
 
 function otaStart(ev){
   var btn = ev && ev.currentTarget;
-  var iface = (document.getElementById('otaIface')||{}).value || 'wlan1';
+  var iface = (document.getElementById('otaIface')||{}).value || getMonitorIfaceFallback();
   var mode  = (document.getElementById('otaChanMode')||{}).value || 'hop';
   var ssid  = (document.getElementById('otaSsid')||{}).value || '';
   var mac   = (document.getElementById('otaMac')||{}).value || '';
@@ -11114,7 +11112,7 @@ function stopRoaming(){
     if(stopBtn){ stopBtn.style.background=''; stopBtn.style.borderColor=''; stopBtn.style.color=''; stopBtn.style.opacity='0.4'; stopBtn.style.pointerEvents='none'; stopBtn.textContent='■ Stop'; }
     var info = document.getElementById('roamChannelInfo');
     if(info) info.style.display = 'none';
-    showToast('Roaming capture stopped · wlan1 restored to managed');
+    showToast('Roaming capture stopped · adapter restored to managed');
   });
 }
 
@@ -11135,7 +11133,7 @@ function runRoamingAI(ev){
                   || ((document.getElementById('roamSSID')||{}).value || '').trim()
                   || '—';
     var iface   = d.iface
-                  || ((document.getElementById('roamIface')||{}).value || 'wlan1');
+                  || ((document.getElementById('roamIface')||{}).value || getMonitorIfaceFallback());
     var prompt;
     if(events.length === 0){
       // 0 events — be explicit so the model doesn't invent problems
@@ -11191,7 +11189,7 @@ var mockClients=[
 
 function startProfiler(){
   var ssid  = (document.getElementById('profilerSSID')||{}).value  || 'NekoPi-Profiler';
-  var iface = (document.getElementById('profilerIface')||{}).value || 'wlan1';
+  var iface = (document.getElementById('profilerIface')||{}).value || getMonitorIfaceFallback();
   var band  = (document.getElementById('profilerBand')||{}).value  || '2.4';
   var lbl   = document.getElementById('profilerSSIDLabel'); if(lbl) lbl.textContent = ssid;
   var st    = document.getElementById('profilerStatus');
@@ -11566,7 +11564,7 @@ var _secPollIv = null;
 
 function startSecAudit(){
   var subnet = (document.getElementById('secSubnet')||{}).value||'';
-  var iface  = (document.getElementById('secWifiIface')||{}).value||'wlan1';
+  var iface  = (document.getElementById('secWifiIface')||{}).value||getMonitorIfaceFallback();
   var ssids  = (document.getElementById('secSsidFilter')||{}).value||'';
   var vendor = (document.getElementById('secVendorOverride')||{}).value||'';
   var sb     = document.getElementById('secStartBtn');
@@ -12380,6 +12378,35 @@ function fetchAPI(path, opts) {
     .catch(function() { return null; });
 }
 
+// ── populateMonitorIfaceSelect: fill a <select> with the monitor interface from hw-caps
+function populateMonitorIfaceSelect(selId, opts) {
+  opts = opts || {};
+  fetchAPI('/api/hw-caps').then(function(caps) {
+    var sel = document.getElementById(selId);
+    if (!sel || !caps) return;
+    var mon = caps.wifi_monitor_iface;
+    if (mon) {
+      var label = mon + ' — monitor capable (MT7921AU)';
+      sel.innerHTML = '<option value="' + mon + '">' + label + '</option>';
+    } else {
+      sel.innerHTML = '<option value="">⚠ No monitor adapter detected</option>';
+    }
+    if (opts.extraOptions) {
+      opts.extraOptions.forEach(function(o) {
+        sel.innerHTML += '<option value="' + o.value + '">' + o.label + '</option>';
+      });
+    }
+  });
+}
+function getMonitorIfaceFallback() {
+  // Synchronous best-effort: read cached hw-caps or return empty string
+  return (window._nekopi_monitor_iface || '');
+}
+// Cache monitor iface at startup for JS fallbacks
+fetchAPI('/api/hw-caps').then(function(caps) {
+  if (caps && caps.wifi_monitor_iface) window._nekopi_monitor_iface = caps.wifi_monitor_iface;
+});
+
 // ── checkBackend: verifica salud del API ─────────────────────
 function checkBackend(cb) {
   if (!API_BASE) {
@@ -12467,16 +12494,24 @@ var _WTS_DEMO_SCAN = {
 };
 
 function wtsInit(){
-  // Populate interface select
-  fetchAPI('/api/network/info').then(function(d){
-    if(!d||!d.interfaces) return;
+  // Populate interface select — prefer monitor-capable adapter from hw-caps
+  Promise.all([
+    fetchAPI('/api/hw-caps'),
+    fetchAPI('/api/network/info')
+  ]).then(function(results){
+    var caps = results[0], netInfo = results[1];
     var sel = document.getElementById('wtsIface');
     if(!sel) return;
-    var wifis = d.interfaces.filter(function(i){ return i.type==='wifi'; });
+    var mon = caps && caps.wifi_monitor_iface;
+    var wifis = (netInfo && netInfo.interfaces || []).filter(function(i){ return i.type==='wifi'; });
     if(wifis.length){
       sel.innerHTML = wifis.map(function(i){
-        return '<option value="'+i.name+'">'+i.name+(i.ip?' ('+i.ip+')':'')+'</option>';
+        var hint = (i.name === mon) ? ' — monitor capable' : (i.ip ? ' ('+i.ip+')' : '');
+        return '<option value="'+i.name+'">'+i.name+hint+'</option>';
       }).join('');
+      if(mon) sel.value = mon;
+    } else if(mon){
+      sel.innerHTML = '<option value="'+mon+'">'+mon+' — monitor capable</option>';
     }
   }).catch(function(){});
 }
@@ -12485,7 +12520,7 @@ function wtsScan(){
   if(DEMO_MODE){
     _wtsSimulateScan(); return;
   }
-  var iface = (document.getElementById('wtsIface')||{}).value||'wlan1';
+  var iface = (document.getElementById('wtsIface')||{}).value||getMonitorIfaceFallback();
   var btn = document.getElementById('wtsScanBtn');
   var st  = document.getElementById('wtsScanStatus');
   if(btn){ btn.style.opacity='0.4'; btn.style.pointerEvents='none'; btn.textContent='📡 Scanning…'; }
@@ -13862,8 +13897,8 @@ function tkWolQuick(mac){
 var HW_REQUIREMENTS = {
   'wifi':     ['wifi_uplink'],       // Needs wlan0 or wlan1
   'wifits':   ['wifi_uplink'],       // WiFi Troubleshooter — any wifi works
-  'roaming':  ['wifi_monitor'],      // Needs monitor-mode adapter (wlan1)
-  'kismet':   ['wifi_monitor'],      // Kismet IDS needs wlan1
+  'roaming':  ['wifi_monitor'],      // Needs monitor-mode adapter (mt7921u)
+  'kismet':   ['wifi_monitor'],      // Kismet IDS needs monitor adapter
   'profiler': ['wifi_monitor'],      // Virtual AP for capability capture
   'ota':      ['wifi_monitor'],      // Passive capture needs monitor mode
   'security': ['eth_test'],          // Subnet auto-detect needs eth test iface
