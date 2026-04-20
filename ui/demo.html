@@ -11550,9 +11550,9 @@ function _buildProfilerDetailHTML(client){
   }
   var hasR=feat.dot11r===1,hasV=feat.dot11v===1,noR=feat.dot11r===0,noV=feat.dot11v===0;
   var borderClr,diagHTML;
-  if(hasR&&hasV){borderClr='var(--green)';diagHTML='<div style="font-weight:600;color:var(--green);margin-bottom:4px">Client supports fast roaming (FT + BTM)</div><div style="font-size:10px;color:var(--text2)">If roaming is slow, investigate: ISE posture delay, RADIUS response time, or AP BSS-TM threshold config</div>';}
-  else if(hasV&&!hasR){borderClr='var(--yellow)';diagHTML='<div style="font-weight:600;color:var(--yellow);margin-bottom:4px">Client supports BSS Transition but not Fast Transition</div><div style="font-size:10px;color:var(--text2)">Each roam triggers full EAP re-auth (~2-8s delay)</div>';}
-  else if(noR&&noV){borderClr='var(--red)';diagHTML='<div style="font-weight:600;color:var(--red);margin-bottom:4px">Legacy client — no fast roaming support</div><div style="font-size:10px;color:var(--text2)">Roaming delay 5-15 seconds expected</div>';}
+  if(hasR&&hasV){borderClr='var(--green)';diagHTML='<div style="font-weight:600;color:var(--green);margin-bottom:4px">Client supports fast roaming (802.11r FT + 802.11v BTM)</div><div style="font-size:10px;color:var(--text2)">If roaming is slow, investigate:<br>· NAC/posture evaluation delay<br>· AAA server response time<br>· AP BSS Transition threshold configuration</div>';}
+  else if(hasV&&!hasR){borderClr='var(--yellow)';diagHTML='<div style="font-weight:600;color:var(--yellow);margin-bottom:4px">Client supports BSS Transition but not Fast Transition</div><div style="font-size:10px;color:var(--text2)">Each roam triggers full 802.1X re-authentication<br>Expected delay: 2-8 seconds per roam<br>Check: NAC posture timing, AAA server logs</div>';}
+  else if(noR&&noV){borderClr='var(--red)';diagHTML='<div style="font-weight:600;color:var(--red);margin-bottom:4px">Legacy client — no fast roaming support</div><div style="font-size:10px;color:var(--text2)">Expected roaming delay: 5-15 seconds<br>Consider: sticky client tuning, AP RSSI threshold config</div>';}
   else{borderClr='var(--text2)';diagHTML='<div style="font-weight:600;color:var(--text2);margin-bottom:4px">Roaming capabilities unknown</div>';}
   html += '<div style="border-left:3px solid '+borderClr+';padding:8px 12px;background:var(--bg3);border-radius:0 var(--radius) var(--radius) 0;margin-top:4px">'+diagHTML+'</div>';
   html += '</div>';
