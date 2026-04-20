@@ -283,6 +283,37 @@ def get_monitor_iface() -> str | None:
 def _mon0_exists() -> bool:
     return Path("/sys/class/net/mon0").exists()
 
+_GHOST_IFACE_PATTERNS = ("wlan0mon", "wlan1mon", "wlan2mon", "wlan0profiler",
+                         "wlan1profiler", "wlan2profiler")
+
+def _cleanup_ghost_ifaces():
+    """Remove any ghost virtual monitor interfaces left by tcpdump/profiler."""
+    for name in _GHOST_IFACE_PATTERNS:
+        if _iface_exists(name):
+            subprocess.run(["sudo", "iw", "dev", name, "del"],
+                           capture_output=True, timeout=5)
+
+def _list_wifi_ifaces_raw() -> list[dict]:
+    """Parse `iw dev` output and return all WiFi interfaces with phy/type."""
+    out = run_cmd(["iw", "dev"], timeout=4)
+    ifaces: list[dict] = []
+    cur_phy = ""
+    cur: dict | None = None
+    for line in out.splitlines():
+        ls = line.strip()
+        m = re.match(r"phy#(\d+)", ls)
+        if m:
+            cur_phy = "phy" + m.group(1)
+            continue
+        m = re.match(r"Interface\s+(\S+)", ls)
+        if m:
+            cur = {"name": m.group(1), "phy": cur_phy, "type": ""}
+            ifaces.append(cur)
+            continue
+        if cur and ls.startswith("type "):
+            cur["type"] = ls.split(" ", 1)[1].strip()
+    return ifaces
+
 def _mon0_create() -> bool:
     """Create mon0 virtual monitor interface on phy0 (AX210).
     Includes a passive scan on the uplink interface first so the
@@ -301,6 +332,8 @@ def _mon0_create() -> bool:
         # Bring uplink down — not needed after scan
         subprocess.run(["sudo", "ip", "link", "set", uplink, "down"],
                        capture_output=True, timeout=5)
+        # Clean ghost monitor interfaces on phy0 before creating mon0
+        _cleanup_ghost_ifaces()
         # Create mon0 on phy0
         r = subprocess.run(
             ["sudo", "iw", "phy", "phy0", "interface", "add",
@@ -1889,6 +1922,8 @@ async def profiler_stop():
     run_cmd(["sudo", "pkill", "-f", "profiler.*NekoPi"])
     run_cmd(["sudo", "pkill", "-f", "hostapd.*profiler"])
     await asyncio.sleep(1)
+    # Clean up ghost virtual interfaces left by profiler/hostapd
+    _cleanup_ghost_ifaces()
     run_cmd(["sudo", "systemctl", "start", "wpa_supplicant"])
     _PROFILER_PROC = None
     return {"ok": True}
@@ -8440,6 +8475,16 @@ async def monitor_status():
         "scan_iface": get_best_wifi_iface(),
     }
 
+@app.get("/api/monitor/interfaces")
+async def monitor_interfaces():
+    """List all WiFi interfaces with phy and type for debugging."""
+    ifaces = _list_wifi_ifaces_raw()
+    # Identify ghost interfaces (virtual monitor ifaces that shouldn't exist)
+    expected = {"mon0", "wlan0", "wlan1", "wlan2"}
+    ghosts = [i for i in ifaces if i["name"] not in expected
+              and i["name"] not in ("lo",)]
+    return {"interfaces": ifaces, "ghost_interfaces": ghosts}
+
 
 # ── Terminal sessions: ttyd local bash + per-host ttyd SSH ───────────
 # We spawn one ttyd process per remote SSH session on a free port and proxy
@@ -9101,8 +9146,10 @@ async def ota_start(request: Request):
 
 
 def _ota_restore(iface: str):
+    # Remove the capture's own virtual monitor iface and any ghosts
     for vif in (f"{iface}mon", "mon0"):
         run_cmd(["sudo", "iw", "dev", vif, "del"])
+    _cleanup_ghost_ifaces()
     run_cmd(["sudo", "ip", "link", "set", iface, "down"])
     run_cmd(["sudo", "iw", "dev", iface, "set", "type", "managed"])
     run_cmd(["sudo", "ip", "link", "set", iface, "up"])
