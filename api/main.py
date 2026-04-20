@@ -314,15 +314,28 @@ def _list_wifi_ifaces_raw() -> list[dict]:
             cur["type"] = ls.split(" ", 1)[1].strip()
     return ifaces
 
+def _get_uplink_phy() -> str:
+    """Detect the PHY name for the iwlwifi uplink interface dynamically."""
+    uplink = _classify_wifi_ifaces().get("uplink")
+    if uplink:
+        phy_path = Path(f"/sys/class/net/{uplink}/phy80211/name")
+        if phy_path.exists():
+            try:
+                return phy_path.read_text().strip()
+            except Exception:
+                pass
+    return "phy0"
+
 def _mon0_create() -> bool:
-    """Create mon0 virtual monitor interface on phy0 (AX210).
+    """Create mon0 virtual monitor interface on the AX210 PHY (detected dynamically).
     Includes a passive scan on the uplink interface first so the
     kernel learns the 5 GHz regulatory domain before mon0 is used."""
     try:
         if _mon0_exists():
             return True
-        # Find the uplink iface on phy0 (usually wlan0)
+        # Find the uplink iface (iwlwifi) and its PHY
         uplink = _classify_wifi_ifaces().get("uplink", "wlan0")
+        phy = _get_uplink_phy()
         # Bring uplink up for regulatory scan
         subprocess.run(["sudo", "ip", "link", "set", uplink, "up"],
                        capture_output=True, timeout=5)
@@ -332,11 +345,11 @@ def _mon0_create() -> bool:
         # Bring uplink down — not needed after scan
         subprocess.run(["sudo", "ip", "link", "set", uplink, "down"],
                        capture_output=True, timeout=5)
-        # Clean ghost monitor interfaces on phy0 before creating mon0
+        # Clean ghost monitor interfaces before creating mon0
         _cleanup_ghost_ifaces()
-        # Create mon0 on phy0
+        # Create mon0 on detected PHY
         r = subprocess.run(
-            ["sudo", "iw", "phy", "phy0", "interface", "add",
+            ["sudo", "iw", "phy", phy, "interface", "add",
              "mon0", "type", "monitor"],
             capture_output=True, text=True, timeout=10)
         if r.returncode != 0:
@@ -410,10 +423,10 @@ def get_mgmt_iface() -> str:
     wired = _list_wired_ifaces()
     if wired:
         return wired[0]
-    for candidate in ("eth-mgmt", "eth1", "eth0"):
+    for candidate in ("eth1", "eth0"):
         if Path(f"/sys/class/net/{candidate}").exists():
             return candidate
-    return "eth-mgmt"
+    return "eth1"
 
 def get_test_iface() -> str:
     """TEST interface — driver match first, else second real wired iface."""
@@ -426,7 +439,7 @@ def get_test_iface() -> str:
     for name in wired:
         if name != mgmt:
             return name
-    for candidate in ("eth-test", "eth0", "eth1"):
+    for candidate in ("eth0", "eth1"):
         if Path(f"/sys/class/net/{candidate}").exists() and candidate != mgmt:
             return candidate
     return ""
@@ -496,8 +509,10 @@ def _no_hw_response(missing: str) -> dict:
         "wifi_monitor": "WiFi monitor adapter (MT7921AU)",
         "wlan1": "wlan1 (adaptador WiFi externo MT7921AU)",
         "wlan0": "wlan0 (WiFi built-in)",
-        "eth0":  "eth0 (interfaz TEST / HAT 2.5GbE)",
-        "eth1":  "eth1 (interfaz MGMT)",
+        "eth_test":  f"{get_test_iface() or 'eth0'} (interfaz TEST / HAT 2.5GbE)",
+        "eth_mgmt":  f"{get_mgmt_iface() or 'eth1'} (interfaz MGMT)",
+        "eth0":  f"{get_test_iface() or 'eth0'} (interfaz TEST / HAT 2.5GbE)",
+        "eth1":  f"{get_mgmt_iface() or 'eth1'} (interfaz MGMT)",
     }
     return {"status": "no_hardware", "missing": missing,
             "message": f"{labels.get(missing, missing)} not found on this system"}
@@ -2193,10 +2208,15 @@ async def nat_enable():
     run_cmd(["sudo", "iptables", "-P", "FORWARD", "ACCEPT"])
     run_cmd(["sudo", "iptables", "-t", "nat", "-F"])
     run_cmd(["sudo", "iptables", "-F", "FORWARD"])
-    run_cmd(["sudo", "iptables", "-t", "nat", "-A", "POSTROUTING", "-o", "wlan0", "-j", "MASQUERADE"])
-    run_cmd(["sudo", "iptables", "-t", "nat", "-A", "POSTROUTING", "-o", "eth0",  "-j", "MASQUERADE"])
-    run_cmd(["sudo", "iptables", "-A", "FORWARD", "-i", "eth1", "-o", "wlan0", "-j", "ACCEPT"])
-    run_cmd(["sudo", "iptables", "-A", "FORWARD", "-i", "eth1", "-o", "eth0",  "-j", "ACCEPT"])
+    test_if = get_test_iface() or "eth0"
+    mgmt_if = get_mgmt_iface() or "eth1"
+    # Detect WiFi uplink interface (iwlwifi)
+    wifi_roles = _classify_wifi_ifaces()
+    uplink_if = wifi_roles.get("uplink") or "wlan0"
+    run_cmd(["sudo", "iptables", "-t", "nat", "-A", "POSTROUTING", "-o", uplink_if, "-j", "MASQUERADE"])
+    run_cmd(["sudo", "iptables", "-t", "nat", "-A", "POSTROUTING", "-o", test_if,   "-j", "MASQUERADE"])
+    run_cmd(["sudo", "iptables", "-A", "FORWARD", "-i", mgmt_if, "-o", uplink_if, "-j", "ACCEPT"])
+    run_cmd(["sudo", "iptables", "-A", "FORWARD", "-i", mgmt_if, "-o", test_if,   "-j", "ACCEPT"])
     run_cmd(["sudo", "iptables", "-A", "FORWARD", "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"])
     run_cmd(["sudo", "netfilter-persistent", "save"])
     return {"ok": True, "enabled": True}
@@ -4577,7 +4597,7 @@ async def security_start(subnet: str = "", iface: str = "",
                 # No TEST iface IP and no kernel route — cannot auto-detect.
                 # Return null-equivalent so caller/UI shows "—" instead of fake subnet.
                 return {"status": "no_subnet", "message":
-                        "No se pudo detectar subred — conecte eth0/eth-test o especifique subred manualmente"}
+                        "No se pudo detectar subred — conecte la interfaz TEST o especifique subred manualmente"}
 
     _SEC_RUNNING = True
     _SEC_STATUS  = "starting"

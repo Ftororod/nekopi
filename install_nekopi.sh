@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  NekoPi Field Unit — Automated Installer v2
 #  Version:   1.3.0  ·  Codename: ToManchas
-#  Generated: 2026-04-19 18:27
+#  Generated: 2026-04-19 21:59
 #  Target:    Ubuntu 24.04 LTS · Raspberry Pi 5 · 8 GB
 #  License:   GPL-3.0-or-later
 # ═══════════════════════════════════════════════════════════════
@@ -503,7 +503,7 @@ systemctl enable nekopi
 _nk_step_done 10 "systemd service"
 
 
-_nk_step_start 11 "Netplan (eth-mgmt / eth-test)"
+_nk_step_start 11 "Netplan (driver-based)"
 {
 # Remove legacy name-based netplan if present
 if [ -f /etc/netplan/01-nekopi.yaml ]; then
@@ -515,26 +515,26 @@ network:
   version: 2
   renderer: networkd
   ethernets:
-    mgmt:
+    eth0:
       match:
-        driver: bcmgenet
-      set-name: eth-mgmt
+        driver: r8169
+      set-name: eth0
+      dhcp4: true
+      optional: true
+    eth1:
+      match:
+        driver: macb
+      set-name: eth1
       dhcp4: false
       optional: true
       addresses: [192.168.99.1/24]
-    test:
-      match:
-        driver: r8169
-      set-name: eth-test
-      dhcp4: true
-      optional: true
 NETPLAN
 
 sed -i 's/^    //' /etc/netplan/01-nekopi-mgmt.yaml
 chmod 600 /etc/netplan/01-nekopi-mgmt.yaml
 netplan apply 2>/dev/null || true
 } >> "$INSTALL_LOG" 2>&1
-_nk_step_done 11 "Netplan (eth-mgmt / eth-test)"
+_nk_step_done 11 "Netplan (driver-based)"
 
 
 _nk_step_start 12 "dnsmasq + systemd-resolved fix"
@@ -548,14 +548,8 @@ if [ -f /etc/systemd/resolved.conf ]; then
     fi
 fi
 
-DNSMASQ_IFACE="eth-mgmt"
-if ! ip link show eth-mgmt &>/dev/null; then
-    if [ -n "${MGMT_IFACE:-}" ]; then
-        DNSMASQ_IFACE="$MGMT_IFACE"
-    else
-        DNSMASQ_IFACE="eth1"
-    fi
-fi
+# Use the MGMT interface detected in step 1 (driver-based), fallback eth1
+DNSMASQ_IFACE="${MGMT_IFACE:-eth1}"
 
 cat > /etc/dnsmasq.conf << DNSMASQ
 interface=$DNSMASQ_IFACE
@@ -569,11 +563,6 @@ server=8.8.4.4
 DNSMASQ
 
 mkdir -p /etc/systemd/system/dnsmasq.service.d/
-cat > /etc/systemd/system/dnsmasq.service.d/wait-mgmt.conf << OVERRIDE
-[Unit]
-After=network-online.target sys-subsystem-net-devices-$DNSMASQ_IFACE.device
-Wants=sys-subsystem-net-devices-$DNSMASQ_IFACE.device
-OVERRIDE
 
 # Hotspot interface DHCP (brcmfmac) — only if detected at install time
 if [ -n "${HOTSPOT_IFACE:-}" ]; then
@@ -584,7 +573,29 @@ dhcp-range=set:hotspot,192.168.98.100,192.168.98.199,255.255.255.0,12h
 HOTSPOT_DNSMASQ
 fi
 
+# Write /etc/dnsmasq.d/nekopi-mgmt.conf (driver-matched iface)
 mkdir -p /etc/dnsmasq.d
+cat > /etc/dnsmasq.d/nekopi-mgmt.conf << DNSMASQ_DROP
+# NekoPi Management Interface
+interface=$DNSMASQ_IFACE
+bind-interfaces
+dhcp-range=192.168.99.100,192.168.99.199,24h
+dhcp-option=3,192.168.99.1
+dhcp-option=6,8.8.8.8,1.1.1.1
+dhcp-authoritative
+DNSMASQ_DROP
+sed -i 's/^    //' /etc/dnsmasq.d/nekopi-mgmt.conf
+
+# Clean up any stale dnsmasq drop-in referencing old interface names
+rm -f /etc/systemd/system/dnsmasq.service.d/wait-eth1.conf
+# Write single canonical drop-in
+cat > /etc/systemd/system/dnsmasq.service.d/wait-mgmt.conf << OVERRIDE
+[Unit]
+After=network-online.target sys-subsystem-net-devices-$DNSMASQ_IFACE.device
+Wants=sys-subsystem-net-devices-$DNSMASQ_IFACE.device
+OVERRIDE
+sed -i 's/^    //' /etc/systemd/system/dnsmasq.service.d/wait-mgmt.conf
+
 systemctl daemon-reload
 systemctl enable dnsmasq
 systemctl restart dnsmasq 2>/dev/null || true
@@ -717,14 +728,14 @@ nekopi ALL=(ALL) NOPASSWD: /usr/bin/cat /etc/freeradius/3.0/users.d/nekopi
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/cat /etc/freeradius/3.0/clients.d/nekopi
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/cp /tmp/nekopi_radius_users /etc/freeradius/3.0/users.d/nekopi
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/cp /tmp/nekopi_radius_clients /etc/freeradius/3.0/clients.d/nekopi
-nekopi ALL=(ALL) NOPASSWD: /usr/sbin/iw phy phy0 interface add mon0 type monitor
+nekopi ALL=(ALL) NOPASSWD: /usr/sbin/iw phy * interface add mon0 type monitor
 nekopi ALL=(ALL) NOPASSWD: /usr/sbin/iw dev mon0 del
 nekopi ALL=(ALL) NOPASSWD: /usr/sbin/iw dev mon0 set channel *
-nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw phy phy0 interface add mon0 type monitor
+nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw phy * interface add mon0 type monitor
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw dev mon0 del
 nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw dev mon0 set channel *
-nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw dev wlan0 scan
-nekopi ALL=(ALL) NOPASSWD: /usr/sbin/iw dev wlan0 scan
+nekopi ALL=(ALL) NOPASSWD: /usr/bin/iw dev * scan
+nekopi ALL=(ALL) NOPASSWD: /usr/sbin/iw dev * scan
 SUDOERS
 
 chmod 440 /etc/sudoers.d/nekopi-services
@@ -872,8 +883,9 @@ ExecStart=/bin/bash -c '\
   HOTSPOT_CONF=/opt/nekopi/data/hotspot.json; \
   SURVEY=$(python3 -c "import json;print(json.load(open(\"$HOTSPOT_CONF\")).get(\"survey_mode\",False))" 2>/dev/null || echo False); \
   if [ "$SURVEY" = "True" ]; then echo "Survey mode — hotspot skipped"; exit 0; fi; \
-  CARRIER=$(cat /sys/class/net/eth-mgmt/carrier 2>/dev/null || echo 0); \
-  if [ "$CARRIER" = "1" ]; then echo "eth-mgmt cable connected — hotspot skipped"; exit 0; fi; \
+  MGMT=$(python3 -c "import json;print(json.load(open(\"/opt/nekopi/data/hw_caps.json\")).get(\"mgmt_iface\",\"eth1\"))" 2>/dev/null || echo eth1); \
+  CARRIER=$(cat /sys/class/net/$MGMT/carrier 2>/dev/null || echo 0); \
+  if [ "$CARRIER" = "1" ]; then echo "MGMT cable connected — hotspot skipped"; exit 0; fi; \
   IFACE=$(python3 -c "import json;print(json.load(open(\"/opt/nekopi/data/hw_caps.json\")).get(\"wifi_hotspot_iface\",\"\"))" 2>/dev/null); \
   [ -z "$IFACE" ] && exit 0; \
   ip link set "$IFACE" up; \
@@ -995,9 +1007,8 @@ _nk_step_done 26 "FreeRADIUS"
 
 _nk_step_start 27 "AX210 mon0 service"
 {
-    # Only create the service if phy0 exists and supports monitor mode
-    if iw phy phy0 info 2>/dev/null | grep -q monitor; then
-        cat > /etc/systemd/system/nekopi-mon0.service << 'MON0SVC'
+    # Create mon0 service — detects iwlwifi interface dynamically (no hardcoded phy)
+    cat > /etc/systemd/system/nekopi-mon0.service << 'MON0SVC'
 [Unit]
 Description=NekoPi — AX210 monitor interface (mon0)
 After=network.target
@@ -1006,32 +1017,15 @@ Before=nekopi.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/bash -c '\
-    PHY=phy0; \
-    iw phy $PHY info 2>/dev/null | grep -q monitor || exit 0; \
-    ip link show mon0 2>/dev/null | grep -q mon0 && exit 0; \
-    UPLINK=$(iw dev 2>/dev/null | awk "/phy#0/{p=1} p && /Interface/{print \$2; exit}"); \
-    [ -z "$UPLINK" ] && exit 1; \
-    ip link set $UPLINK up 2>/dev/null; \
-    iw dev $UPLINK scan 2>/dev/null | grep -c SSID || true; \
-    ip link set $UPLINK down 2>/dev/null; \
-    iw phy $PHY interface add mon0 type monitor 2>/dev/null && \
-    ip link set mon0 up 2>/dev/null && \
-    echo "mon0 created on $PHY" || echo "mon0 creation failed"'
-ExecStop=/bin/bash -c '\
-    ip link show mon0 2>/dev/null && \
-    ip link set mon0 down && \
-    iw dev mon0 del 2>/dev/null || true'
+ExecStart=/bin/bash -c '    UPLINK="";     for iface in /sys/class/net/*/; do         iface=$(basename "$iface");         driver=$(basename "$(readlink /sys/class/net/$iface/device/driver 2>/dev/null)" 2>/dev/null);         [ "$driver" = "iwlwifi" ] && [ "$iface" != "mon0" ] && UPLINK="$iface" && break;     done;     [ -z "$UPLINK" ] && echo "No iwlwifi interface found" && exit 0;     PHY=$(cat /sys/class/net/$UPLINK/phy80211/name 2>/dev/null);     [ -z "$PHY" ] && echo "No PHY for $UPLINK" && exit 1;     iw phy $PHY info 2>/dev/null | grep -q monitor || { echo "$PHY does not support monitor"; exit 0; };     ip link show mon0 2>/dev/null | grep -q mon0 && exit 0;     ip link set $UPLINK up 2>/dev/null;     iw dev $UPLINK scan 2>/dev/null | grep -c SSID || true;     ip link set $UPLINK down 2>/dev/null;     iw phy $PHY interface add mon0 type monitor 2>/dev/null &&     ip link set mon0 up 2>/dev/null &&     echo "mon0 created on $PHY ($UPLINK)" || echo "mon0 creation failed"'
+ExecStop=/bin/bash -c '    ip link show mon0 2>/dev/null &&     ip link set mon0 down 2>/dev/null &&     iw dev mon0 del 2>/dev/null || true'
 
 [Install]
 WantedBy=multi-user.target
 MON0SVC
-        systemctl daemon-reload
-        systemctl enable nekopi-mon0 2>/dev/null || true
-        echo "mon0 boot service installed"
-    else
-        echo "SKIP: phy0 does not support monitor mode — no mon0 service"
-    fi
+    systemctl daemon-reload
+    systemctl enable nekopi-mon0 2>/dev/null || true
+    echo "mon0 boot service installed"
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 27 "AX210 mon0 service"
 

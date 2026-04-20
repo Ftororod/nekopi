@@ -3885,7 +3885,7 @@ input,select,textarea { font-family:inherit; }
   ═══════════════════════════════ -->
   <div class="page" id="page-connection">
     <div class="section-title">🔗 Connection</div>
-    <div class="section-sub">eth-mgmt management · interfaces · access URLs</div>
+    <div class="section-sub">management · interfaces · access URLs</div>
 
     <!-- Interface roles -->
     <div class="card" style="margin-bottom:14px">
@@ -3898,13 +3898,13 @@ input,select,textarea { font-family:inherit; }
           <thead><tr><th>Interface</th><th>Role</th><th>IP</th><th>Status</th></tr></thead>
           <tbody>
             <tr>
-              <td><strong>eth-mgmt</strong></td>
+              <td><strong id="conn-mgmt-name">eth1</strong></td>
               <td style="color:var(--cyan)">🔗 Management (RPi5 GbE)</td>
               <td id="conn-eth-mgmt-ip" style="color:var(--white);font-family:monospace">192.168.99.1</td>
               <td><span class="status-badge sb-ok"><span class="sb-dot"></span>UP</span></td>
             </tr>
             <tr>
-              <td><strong>eth-test</strong></td>
+              <td><strong id="conn-test-name">eth0</strong></td>
               <td style="color:var(--orange)">🔌 Field Tests (RTL8125B)</td>
               <td id="conn-eth-test-ip" style="color:var(--text);font-family:monospace">—</td>
               <td id="conn-eth-test-status"><span class="status-badge sb-idle"><span class="sb-dot"></span>Ready</span></td>
@@ -4017,16 +4017,16 @@ input,select,textarea { font-family:inherit; }
             <span style="color:var(--white);font-family:monospace">iwlwifi</span>=AX210 (uplink) &nbsp;·&nbsp;
             <span style="color:var(--white);font-family:monospace">brcmfmac</span>=RPi5 (hotspot) &nbsp;·&nbsp;
             <span style="color:var(--white);font-family:monospace">mt7921u</span>=CF-953AX (monitor) &nbsp;·&nbsp;
-            <span style="color:var(--white);font-family:monospace">eth-mgmt</span>=RPi5 GbE &nbsp;·&nbsp;
-            <span style="color:var(--white);font-family:monospace">eth-test</span>=RTL8125B HAT
+            <span style="color:var(--white);font-family:monospace">macb</span>=RPi5 GbE (MGMT) &nbsp;·&nbsp;
+            <span style="color:var(--white);font-family:monospace">r8169</span>=RTL8125B HAT (TEST)
           </div>
           <div style="background:var(--bg3);border-radius:var(--radius);padding:14px;border-left:3px solid var(--cyan)">
             <div style="font-size:11px;font-weight:700;color:var(--cyan);letter-spacing:1px;margin-bottom:8px">💻 LAPTOP (cable)</div>
             <div style="font-size:11px;color:var(--text2);line-height:1.8">
-              1. Cable RJ45: laptop → eth-mgmt<br>
+              1. Cable RJ45: laptop → eth1 (MGMT)<br>
               2. Laptop gets 192.168.99.x auto<br>
               3. Open: <span style="color:var(--cyan)">https://nekopi.local:8080</span><br>
-              4. WiFi + eth-test free for tests
+              4. WiFi + eth0 (TEST) free for tests
             </div>
           </div>
           <div style="background:var(--bg3);border-radius:var(--radius);padding:14px;border-left:3px solid var(--amber)">
@@ -4360,7 +4360,7 @@ input,select,textarea { font-family:inherit; }
         <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
           <div>
             <div style="font-size:12px;font-weight:600;color:var(--white)">Internet Sharing (NAT)</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px">Share internet from eth0/wlan0 to eth1 (direct management)</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">Share internet from TEST/WiFi uplink to MGMT (direct management)</div>
             <div style="font-size:11px;color:var(--text2)">⚠️ Disable during formal audits</div>
           </div>
           <div style="display:flex;align-items:center;gap:10px">
@@ -14818,12 +14818,36 @@ function refreshConnection() {
     return;
   }
   // LIVE: fetch real interface data + hotspot status
+  fetchAPI('/api/hw-caps').then(function(caps) {
+    if (!caps) return;
+    var mgmt = caps.mgmt_iface || 'eth1';
+    var test = caps.test_iface || 'eth0';
+    var mgmtNameEl = document.getElementById('conn-mgmt-name');
+    var testNameEl = document.getElementById('conn-test-name');
+    if (mgmtNameEl) mgmtNameEl.textContent = mgmt;
+    if (testNameEl) testNameEl.textContent = test;
+  });
   fetchAPI('/api/network/info').then(function(data) {
     if (!data) return;
     data.interfaces.forEach(function(iface) {
       var label = iface.label || iface.name;
+      var role = iface.role || '';
       var ipEl = document.getElementById('conn-' + iface.name + '-ip');
       if (ipEl) ipEl.textContent = iface.ip || '—';
+      // Also update by role-based ID (mgmt→conn-eth-mgmt-ip, test→conn-eth-test-ip)
+      if (role === 'mgmt') {
+        var mEl = document.getElementById('conn-eth-mgmt-ip');
+        if (mEl) mEl.textContent = iface.ip || '192.168.99.1';
+      } else if (role === 'test') {
+        var tEl = document.getElementById('conn-eth-test-ip');
+        if (tEl) tEl.textContent = iface.ip || '—';
+        var tSt = document.getElementById('conn-eth-test-status');
+        if (tSt) {
+          var cls = iface.status === 'up' ? 'sb-ok' : 'sb-idle';
+          var txt = iface.status === 'up' ? 'UP · ' + label : 'DOWN';
+          tSt.innerHTML = '<span class="status-badge '+cls+'"><span class="sb-dot"></span>'+txt+'</span>';
+        }
+      }
       var stEl = document.getElementById('conn-' + iface.name + '-status');
       if (stEl) {
         var cls = iface.status === 'up' ? 'sb-ok' : 'sb-idle';
