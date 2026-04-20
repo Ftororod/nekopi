@@ -11262,18 +11262,42 @@ function runRoamingAI(ev){
 // ═══════════════════════════════════════
 var profilerHistory=[];
 var mockClients=[
-  {mac:'AA:BB:CC:11:22:33',vendor:'Apple',device:'iPhone 15 Pro',standard:'802.11ax (WiFi 6E)',bands:'2.4 + 5 + 6GHz',mimo:'2\xd72',streams:2,mcs:11,chWidth:160,maxRate:'2402 Mbps',pmf:'Required',ft:'Yes',rrm:'Yes',btm:'Yes',wpa3:'Yes',uapsd:'Yes',mbo:'Yes',
-    rates:{summary:'2402 Mbps · MCS 11 · 2SS',max_phy_mbps:2402,max_mcs:11,nss:2,
-      basic_rates:'6,12,24',extended_rates:'9,18,36,48,54',
-      ht_detail:'HT MCS 0-15 (2x2)',vht_detail:'VHT MCS 0-9 NSS:2 160MHz → max 1733 Mbps',
-      he_detail:'HE MCS 0-11 NSS:2 160MHz → max 2402 Mbps',be_detail:null,
-      rrm:'BSS min rate: 24 Mbps · Band steer: preferir 5 GHz · 802.11k: activar · 802.11v: activar · 802.11r: activar FT'}},
-  {mac:'BB:CC:DD:22:33:44',vendor:'Samsung',device:'Galaxy S24',standard:'802.11ax (WiFi 6)',bands:'2.4 + 5GHz',mimo:'2\xd72',streams:2,mcs:11,chWidth:80,maxRate:'1200 Mbps',pmf:'Capable',ft:'Yes',rrm:'Yes',btm:'Yes',wpa3:'Yes',uapsd:'Yes',mbo:'No',
+  {mac:'60:81:10:d3:c8:ed',vendor:'Apple',device:'iPhone 15 Pro',standard:'802.11ax (WiFi6)',bands:'2.4 + 5 + 6GHz',mimo:'2x2',streams:2,mcs:11,chWidth:160,maxRate:'1200 Mbps MCS11 2SS',pmf:'Required',ft:'N/A',rrm:'Yes',btm:'Yes',wpa3:'Yes',uapsd:'Yes',mbo:'Yes',
+    dot11k:1,dot11v:1,dot11r:-1,dot11w:1,dot11n:1,dot11ac:1,dot11ax:1,
+    json:{features:{dot11n:1,dot11n_nss:2,dot11ac:1,dot11ac_nss:2,dot11ac_mcs:'0-9',dot11ax:1,dot11ax_nss:2,dot11ax_mcs:'0-11',dot11k:1,dot11v:1,dot11r:-1,dot11w:1,dot11ax_160_mhz:0}},
     rates:{summary:'1200 Mbps · MCS 11 · 2SS',max_phy_mbps:1200,max_mcs:11,nss:2,
       basic_rates:'6,12,24',extended_rates:'9,18,36,48,54',
-      ht_detail:'HT MCS 0-15 (2x2)',vht_detail:'VHT MCS 0-9 NSS:2 80MHz → max 867 Mbps',
-      he_detail:'HE MCS 0-11 NSS:2 80MHz → max 1200 Mbps',be_detail:null,
+      basic_rates_list:[6,12,24],supported_rates_list:[9,18,36,48,54],
+      ht_mcs:[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
+      vht_mcs_nss1:[0,1,2,3,4,5,6,7,8,9],vht_mcs_nss2:[0,1,2,3,4,5,6,7,8,9],
+      he_mcs_nss1:[0,1,2,3,4,5,6,7,8,9,10,11],he_mcs_nss2:[0,1,2,3,4,5,6,7,8,9,10,11],
+      ht_detail:'HT MCS 0-15 (2x2)',vht_detail:'VHT MCS 0-9 NSS:2 80MHz',
+      he_detail:'HE MCS 0-11 NSS:2 80MHz',be_detail:null,
+      dot11r:null,dot11k:true,dot11v:true,
       rrm:'BSS min rate: 24 Mbps · Band steer: preferir 5 GHz · 802.11k: activar · 802.11v: activar'}},
+  {mac:'3c:22:fb:4a:11:2d',vendor:'Dell',device:'Latitude 7430',standard:'802.11ac (WiFi5)',bands:'2.4 + 5GHz',mimo:'2x2',streams:2,mcs:9,chWidth:80,maxRate:'867 Mbps MCS9 2SS',pmf:'Capable',ft:'No',rrm:'Yes',btm:'Yes',wpa3:'No',uapsd:'Yes',mbo:'No',
+    dot11k:1,dot11v:1,dot11r:0,dot11w:1,dot11n:1,dot11ac:1,dot11ax:0,
+    json:{features:{dot11n:1,dot11n_nss:2,dot11ac:1,dot11ac_nss:2,dot11ac_mcs:'0-9',dot11ax:0,dot11k:1,dot11v:1,dot11r:0,dot11w:1}},
+    rates:{summary:'867 Mbps · MCS 9 · 2SS',max_phy_mbps:867,max_mcs:9,nss:2,
+      basic_rates:'6,12,24',extended_rates:'9,18,36,48,54',
+      basic_rates_list:[6,12,24],supported_rates_list:[9,18,36,48,54],
+      ht_mcs:[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
+      vht_mcs_nss1:[0,1,2,3,4,5,6,7,8,9],vht_mcs_nss2:[0,1,2,3,4,5,6,7,8,9],
+      ht_detail:'HT MCS 0-15 (2x2)',vht_detail:'VHT MCS 0-9 NSS:2 80MHz',
+      he_detail:null,be_detail:null,
+      dot11r:false,dot11k:true,dot11v:true,
+      rrm:'BSS min rate: 24 Mbps · Band steer: preferir 5 GHz · 802.11k: activar · 802.11v: activar'}},
+  {mac:'00:50:56:85:04:25',vendor:'VMware',device:'Virtual NIC',standard:'802.11n (WiFi4)',bands:'2.4GHz',mimo:'1x1',streams:1,mcs:7,chWidth:20,maxRate:'150 Mbps MCS7 1SS',pmf:'No',ft:'No',rrm:'No',btm:'No',wpa3:'No',uapsd:'No',mbo:'No',
+    dot11k:0,dot11v:0,dot11r:0,dot11w:0,dot11n:1,dot11ac:0,dot11ax:0,
+    json:{features:{dot11n:1,dot11n_nss:1,dot11ac:0,dot11ax:0,dot11k:0,dot11v:0,dot11r:0,dot11w:0}},
+    rates:{summary:'150 Mbps · MCS 7 · 1SS',max_phy_mbps:150,max_mcs:7,nss:1,
+      basic_rates:'1,2,5.5,11,6,12,24',extended_rates:'9,18,36,48,54',
+      basic_rates_list:[1,2,5.5,11,6,12,24],supported_rates_list:[9,18,36,48,54],
+      ht_mcs:[0,1,2,3,4,5,6,7],
+      ht_detail:'HT MCS 0-7 (1x1)',vht_detail:null,
+      he_detail:null,be_detail:null,
+      dot11r:false,dot11k:false,dot11v:false,
+      rrm:'BSS min rate: 6 Mbps (cliente legacy)'}},
 ];
 
 function startProfiler(){
@@ -11472,47 +11496,94 @@ function showProfilerResults(client){
   c2.innerHTML=html2;
 }
 
+function _profilerFtkv(client){
+  var feat = (client.json && client.json.features) || client;
+  var k = feat.dot11k, v = feat.dot11v, r = feat.dot11r;
+  var rates = client.rates || {};
+  if(rates.dot11k === true) k = 1; else if(rates.dot11k === false) k = 0;
+  if(rates.dot11v === true) v = 1; else if(rates.dot11v === false) v = 0;
+  if(rates.dot11r === true) r = 1; else if(rates.dot11r === false) r = 0;
+  function f(val, lbl){
+    if(val === 1 || val === true)  return '<span style="color:var(--green)">'+lbl+'\u2713</span>';
+    if(val === 0 || val === false) return '<span style="color:var(--red)">'+lbl+'\u2717</span>';
+    return '<span style="color:var(--text2)">'+lbl+'?</span>';
+  }
+  return f(k,'k')+' '+f(v,'v')+' '+f(r,'r');
+}
+
+function _buildProfilerDetailHTML(client){
+  var rates = client.rates || {};
+  var feat = (client.json && client.json.features) || client;
+  var html = '<div style="padding:12px;background:var(--bg2)">';
+  var allLegacy = [1, 2, 5.5, 11, 6, 9, 12, 18, 24, 36, 48, 54];
+  var basic = rates.basic_rates_list || [6, 12, 24];
+  var supported = rates.supported_rates_list || [9, 18, 36, 48, 54];
+  html += '<div style="margin-bottom:10px"><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Legacy Rates (802.11b/g)</div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:3px">';
+  allLegacy.forEach(function(r){
+    var isBasic = basic.indexOf(r) !== -1;
+    var isSupp = supported.indexOf(r) !== -1;
+    var bg = isBasic ? 'rgba(76,175,80,.25)' : isSupp ? 'rgba(33,150,243,.2)' : 'rgba(255,255,255,.06)';
+    var clr = isBasic ? 'var(--green)' : isSupp ? 'var(--blue-b)' : 'var(--text2)';
+    var bdr = isBasic ? '1px solid var(--green)' : isSupp ? '1px solid rgba(33,150,243,.3)' : '1px solid rgba(255,255,255,.08)';
+    html += '<span style="padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;background:'+bg+';color:'+clr+';border:'+bdr+'">'+r+'</span>';
+  });
+  html += '</div><div style="font-size:9px;color:var(--text2);margin-top:3px"><span style="color:var(--green)">&#9679;</span> Basic <span style="color:var(--blue-b)">&#9679;</span> Supported <span style="color:var(--text2)">&#9675;</span> Not supported</div></div>';
+  var htMcs = rates.ht_mcs || [];
+  if(htMcs.length || feat.dot11n === 1){
+    var htNss = feat.dot11n_nss || 1;
+    html += '<div style="margin-bottom:10px"><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">HT MCS (802.11n)</div><div style="display:flex;flex-wrap:wrap;gap:2px">';
+    for(var i=0;i<16;i++){var has=htMcs.indexOf(i)!==-1;html+='<span style="padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600;min-width:20px;text-align:center;'+(has?'background:rgba(76,175,80,.25);color:var(--green);border:1px solid var(--green)':'background:rgba(255,255,255,.06);color:var(--text2);border:1px solid rgba(255,255,255,.08)')+'">'+i+'</span>';}
+    html += '</div><div style="font-size:9px;color:var(--text2);margin-top:2px">HT: '+htNss+'x'+htNss+'</div></div>';
+  }
+  if(feat.dot11ac === 1){
+    var vhtNss = feat.dot11ac_nss || 1;
+    html += '<div style="margin-bottom:10px"><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">VHT MCS (802.11ac)</div>';
+    for(var ss=1;ss<=vhtNss;ss++){var vhtMcs=rates['vht_mcs_nss'+ss]||[];html+='<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px"><span style="font-size:9px;color:var(--text2);width:32px">NSS'+ss+':</span><div style="display:flex;gap:2px">';for(var m=0;m<=9;m++){var has=vhtMcs.indexOf(m)!==-1;html+='<span style="padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600;min-width:18px;text-align:center;'+(has?'background:rgba(76,175,80,.25);color:var(--green);border:1px solid var(--green)':'background:rgba(255,255,255,.06);color:var(--text2);border:1px solid rgba(255,255,255,.08)')+'">'+m+'</span>';}html+='</div></div>';}
+    html += '</div>';
+  }
+  if(feat.dot11ax === 1){
+    var heNss = feat.dot11ax_nss || 1;
+    html += '<div style="margin-bottom:10px"><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">HE MCS (802.11ax / WiFi 6)</div>';
+    for(var ss=1;ss<=heNss;ss++){var heMcs=rates['he_mcs_nss'+ss]||[];html+='<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px"><span style="font-size:9px;color:var(--text2);width:32px">NSS'+ss+':</span><div style="display:flex;gap:2px">';for(var m=0;m<=11;m++){var has=heMcs.indexOf(m)!==-1;html+='<span style="padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600;min-width:18px;text-align:center;'+(has?'background:rgba(76,175,80,.25);color:var(--green);border:1px solid var(--green)':'background:rgba(255,255,255,.06);color:var(--text2);border:1px solid rgba(255,255,255,.08)')+'">'+m+'</span>';}html+='</div></div>';}
+    html += '</div>';
+  }
+  var hasR=feat.dot11r===1,hasV=feat.dot11v===1,noR=feat.dot11r===0,noV=feat.dot11v===0;
+  var borderClr,diagHTML;
+  if(hasR&&hasV){borderClr='var(--green)';diagHTML='<div style="font-weight:600;color:var(--green);margin-bottom:4px">Client supports fast roaming (FT + BTM)</div><div style="font-size:10px;color:var(--text2)">If roaming is slow, investigate: ISE posture delay, RADIUS response time, or AP BSS-TM threshold config</div>';}
+  else if(hasV&&!hasR){borderClr='var(--yellow)';diagHTML='<div style="font-weight:600;color:var(--yellow);margin-bottom:4px">Client supports BSS Transition but not Fast Transition</div><div style="font-size:10px;color:var(--text2)">Each roam triggers full EAP re-auth (~2-8s delay)</div>';}
+  else if(noR&&noV){borderClr='var(--red)';diagHTML='<div style="font-weight:600;color:var(--red);margin-bottom:4px">Legacy client — no fast roaming support</div><div style="font-size:10px;color:var(--text2)">Roaming delay 5-15 seconds expected</div>';}
+  else{borderClr='var(--text2)';diagHTML='<div style="font-weight:600;color:var(--text2);margin-bottom:4px">Roaming capabilities unknown</div>';}
+  html += '<div style="border-left:3px solid '+borderClr+';padding:8px 12px;background:var(--bg3);border-radius:0 var(--radius) var(--radius) 0;margin-top:4px">'+diagHTML+'</div>';
+  html += '</div>';
+  return html;
+}
+
 function addProfilerHistoryRow(client){
   var tbody=document.getElementById('profilerHistoryBody'); if(!tbody) return;
   var emptyRow=document.getElementById('profilerEmptyRow'); if(emptyRow) emptyRow.remove();
   var tr=document.createElement('tr'); tr.style.cursor='pointer';
-  var ftBtm=[client.ft==='Yes'?'FT':'',client.rrm==='Yes'?'RRM':'',client.btm==='Yes'?'BTM':''].filter(Boolean).join('·')||'—';
-  // Rates summary + expandable detail
   var rates = client.rates || {};
   var ratesSummary = rates.summary || (client.maxRate || '?');
-  var rateDetail = '';
-  if(rates.ht_detail)  rateDetail += rates.ht_detail + '\n';
-  if(rates.vht_detail) rateDetail += rates.vht_detail + '\n';
-  if(rates.he_detail)  rateDetail += rates.he_detail + '\n';
-  if(rates.be_detail)  rateDetail += rates.be_detail + '\n';
-  rateDetail += 'Basic: ' + (rates.basic_rates || '6,12,24') + ' Mbps\n';
-  rateDetail += 'Extended: ' + (rates.extended_rates || '9,18,36,48,54') + ' Mbps';
-  var rrm = rates.rrm || '';
-
-  var ratesCell = '<div style="color:var(--green);font-weight:600;font-size:11px">'
-    + ratesSummary + '</div>';
-  if(rateDetail) {
-    ratesCell += '<details style="margin-top:2px"><summary style="font-size:9px;color:var(--text2);cursor:pointer">detalle</summary>'
-      + '<pre style="font-size:9px;color:var(--text);margin:2px 0;white-space:pre-wrap;line-height:1.5">'
-      + rateDetail.replace(/</g,'&lt;') + '</pre>';
-    if(rrm) {
-      ratesCell += '<div style="font-size:9px;color:var(--amber);margin-top:3px;border-top:1px solid var(--border);padding-top:3px">'
-        + '📡 RRM: ' + rrm.replace(/</g,'&lt;') + '</div>';
-    }
-    ratesCell += '</details>';
-  }
-
   tr.innerHTML=
     '<td style="color:var(--text2);font-size:10px">'+(client.time||'')+'</td>'+
     '<td style="color:var(--white);font-family:monospace;font-size:10px">'+(client.mac||'')+'</td>'+
     '<td style="color:var(--text2)">'+(client.vendor||'Unknown')+'</td>'+
     '<td><span style="color:var(--cyan);font-size:10px">'+(client.standard||'?')+'</span></td>'+
     '<td style="color:var(--white)">'+(client.mimo||'?')+'</td>'+
-    '<td>'+ratesCell+'</td>'+
+    '<td><div style="color:var(--green);font-weight:600;font-size:11px">'+ratesSummary+'</div></td>'+
     '<td><span style="color:var(--text2);font-size:10px">'+(client.pmf||'N/A')+'</span></td>'+
-    '<td style="color:var(--text2);font-size:10px">'+ftBtm+'</td>'+
+    '<td style="font-size:10px">'+_profilerFtkv(client)+'</td>'+
     '<td><button class="btn btn-ghost btn-sm" style="font-size:11px">Detail</button></td>';
-  tr.querySelector('button').onclick=function(e){e.stopPropagation();showProfilerDetail(client);};
+  tr.querySelector('button').onclick=function(e){
+    e.stopPropagation();
+    var existing = document.querySelector('.profiler-inline-detail');
+    if(existing){ var wasSame = existing._mac === client.mac; existing.remove(); if(wasSame) return; }
+    var dtr = document.createElement('tr'); dtr.className='profiler-inline-detail'; dtr._mac=client.mac;
+    var td=document.createElement('td'); td.colSpan=9; td.style.cssText='padding:0;border-top:2px solid var(--cyan)';
+    td.innerHTML = _buildProfilerDetailHTML(client); dtr.appendChild(td);
+    tr.parentNode.insertBefore(dtr, tr.nextSibling);
+  };
   tbody.insertBefore(tr,tbody.firstChild);
   var countEl=document.getElementById('profilerClientCount');
   if(countEl) countEl.textContent=profilerHistory.length+' client'+(profilerHistory.length!==1?'s':'')+' profiled';
@@ -11520,6 +11591,8 @@ function addProfilerHistoryRow(client){
 
 function showProfilerDetail(client){
   var panel=document.getElementById('profilerDetailPanel'); if(panel) panel.style.display='';
+  var body=document.getElementById('profilerDetailBody');
+  if(body) body.innerHTML = _buildProfilerDetailHTML(client);
   showProfilerResults(client);
   if(panel) panel.scrollIntoView({behavior:'smooth',block:'start'});
 }

@@ -1978,6 +1978,50 @@ def _profiler_compute_rates(feat: dict) -> dict:
     rates["max_phy_mbps"] = max_rate
     rates["summary"] = f"{max_rate} Mbps · MCS {rates['max_mcs']} · {nss}SS"
 
+    # Raw rate arrays for visual grid
+    # Legacy: assume standard OFDM unless client is b-only
+    rates["basic_rates_list"] = [6, 12, 24]
+    rates["supported_rates_list"] = [9, 18, 36, 48, 54]
+    if feat.get("dot11n") != 1 and feat.get("dot11ac") != 1:
+        # Legacy-only client may support 802.11b rates
+        rates["basic_rates_list"] = [1, 2, 5.5, 11, 6, 12, 24]
+        rates["supported_rates_list"] = [9, 18, 36, 48, 54]
+
+    # HT MCS indices
+    if feat.get("dot11n") == 1:
+        ht_nss_val = feat.get("dot11n_nss") or 1
+        rates["ht_mcs"] = list(range(ht_nss_val * 8))
+    else:
+        rates["ht_mcs"] = []
+
+    # VHT MCS per NSS
+    if feat.get("dot11ac") == 1:
+        vht_nss_val = feat.get("dot11ac_nss") or 1
+        vht_max_mcs = 9
+        try:
+            ms = feat.get("dot11ac_mcs", "0-9")
+            vht_max_mcs = max(int(x) for x in str(ms).replace("-", ",").split(",") if x.strip().isdigit())
+        except Exception:
+            pass
+        for ss in range(1, vht_nss_val + 1):
+            rates[f"vht_mcs_nss{ss}"] = list(range(vht_max_mcs + 1))
+    # HE MCS per NSS
+    if feat.get("dot11ax") == 1:
+        he_nss_val = feat.get("dot11ax_nss") or 1
+        he_max_mcs = 11
+        try:
+            ms = feat.get("dot11ax_mcs", "0-11")
+            he_max_mcs = max(int(x) for x in str(ms).replace("-", ",").split(",") if x.strip().isdigit())
+        except Exception:
+            pass
+        for ss in range(1, he_nss_val + 1):
+            rates[f"he_mcs_nss{ss}"] = list(range(he_max_mcs + 1))
+
+    # 802.11k/r/v — null means unknown (not the same as false)
+    rates["dot11r"] = True if feat.get("dot11r") == 1 else (False if feat.get("dot11r") == 0 else None)
+    rates["dot11k"] = True if feat.get("dot11k") == 1 else (False if feat.get("dot11k") == 0 else None)
+    rates["dot11v"] = True if feat.get("dot11v") == 1 else (False if feat.get("dot11v") == 0 else None)
+
     # RRM recommendation
     rrm_parts = []
     if max_rate >= 300:
