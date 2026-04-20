@@ -3915,11 +3915,11 @@ input,select,textarea { font-family:inherit; }
               <td id="conn-wlan0-ip" style="color:var(--text);font-family:monospace">—</td>
               <td id="conn-wlan0-status"><span class="status-badge sb-idle"><span class="sb-dot"></span>Ready</span></td>
             </tr>
-            <tr>
+            <tr style="opacity:0.4">
               <td><strong id="conn-hotspot-name">wlan1</strong></td>
-              <td style="color:var(--amber)">📱 RPi5 native (hotspot)</td>
-              <td id="conn-hotspot-ip" style="color:var(--text);font-family:monospace">192.168.98.1</td>
-              <td id="conn-hotspot-status"><span class="status-badge sb-idle"><span class="sb-dot"></span>Standby</span></td>
+              <td style="color:var(--text2)">📱 RPi5 native (brcmfmac — disabled)</td>
+              <td id="conn-hotspot-ip" style="color:var(--text2);font-family:monospace">—</td>
+              <td id="conn-hotspot-status"><span class="status-badge sb-idle"><span class="sb-dot"></span>Excluded</span></td>
             </tr>
             <tr>
               <td><strong id="conn-monitor-name">wlan2</strong></td>
@@ -10923,8 +10923,13 @@ function doWifiConnect() {
 }
 
 function doWifiDisconnect(iface) {
-  fetch('/api/wifi/disconnect?iface=' + encodeURIComponent(iface), {method:'POST'})
-    .then(function(){ refreshWifiStatus(); showToast(iface + ' disconnected'); });
+  fetch(API_BASE + '/api/wifi/disconnect?iface=' + encodeURIComponent(iface), {method:'POST'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      refreshWifiStatus();
+      showToast(iface + ' disconnected');
+      if(d && d.mon0_restored) showToast('mon0 auto-restored');
+    });
 }
 
 function saveWifiScanInterval(val) {

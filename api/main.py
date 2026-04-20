@@ -246,17 +246,12 @@ def _classify_wifi_ifaces() -> dict:
     """Classify WiFi interfaces by driver (kernel name order is unstable).
 
     Driver → role mapping:
-      brcmfmac → RPi5 native  → hotspot
-      iwlwifi  → AX210 HAT    → uplink
-      mt7921u  → CF-953AX USB → monitor
-    Returns: {"hotspot": "wlanX", "uplink": "wlanY", "monitor": "wlanZ"}
-    Any role not found returns None.
+      brcmfmac → excluded (AP mode not functional on RPi5)
+      iwlwifi  → AX210 HAT    → uplink (managed mode for scan/connect)
+      mt7921u  → CF-953AX USB → monitor (channel hop / passive capture)
+      mon0     → AX210 virtual → monitor2 (fixed channel capture)
+    Returns: {"hotspot": None, "uplink": "wlanX", "monitor": "wlanY", "monitor2": "mon0"}
     """
-    _WIFI_DRIVER_ROLES = {
-        "brcmfmac": "hotspot",
-        "iwlwifi":  "uplink",
-        "mt7921u":  "monitor",
-    }
     result: dict = {"hotspot": None, "uplink": None, "monitor": None, "monitor2": None}
     try:
         net_dir = Path("/sys/class/net")
@@ -265,13 +260,17 @@ def _classify_wifi_ifaces() -> dict:
             if not (entry / "wireless").exists():
                 continue
             driver = _iface_driver(name)
+            # brcmfmac — AP mode not functional, excluded from all roles
+            if driver == "brcmfmac":
+                continue
             # mon0 is a virtual monitor iface on phy0 (iwlwifi/AX210)
             if name == "mon0" and driver == "iwlwifi":
                 result["monitor2"] = name
                 continue
-            role = _WIFI_DRIVER_ROLES.get(driver)
-            if role and result[role] is None:
-                result[role] = name
+            if driver == "iwlwifi" and result["uplink"] is None:
+                result["uplink"] = name
+            elif driver == "mt7921u" and result["monitor"] is None:
+                result["monitor"] = name
     except Exception:
         pass
     return result
@@ -425,28 +424,31 @@ def get_hw_caps() -> dict:
     # WiFi classification by driver (stable regardless of wlan0/1/2 order)
     wifi_roles = _classify_wifi_ifaces()
 
+    # Hotspot: no capable adapter since brcmfmac is excluded
+    hotspot_avail = wifi_roles["hotspot"] is not None
+    hotspot_reason = "" if hotspot_avail else "No AP-capable adapter detected"
+
     live = {
         "wlan0": has_wlan0,
         "wlan1": has_wlan1,
         "eth0":  _iface_exists("eth0"),
         "eth1":  _iface_exists("eth1"),
-        # eth_mgmt / eth_test are true whenever ANY real Ethernet iface
-        # exists — not only the RPi5 driver-matched ones — so VMs with
-        # ens33/enp3s0 still enable the Wired/Security modules.
         "eth_mgmt": len(wired) >= 1,
         "eth_test": len(wired) >= 2,
-        "wifi_monitor": wifi_roles["monitor"] is not None,  # MT7921AU by driver
-        "wifi_uplink":  has_wlan0 or has_wlan1, # any wifi works as uplink
+        "wifi_monitor": wifi_roles["monitor"] is not None,
+        "wifi_uplink":  wifi_roles["uplink"] is not None,
         "mgmt_iface": by_role.get("mgmt") or get_mgmt_iface(),
         "test_iface": by_role.get("test") or get_test_iface(),
-        # Driver-classified WiFi interfaces (additive — does not replace above)
         "wifi_hotspot_iface": wifi_roles["hotspot"],
         "wifi_uplink_iface":  wifi_roles["uplink"],
         "wifi_monitor_iface": wifi_roles["monitor"],
         "wifi_monitor2_iface": wifi_roles["monitor2"],
+        "wifi_client_iface":  wifi_roles["uplink"],  # wlan0 for WiFi Analysis
         "mon0_available": _mon0_exists(),
         "dual_monitor": _mon0_exists() and wifi_roles["monitor"] is not None,
         "mon0_bands": ["2.4GHz", "5GHz"] if _mon0_exists() else [],
+        "hotspot_available": hotspot_avail,
+        "hotspot_unavailable_reason": hotspot_reason,
     }
     # Merge: file caps may contain extra notes; live wins on availability
     caps.update(live)
@@ -1237,16 +1239,26 @@ async def wifi_status():
     return {"interfaces": list(results)}
 
 @app.post("/api/wifi/connect")
-async def wifi_connect(iface: str = "wlan1", ssid: str = "", password: str = "", bssid: str = ""):
-    """Conectar interfaz WiFi a un SSID via wpa_cli.
-    Si la interfaz quedó en modo monitor (roaming/sensor) o tiene un *mon
-    virtual, la regresamos a managed antes de hablar con wpa_supplicant."""
+async def wifi_connect(iface: str = "", ssid: str = "", password: str = "", bssid: str = ""):
+    """Connect a WiFi interface to an SSID via wpa_cli.
+    Uses wlan0 (AX210) by default. If mon0 is active on the same phy,
+    it must be destroyed first — reconnect will auto-recreate it."""
+    if not iface:
+        iface = _classify_wifi_ifaces().get("uplink", "wlan0")
     if not ssid:
-        return {"ok": False, "error": "SSID requerido"}
+        return {"ok": False, "error": "SSID required"}
 
     # Refuse *mon virtual ifaces — they only support monitor mode.
     if iface.endswith("mon"):
-        return {"ok": False, "error": f"{iface} es una interfaz monitor — usa wlan0"}
+        return {"ok": False, "error": f"{iface} is a monitor interface — use wlan0"}
+
+    # If connecting via the uplink (phy0) and mon0 exists, destroy mon0 first
+    # since both share the same physical radio
+    mon0_was_active = False
+    uplink = _classify_wifi_ifaces().get("uplink")
+    if iface == uplink and _mon0_exists():
+        mon0_was_active = True
+        _mon0_destroy()
 
     # Step 0: Force the interface back to managed mode if it's in monitor
     # (a previous Roaming/Sensor session may have left it in monitor mode).
@@ -1340,17 +1352,26 @@ async def wifi_connect(iface: str = "wlan1", ssid: str = "", password: str = "",
                 ip_out = run_cmd(["ip", "addr", "show", iface])
                 ip_m = re.search(r"inet\s+([\d.]+)/", ip_out)
                 return {"ok": True, "ssid": connected_ssid, "iface": iface,
-                        "ip": ip_m.group(1) if ip_m else None}
+                        "ip": ip_m.group(1) if ip_m else None,
+                        "mon0_destroyed": mon0_was_active}
 
-    return {"ok": False, "error": f"Timeout — verifica que el AP esté visible y la clave sea correcta"}
+    return {"ok": False, "error": "Timeout — verify AP is visible and password is correct"}
 
 @app.post("/api/wifi/disconnect")
-async def wifi_disconnect(iface: str = "wlan1"):
-    """Desconectar interfaz WiFi"""
+async def wifi_disconnect(iface: str = ""):
+    """Disconnect WiFi interface. If disconnecting the uplink (wlan0),
+    auto-recreate mon0 since wlan0 is now free."""
+    if not iface:
+        iface = _classify_wifi_ifaces().get("uplink", "wlan0")
     run_cmd(["sudo", "wpa_cli", "-i", iface, "disconnect"])
     run_cmd(["sudo", "wpa_cli", "-i", iface, "remove_network", "all"])
     run_cmd(["sudo", "ip", "addr", "flush", "dev", iface])
-    return {"ok": True, "iface": iface}
+    # Auto-recreate mon0 if we disconnected the uplink (phy0 now free)
+    mon0_restored = False
+    uplink = _classify_wifi_ifaces().get("uplink")
+    if iface == uplink and not _mon0_exists():
+        mon0_restored = _mon0_create()
+    return {"ok": True, "iface": iface, "mon0_restored": mon0_restored}
 
 
 @app.get("/api/wifi/scan")
@@ -8385,6 +8406,16 @@ async def monitor_teardown():
         "ok": True,
         "mon0": _mon0_exists(),
         "message": "mon0 removed",
+    }
+
+@app.post("/api/monitor/recreate")
+async def monitor_recreate():
+    """Recreate mon0 after WiFi Analysis disconnect releases wlan0."""
+    ok = _mon0_create()
+    return {
+        "ok": ok,
+        "mon0": _mon0_exists(),
+        "message": "mon0 recreated" if ok else "Failed to recreate mon0",
     }
 
 @app.get("/api/monitor/status")
