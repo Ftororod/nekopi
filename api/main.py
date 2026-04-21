@@ -8755,7 +8755,6 @@ async def console_connect(request: Request):
         "-t", 'theme={"background":"#0a0e1a","foreground":"#e0e6f0"}',
         "picocom", "--noreset", "--quiet",
         "--imap", "lfcrlf",
-        "--echo",
         "-b", str(baud), port,
     ]
     try:
