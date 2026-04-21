@@ -8697,21 +8697,45 @@ async def console_ports():
     return {"ports": ports}
 
 
+_CP_VALID_BAUDS = {9600, 19200, 38400, 57600, 115200}
+
+
 @app.post("/api/console/connect")
 async def console_connect(request: Request):
-    """Spawns a ttyd process wrapping socat → serial port so the engineer
+    """Spawns a ttyd process wrapping picocom → serial port so the engineer
     gets a full interactive terminal in an iframe. Returns the ttyd port."""
     global _CP_TTYD_PROC, _CP_SERIAL_PORT, _CP_SERIAL_BAUD
+    if not shutil.which("picocom"):
+        return JSONResponse(
+            {"ok": False, "error": "picocom not installed"},
+            status_code=500)
     try:
         body = await request.json()
     except Exception:
         body = {}
     port = (body.get("port") or "/dev/ttyUSB0").strip()
     baud = int(body.get("baud") or 9600)
+    if baud not in _CP_VALID_BAUDS:
+        return JSONResponse({"ok": False, "error": f"invalid baud rate {baud}"}, status_code=400)
     if not re.match(r"^/dev/[A-Za-z0-9._-]+$", port):
         return JSONResponse({"ok": False, "error": "invalid port path"}, status_code=400)
     if not Path(port).exists():
         return JSONResponse({"ok": False, "error": f"port {port} not found"}, status_code=404)
+    # Check if port is busy (another process owns it)
+    try:
+        fuser_out = subprocess.check_output(
+            ["fuser", port], stderr=subprocess.STDOUT, timeout=3
+        ).decode().strip()
+        # fuser returns PIDs — if any exist besides our own ttyd, port is busy
+        pids = [p.strip() for p in fuser_out.replace(port + ":", "").split() if p.strip()]
+        own_pid = str(_CP_TTYD_PROC.pid) if _CP_TTYD_PROC and _CP_TTYD_PROC.poll() is None else ""
+        foreign = [p for p in pids if p != own_pid]
+        if foreign:
+            return JSONResponse(
+                {"ok": False, "error": f"port {port} busy (PID {','.join(foreign)})"},
+                status_code=409)
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        pass  # fuser returns non-zero when no process holds the port — that's fine
     # Kill any prior session
     if _CP_TTYD_PROC and _CP_TTYD_PROC.poll() is None:
         try: _CP_TTYD_PROC.terminate()
@@ -8720,14 +8744,19 @@ async def console_connect(request: Request):
         except Exception:
             try: _CP_TTYD_PROC.kill()
             except Exception: pass
-    # socat gives us a clean raw bidirectional pipe — no escape-key issues
-    # from screen/minicom, and ttyd's -W flag allows writing back into it.
+    # picocom with --imap lfcrlf maps incoming LF→CRLF, fixing the
+    # "staircase" output from Cisco devices that send bare LF.
     ssl_cert = str(BASE_DIR / "ssl" / "cert.pem")
     ssl_key  = str(BASE_DIR / "ssl" / "key.pem")
     cmd = [
         TTYD_BIN, "-p", str(_CP_TTYD_PORT), "-W",
         "--ssl", "--ssl-cert", ssl_cert, "--ssl-key", ssl_key,
-        "socat", f"file:{port},b{baud},raw,echo=0,crnl", "-,raw,echo=0",
+        "-t", "fontSize=13",
+        "-t", 'theme={"background":"#0a0e1a","foreground":"#e0e6f0"}',
+        "picocom", "--noreset", "--quiet",
+        "--imap", "lfcrlf",
+        "--echo",
+        "-b", str(baud), port,
     ]
     try:
         _CP_TTYD_PROC = subprocess.Popen(
@@ -8747,7 +8776,8 @@ async def console_connect(request: Request):
 
 @app.post("/api/console/disconnect")
 async def console_disconnect():
-    global _CP_TTYD_PROC
+    global _CP_TTYD_PROC, _CP_SERIAL_PORT, _CP_SERIAL_BAUD
+    port = _CP_SERIAL_PORT  # remember before reset
     if _CP_TTYD_PROC and _CP_TTYD_PROC.poll() is None:
         try: _CP_TTYD_PROC.terminate()
         except Exception: pass
@@ -8756,6 +8786,25 @@ async def console_disconnect():
             try: _CP_TTYD_PROC.kill()
             except Exception: pass
     _CP_TTYD_PROC = None
+    # Kill any orphan picocom still holding the port
+    if port:
+        try:
+            fuser_out = subprocess.check_output(
+                ["fuser", port], stderr=subprocess.STDOUT, timeout=3
+            ).decode().strip()
+            pids = [p.strip() for p in fuser_out.replace(port + ":", "").split() if p.strip()]
+            for pid in pids:
+                try:
+                    # Only kill picocom processes
+                    cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace")
+                    if "picocom" in cmdline:
+                        os.kill(int(pid), 9)
+                except Exception:
+                    pass
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+    _CP_SERIAL_PORT = ""
+    _CP_SERIAL_BAUD = 0
     return {"ok": True}
 
 

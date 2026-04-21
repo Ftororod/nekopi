@@ -4246,6 +4246,7 @@ input,select,textarea { font-family:inherit; }
               <option value="9600" selected>9600 (Cisco)</option>
               <option value="19200">19200</option>
               <option value="38400">38400</option>
+              <option value="57600">57600</option>
               <option value="115200">115200</option>
             </select>
           </div>
@@ -4285,6 +4286,9 @@ input,select,textarea { font-family:inherit; }
           <div id="cpTermPlaceholder" style="padding:40px 20px;text-align:center;color:var(--text2);font-size:12px">
             Connect to the serial port to see the terminal.<br>
             <span style="font-size:11px;color:var(--text2)">Same experience as connecting PuTTY or SecureCRT to the console cable.</span>
+          </div>
+          <div id="cpPicocomTip" style="display:none;padding:6px 14px;background:rgba(33,150,243,.06);border-top:1px solid var(--border);font-size:11px;color:var(--text2)">
+            💡 Picocom escape: <kbd style="background:var(--bg3);padding:1px 5px;border-radius:3px;font-size:10px">Ctrl+A</kbd> then <kbd style="background:var(--bg3);padding:1px 5px;border-radius:3px;font-size:10px">Ctrl+X</kbd> to exit. Use the <b>Disconnect</b> button to close the session cleanly.
           </div>
         </div>
       </div>
@@ -9808,8 +9812,11 @@ function _otaDemoRun(dur){
 // ═══════════════════════════════════════
 var _cpPollIv = null;
 var _cpConnected = false;
+var _cpPushing = false;
 
+var _cpCurrentTab = 'term';
 function cpSwitchTab(which){
+  _cpCurrentTab = which;
   var pt = document.getElementById('cpPanelTerm');
   var pp = document.getElementById('cpPanelPush');
   var tt = document.getElementById('cpTabTerm');
@@ -9865,6 +9872,7 @@ function cpConnect(ev){
   var port = (document.getElementById('cpPort')||{}).value || '';
   var baud = parseInt((document.getElementById('cpBaud')||{}).value) || 9600;
   var btn  = ev && ev.currentTarget;
+  if(_cpPushing){ showToast('⚠ Config push en progreso — espera a que termine'); return; }
   if(!port || port === '(sin puerto serial)'){ showToast('Sin puerto serial detectado'); return; }
 
   if(DEMO_MODE){
@@ -9889,20 +9897,29 @@ function cpConnect(ev){
     if(d && d.ok){
       _cpConnected = true;
       var st = document.getElementById('cpStatus');
-      if(st){ st.className='status-badge sb-ok'; st.innerHTML='<span class="sb-dot"></span>Conectado · '+d.port+' @ '+d.baud; }
+      if(st){ st.className='status-badge sb-ok'; st.innerHTML='<span class="sb-dot"></span>CONECTADO · '+d.port+' @ '+d.baud; }
       var cb = document.getElementById('cpConnBtn'), db = document.getElementById('cpDiscBtn');
       if(cb) cb.style.display = 'none'; if(db) db.style.display = '';
-      // Load ttyd iframe
+      // Load ttyd iframe after 1s delay (ttyd needs time to start listening)
       var url = _cpTtydUrl(d.ttyd_port);
       var label = document.getElementById('cpTermUrl');
       if(label) label.textContent = url;
-      var ifr = document.getElementById('cpTermIframe');
-      if(ifr) ifr.src = url;
+      setTimeout(function(){
+        var ifr = document.getElementById('cpTermIframe');
+        if(ifr) ifr.src = url;
+      }, 1000);
       var ph = document.getElementById('cpTermPlaceholder');
       if(ph) ph.style.display = 'none';
+      var tip = document.getElementById('cpPicocomTip');
+      if(tip) tip.style.display = '';
       showToast('✓ Terminal serial abierta en '+d.port);
     } else {
-      showToast('✗ '+(d&&d.error||'failed'));
+      var errMsg = (d&&d.error||'failed');
+      if(d && d.error && d.error.indexOf('busy') !== -1){
+        showToast('⚠ Puerto ocupado — '+errMsg);
+      } else {
+        showToast('✗ '+errMsg);
+      }
     }
   }).catch(function(e){ showToast('✗ '+e.message); })
     .finally(function(){ if(btn){ btn.disabled = false; btn.textContent = '🔌 Connect'; } });
@@ -9932,6 +9949,8 @@ function _cpResetUI(){
   if(ph) ph.style.display = '';
   var label = document.getElementById('cpTermUrl');
   if(label) label.textContent = '—';
+  var tip = document.getElementById('cpPicocomTip');
+  if(tip) tip.style.display = 'none';
 }
 
 function cpTermReload(){
@@ -9957,7 +9976,7 @@ function cpPollStart(){
         _cpConnected = false;
         _cpResetUI();
         var st = document.getElementById('cpStatus');
-        if(st){ st.className='status-badge sb-fail'; st.innerHTML='<span class="sb-dot"></span>Connection lost'; }
+        if(st){ st.className='status-badge sb-fail'; st.innerHTML='<span class="sb-dot"></span>Cable desconectado / Connection lost'; }
       }
     });
   }, 3000);
@@ -10000,6 +10019,9 @@ function cpPush(ev){
 
   if(!_cpConnected){ showToast('Conecta primero al equipo'); return; }
   // Push requires sole port ownership — disconnect ttyd first, push, reconnect.
+  _cpPushing = true;
+  var connBtn = document.getElementById('cpConnBtn');
+  if(connBtn) connBtn.disabled = true;
   if(btn){ btn.disabled = true; btn.textContent = '⌛ Disconnecting terminal…'; }
   var port = (document.getElementById('cpPort')||{}).value || '/dev/ttyUSB0';
   var baud = parseInt((document.getElementById('cpBaud')||{}).value) || 9600;
@@ -10041,6 +10063,9 @@ function cpPush(ev){
     })
     .catch(function(e){ showToast('✗ '+e.message); })
     .finally(function(){
+      _cpPushing = false;
+      var connBtn2 = document.getElementById('cpConnBtn');
+      if(connBtn2) connBtn2.disabled = false;
       if(btn){ btn.disabled = false; btn.textContent = '▶ Push Config'; }
       // Reconnect terminal so the engineer can see the result interactively
       fetch(API_BASE + '/api/console/connect', {
@@ -10050,11 +10075,15 @@ function cpPush(ev){
         if(d && d.ok){
           _cpConnected = true;
           var st = document.getElementById('cpStatus');
-          if(st){ st.className='status-badge sb-ok'; st.innerHTML='<span class="sb-dot"></span>Reconectado'; }
-          var ifr = document.getElementById('cpTermIframe');
-          if(ifr) ifr.src = _cpTtydUrl(d.ttyd_port);
+          if(st){ st.className='status-badge sb-ok'; st.innerHTML='<span class="sb-dot"></span>CONECTADO · '+d.port+' @ '+d.baud; }
+          setTimeout(function(){
+            var ifr = document.getElementById('cpTermIframe');
+            if(ifr) ifr.src = _cpTtydUrl(d.ttyd_port);
+          }, 1000);
           var ph = document.getElementById('cpTermPlaceholder');
           if(ph) ph.style.display = 'none';
+          var tip = document.getElementById('cpPicocomTip');
+          if(tip) tip.style.display = '';
           var cb = document.getElementById('cpConnBtn'), db = document.getElementById('cpDiscBtn');
           if(cb) cb.style.display = 'none'; if(db) db.style.display = '';
         }
@@ -10124,11 +10153,15 @@ function cpValidate(ev){
         if(d && d.ok){
           _cpConnected = true;
           var st = document.getElementById('cpStatus');
-          if(st){ st.className='status-badge sb-ok'; st.innerHTML='<span class="sb-dot"></span>Reconectado'; }
-          var ifr = document.getElementById('cpTermIframe');
-          if(ifr) ifr.src = _cpTtydUrl(d.ttyd_port);
+          if(st){ st.className='status-badge sb-ok'; st.innerHTML='<span class="sb-dot"></span>CONECTADO · '+d.port+' @ '+d.baud; }
+          setTimeout(function(){
+            var ifr = document.getElementById('cpTermIframe');
+            if(ifr) ifr.src = _cpTtydUrl(d.ttyd_port);
+          }, 1000);
           var ph = document.getElementById('cpTermPlaceholder');
           if(ph) ph.style.display = 'none';
+          var tip = document.getElementById('cpPicocomTip');
+          if(tip) tip.style.display = '';
         }
       });
     });
