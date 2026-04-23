@@ -3573,7 +3573,7 @@ async def roaming_events(since: int = 0):
     stats = _roam_compute_stats()
     return {
         "running":              _ROAM_RUNNING,
-        "events":               _ROAM_EVENTS[:50],
+        "events":               _ROAM_EVENTS,
         "clients":              clients,
         "stats":                stats,
         "active_channels":      list(_ROAM_ACTIVE_CHANNELS),

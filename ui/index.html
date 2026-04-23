@@ -3438,7 +3438,13 @@ input,select,textarea { font-family:inherit; }
       </div>
 
       <div class="card">
-        <div class="card-header"><div class="card-title">&#128202; Roaming Events</div></div>
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <div class="card-title">&#128202; Roaming Events <span id="roamTotalCount" style="font-size:11px;font-weight:400;color:var(--text2);margin-left:8px"></span></div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 10px" onclick="exportRoamCSV()">&#128196; CSV</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 10px" onclick="exportRoamJSON()">&#128196; JSON</button>
+          </div>
+        </div>
         <div class="card-body" style="padding:0">
           <!-- Filter status bar -->
           <div id="roamFilterBar" style="display:none;padding:8px 14px;background:rgba(0,229,255,.07);border-bottom:1px solid rgba(0,229,255,.15);font-size:11px;display:flex;align-items:center;gap:8px">
@@ -3447,12 +3453,23 @@ input,select,textarea { font-family:inherit; }
             <span id="roamFilterCount" style="color:var(--text2)"></span>
             <button class="btn btn-ghost btn-sm" style="margin-left:auto;padding:2px 8px;font-size:10px" onclick="clearRoamFilter()">✕ Clear</button>
           </div>
-          <table class="data-table" id="roamEventsTable">
-            <thead><tr><th>Time</th><th>Client MAC</th><th>From AP</th><th>To AP</th><th>RSSI</th><th>FT Time</th><th>Type</th></tr></thead>
-            <tbody id="roamEventBody">
-              <tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px">Start capture to see roaming events</td></tr>
-            </tbody>
-          </table>
+          <div style="max-height:480px;overflow-y:auto">
+            <table class="data-table" id="roamEventsTable">
+              <thead style="position:sticky;top:0;z-index:1;background:var(--bg1)"><tr><th>Time</th><th>Client MAC</th><th>From AP</th><th>To AP</th><th>RSSI</th><th>FT Time</th><th>Type</th></tr></thead>
+              <tbody id="roamEventBody">
+                <tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px">Start capture to see roaming events</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="roamPagination" style="display:none;padding:8px 14px;border-top:1px solid rgba(255,255,255,.06);font-size:11px;display:flex;align-items:center;justify-content:space-between">
+            <span id="roamPageInfo" style="color:var(--text2)"></span>
+            <div style="display:flex;gap:4px">
+              <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" onclick="roamPageNav('first')">&laquo;</button>
+              <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" onclick="roamPageNav('prev')">&lsaquo;</button>
+              <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" onclick="roamPageNav('next')">&rsaquo;</button>
+              <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" onclick="roamPageNav('last')">&raquo;</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -14994,6 +15011,9 @@ function initConnectionPage() {
 // ═══════════════════════════════════════
 var roamAllEvents = [];   // full unfiltered event log
 var roamSeenMacs  = {};   // mac → count
+var roamPage      = 0;    // current page (0-based)
+var roamPerPage   = 50;   // events per page
+var roamFiltered  = [];   // last filtered set (for pagination + export)
 
 function applyRoamFilter() {
   // Original-case values for display (label, tooltip, exports).
@@ -15043,6 +15063,13 @@ function applyRoamFilter() {
     bar.style.display = 'none';
   }
 
+  roamFiltered = filtered;
+  // Update total counter
+  var totalEl = document.getElementById('roamTotalCount');
+  if (totalEl) totalEl.textContent = 'Total: ' + roamAllEvents.length + ' eventos capturados';
+  // Clamp page
+  var maxPage = Math.max(0, Math.ceil(filtered.length / roamPerPage) - 1);
+  if (roamPage > maxPage) roamPage = maxPage;
   renderRoamEvents(filtered);
 }
 
@@ -15098,16 +15125,27 @@ function renderRoamEvents(events) {
   var tbody = document.getElementById('roamEventBody');
   if (!tbody) return;
   events = events || [];
+  var pagDiv = document.getElementById('roamPagination');
   if (!events.length) {
-    // Differentiate empty-buffer vs filter-empty so the engineer knows
-    // whether to relax the filter or wait for more capture.
     var msg = roamAllEvents.length
       ? 'No events match filter'
       : 'No events captured yet · waiting for roaming frames…';
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px">'+msg+'</td></tr>';
+    if (pagDiv) pagDiv.style.display = 'none';
     return;
   }
-  tbody.innerHTML = events.map(function(e) {
+  // Pagination
+  var totalPages = Math.ceil(events.length / roamPerPage);
+  var start = roamPage * roamPerPage;
+  var end   = Math.min(start + roamPerPage, events.length);
+  var page  = events.slice(start, end);
+  // Pagination bar
+  if (pagDiv) {
+    pagDiv.style.display = (totalPages > 1) ? 'flex' : 'none';
+    var info = document.getElementById('roamPageInfo');
+    if (info) info.textContent = 'Showing ' + (start+1) + '–' + end + ' of ' + events.length + ' events · Page ' + (roamPage+1) + '/' + totalPages;
+  }
+  tbody.innerHTML = page.map(function(e) {
     var typeColor = e.type === 'FT' ? 'var(--green)' : e.type === 'Deauth' ? 'var(--red)' : 'var(--amber)';
     var rssiColor = e.rssi >= -65 ? 'var(--green)' : e.rssi >= -75 ? 'var(--amber)' : 'var(--red)';
     return '<tr>' +
@@ -15120,6 +15158,57 @@ function renderRoamEvents(events) {
       '<td><span style="font-size:11px;padding:2px 6px;border-radius:2px;background:rgba(255,255,255,.06);color:' + typeColor + '">' + e.type + '</span></td>' +
     '</tr>';
   }).join('');
+}
+
+function roamPageNav(dir) {
+  var totalPages = Math.ceil(roamFiltered.length / roamPerPage);
+  if (dir === 'first') roamPage = 0;
+  else if (dir === 'prev') roamPage = Math.max(0, roamPage - 1);
+  else if (dir === 'next') roamPage = Math.min(totalPages - 1, roamPage + 1);
+  else if (dir === 'last') roamPage = Math.max(0, totalPages - 1);
+  renderRoamEvents(roamFiltered);
+}
+
+function _roamExportFilename(ext) {
+  var d = new Date();
+  var ts = d.getFullYear() + '-' +
+    String(d.getMonth()+1).padStart(2,'0') + '-' +
+    String(d.getDate()).padStart(2,'0') + '-' +
+    String(d.getHours()).padStart(2,'0') +
+    String(d.getMinutes()).padStart(2,'0') +
+    String(d.getSeconds()).padStart(2,'0');
+  return 'roaming-events-' + ts + '.' + ext;
+}
+
+function exportRoamCSV() {
+  var events = roamFiltered.length ? roamFiltered : roamAllEvents;
+  if (!events.length) return;
+  var cols = ['time','mac','fromAP','toAP','rssi','ftTime','type'];
+  var header = ['timestamp','BSSID','from_ap','to_ap','rssi','ft_time','event_type'];
+  var lines = [header.join(',')];
+  events.forEach(function(e) {
+    lines.push(cols.map(function(c) {
+      var v = String(e[c] || '');
+      return v.indexOf(',') >= 0 ? '"' + v + '"' : v;
+    }).join(','));
+  });
+  var blob = new Blob([lines.join('\n')], {type:'text/csv'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = _roamExportFilename('csv');
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportRoamJSON() {
+  var events = roamFiltered.length ? roamFiltered : roamAllEvents;
+  if (!events.length) return;
+  var blob = new Blob([JSON.stringify(events, null, 2)], {type:'application/json'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = _roamExportFilename('json');
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function addRoamEvent(event) {
