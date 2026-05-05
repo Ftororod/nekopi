@@ -14,3 +14,6 @@ ui/assets/ota/
 bin/pktvisor*
 *.pcap
 *.pcapng
+
+# Local audits (no subir)
+/home/nekopi/nekopi-audit-*/
