@@ -26,6 +26,10 @@ def render(action_id, ctx):
         return _render_hotspot(action, ctx)
     if action_id == "profiler":
         return _render_profiler(action, ctx)
+    if action_id == "dhcp_stress":
+        return _render_dhcp_stress(action, ctx)
+    if action_id == "captive_test":
+        return _render_captive_test(action, ctx)
 
     t = action["type"]
     if t == "toggle":
@@ -271,27 +275,33 @@ def _render_iperf_server(action, ctx):
     _draw_status_line(draw, y, is_on, ":5201")
     y += 15
 
-    # IPs
+    # IPs — only show physical ethernet (eth0/eth1)
     net = ctx.get("network") or {}
     ifaces = net.get("interfaces", [])
     draw.text((4, y), "Listen on:" if is_on else "Available:", font=FONT_SM, fill=FG_DIM)
     y += 11
     for ifc in ifaces:
+        name = ifc.get("name", "")
+        if not name.startswith("eth"):
+            continue
         ip = ifc.get("ip") or "—"
-        draw.text((8, y), ifc.get("name", "?"), font=FONT_SM, fill=ACCENT)
+        draw.text((8, y), name, font=FONT_SM, fill=ACCENT)
         draw.text((48, y), ip, font=FONT_SM, fill=FG if ip != "—" else FG_DIM)
         y += 10
 
-    # eth0 traffic (always visible)
+    # Live traffic — both eth interfaces
     traffic = ctx.get("traffic") or {}
+    y += 3
     for ti in traffic.get("interfaces", []):
-        if ti.get("name") == "eth0":
-            y += 2
+        if ti.get("name", "").startswith("eth"):
+            name = ti["name"]
             tx = ti.get("tx_mbps", 0)
             rx = ti.get("rx_mbps", 0)
-            draw.text((4, y), "eth0:", font=FONT_SM, fill=FG_DIM)
-            draw.text((35, y), f"\u2191{_fmt_rate(tx)} \u2193{_fmt_rate(rx)}", font=FONT_SM, fill=ACCENT)
-            break
+            active = tx > 0.1 or rx > 0.1
+            color = OK if active else FG_DIM
+            draw.text((4, y), f"{name}:", font=FONT_SM, fill=color)
+            draw.text((35, y), f"\u2191{_fmt_rate(tx, name)} \u2193{_fmt_rate(rx, name)}", font=FONT_SM, fill=color)
+            y += 11
 
     draw_footer(draw, f"\u25cf {'Stop' if is_on else 'Start'}  \u2190 back", BORDER)
     return img
@@ -361,8 +371,8 @@ def _render_network_traffic(ctx):
         rx = ifc.get("rx_mbps", 0)
         active = tx > 0.01 or rx > 0.01
         draw.text((4, y), name, font=FONT_SM, fill=ACCENT if active else FG_DIM)
-        draw.text((52, y), _fmt_rate(tx), font=FONT_SM, fill=OK if tx > 0.1 else FG_DIM)
-        draw.text((92, y), _fmt_rate(rx), font=FONT_SM, fill=OK if rx > 0.1 else FG_DIM)
+        draw.text((52, y), _fmt_rate(tx, name), font=FONT_SM, fill=OK if tx > 0.1 else FG_DIM)
+        draw.text((92, y), _fmt_rate(rx, name), font=FONT_SM, fill=OK if rx > 0.1 else FG_DIM)
         y += 12
 
     # Errors
@@ -375,6 +385,122 @@ def _render_network_traffic(ctx):
             y += 10
 
     draw_footer(draw, "K2 refresh  \u2190 back", BORDER)
+    return img
+
+
+# ── DHCP STRESS (custom — shows lease info + last stress result) ──
+
+def _render_dhcp_stress(action, ctx):
+    img, draw = new_image()
+    draw_header(draw, ctx)
+    draw_title(draw, "DHCP Test")
+
+    status_data = ctx.get("status_data", {}).get("dhcp_stress", {})
+    is_active = status_data.get("active", False) if status_data else False
+
+    y = CONTENT_Y
+    _draw_status_line(draw, y, is_active, "DHCP" if is_active else "")
+    y += 15
+
+    if status_data:
+        for label, path, fmt in action.get("display_fields", []):
+            val = resolve_field(status_data, path)
+            draw.text((4, y), label, font=FONT_SM, fill=FG_DIM)
+            draw.text((55, y), format_field(val, fmt)[:14], font=FONT_SM, fill=FG)
+            y += 12
+
+    # Show last stress result if cached
+    cache = ctx.get("results_cache", {}).get("dhcp_stress")
+    cache_ts = ctx.get("results_ts", {}).get("dhcp_stress")
+    if cache and isinstance(cache, dict) and cache_ts:
+        y += 2
+        ago = int(_time.time() - cache_ts)
+        age = f"{ago}s" if ago < 60 else f"{ago//60}m"
+        ok = cache.get("ok", False)
+        rows = cache.get("rows", [])
+        # Show summary from rows
+        success = next((r["value"] for r in rows if r.get("label") == "Success"), None)
+        if success:
+            color = OK if ok else WARN
+            draw.text((4, y), f"Stress: {success}", font=FONT_SM, fill=color)
+            draw.text((100, y), age, font=FONT_SM, fill=BORDER)
+
+    draw_footer(draw, "\u25cf Run  \u2190 back", BORDER)
+    return img
+
+
+# ── CAPTIVE TEST (custom — shows verdict with colored dot) ────
+
+def _render_captive_test(action, ctx):
+    img, draw = new_image()
+    draw_header(draw, ctx)
+    draw_title(draw, "Captive Test")
+
+    cache = ctx.get("results_cache", {}).get("captive_test")
+    cache_ts = ctx.get("results_ts", {}).get("captive_test")
+
+    y = CONTENT_Y
+
+    if cache_ts:
+        ago = int(_time.time() - cache_ts)
+        age = f"{ago}s ago" if ago < 60 else f"{ago//60}m ago" if ago < 3600 else f"{ago//3600}h ago"
+        draw.text((4, y), f"Last run: {age}", font=FONT_SM, fill=FG_DIM)
+        y += 14
+
+    if cache and isinstance(cache, dict):
+        detected = cache.get("detected", False)
+
+        # Big clear status
+        if detected:
+            draw.text((4, y), "\u25cf CAPTIVE PORTAL", font=FONT_LG, fill=ERROR)
+            y += 18
+            draw.text((4, y), "Network is blocked", font=FONT_SM, fill=WARN)
+        else:
+            draw.text((4, y), "\u25cf NO PORTAL", font=FONT_LG, fill=OK)
+            y += 18
+            draw.text((4, y), "Internet is free", font=FONT_SM, fill=FG)
+        y += 14
+
+        # Probe results summary
+        results = cache.get("results", [])
+        if results:
+            free_count = sum(1 for r in results if "FREE" in r.get("status", ""))
+            draw.text((4, y), f"Probes: {free_count}/{len(results)} passed", font=FONT_SM, fill=FG_DIM)
+    else:
+        draw.text((4, y + 12), "(No previous run)", font=FONT_SM, fill=FG_DIM)
+
+    draw_footer(draw, "\u25cf Run  \u2190 back", BORDER)
+    return img
+
+
+# ── PARAM SELECT ─────────────────────────────────────────────
+
+def render_param_select(action_id, state_data, ctx):
+    """Render a parameter selection screen (e.g. DHCP count)."""
+    action = ACTIONS.get(action_id, {})
+    spec = action.get("params_user_select", {})
+    options = spec.get("options", [])
+    label_fmt = spec.get("label_format", "{}")
+    prompt = spec.get("prompt", "Select:")
+    selected_idx = state_data.get("param_idx", spec.get("default_idx", 0))
+
+    img, draw = new_image()
+    draw_header(draw, ctx)
+    draw_title(draw, action.get("title", "?"))
+
+    y = CONTENT_Y + 2
+    draw.text((4, y), prompt, font=FONT_SM, fill=FG_DIM)
+    y += 14
+
+    for i, opt in enumerate(options):
+        is_sel = (i == selected_idx)
+        label = label_fmt.format(opt)
+        prefix = "\u25b6 " if is_sel else "  "
+        color = OK if is_sel else FG
+        draw.text((4, y), prefix + label, font=FONT_SM, fill=color)
+        y += 13
+
+    draw_footer(draw, "\u25cf OK  \u2191\u2193 select  \u2190 back", BORDER)
     return img
 
 
@@ -458,8 +584,22 @@ def render_transient(state, action_id, ctx=None, spinner_frame=0, message=""):
 
 # ── HELPERS ───────────────────────────────────────────────────
 
-def _fmt_rate(mbps):
+def _get_link_speed(iface):
+    """Read negotiated link speed in Mbps from sysfs."""
+    try:
+        with open(f"/sys/class/net/{iface}/speed") as f:
+            return int(f.read().strip())
+    except Exception:
+        return 1000  # default assumption
+
+
+def _fmt_rate(mbps, iface=None):
     if mbps is None: return "—"
+    # Cap at negotiated link speed
+    if iface:
+        cap = _get_link_speed(iface)
+        if mbps > cap:
+            mbps = float(cap)
     if mbps >= 1000: return f"{mbps/1000:.1f}G"
     if mbps >= 1: return f"{mbps:.1f}M"
     if mbps >= 0.01: return f"{mbps*1000:.0f}K"

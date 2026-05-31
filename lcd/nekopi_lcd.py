@@ -8,6 +8,7 @@ Background threads handle API polling and timers via the queue.
 import sys
 import os
 import time
+import signal
 import threading
 import traceback
 from queue import Queue, Empty
@@ -61,6 +62,7 @@ class App:
         self.local = LocalState()
         self.dirty = True
         self._running = True
+        self.state_data = {}  # Extra state for param select, etc.
 
         # Shared context
         self.ctx = {
@@ -127,6 +129,9 @@ class App:
 
         if s == "ACTION_VIEW":
             return action_view.render(ctx["action_id"], ctx)
+        if s == "ACTION_PARAM_SELECT":
+            return action_view.render_param_select(
+                ctx["action_id"], self.state_data, ctx)
         if s in ("ACTION_CONFIRM_1", "ACTION_CONFIRM_2"):
             level = 1 if s == "ACTION_CONFIRM_1" else 2
             return action_view.render_confirm(
@@ -153,9 +158,10 @@ class App:
     def _handle_input(self, event):
         s = self.state
 
-        # Global shortcuts (except transient states)
-        if s not in ("SPLASH", "ACTION_CONFIRM_1", "ACTION_CONFIRM_2",
-                      "ACTION_RUNNING", "ACTION_SUCCESS", "ACTION_ERROR"):
+        # Global shortcuts (except transient states and param select)
+        if s not in ("SPLASH", "ACTION_PARAM_SELECT", "ACTION_CONFIRM_1",
+                      "ACTION_CONFIRM_2", "ACTION_RUNNING",
+                      "ACTION_SUCCESS", "ACTION_ERROR"):
             if event == "KEY1":
                 if s == "HOME":
                     # Reset to page 1 + reactivate auto-rotate
@@ -256,11 +262,46 @@ class App:
             if atype == "info":
                 return  # info screens have no action on PRESS
 
+            # If action has user-selectable params, go to param select first
+            if action.get("params_user_select"):
+                spec = action["params_user_select"]
+                self.state_data = {
+                    "action_id": action_id,
+                    "param_idx": spec["default_idx"],
+                }
+                self._goto("ACTION_PARAM_SELECT")
+                return
+
             # Start confirm flow
             self.ctx["confirm_level"] = 1
             self.ctx["confirm_countdown"] = ACTION_CONFIRM_S
             self.ctx["confirm_deadline"] = time.monotonic() + ACTION_CONFIRM_S
             self._goto("ACTION_CONFIRM_1")
+
+    def _input_ACTION_PARAM_SELECT(self, event):
+        action_id = self.state_data.get("action_id")
+        action = ACTIONS.get(action_id, {})
+        spec = action.get("params_user_select", {})
+        options = spec.get("options", [])
+
+        if event in ("UP", "DOWN"):
+            delta = -1 if event == "UP" else 1
+            self.state_data["param_idx"] = (self.state_data["param_idx"] + delta) % len(options)
+            self.dirty = True
+        elif event == "PRESS":
+            # Save selected value
+            selected_value = options[self.state_data["param_idx"]]
+            self.state_data["selected_param"] = {spec["field"]: selected_value}
+            # Transition to confirm flow
+            if action.get("warn_destructive"):
+                self.ctx["confirm_level"] = 1
+                self.ctx["confirm_countdown"] = ACTION_CONFIRM_S
+                self.ctx["confirm_deadline"] = time.monotonic() + ACTION_CONFIRM_S
+                self._goto("ACTION_CONFIRM_1")
+            else:
+                self._execute_action()
+        elif event == "LEFT":
+            self._goto("ACTION_VIEW")
 
     def _input_ACTION_CONFIRM_1(self, event):
         if event == "LEFT":
@@ -381,8 +422,11 @@ class App:
         self.ctx["spinner_frame"] = 0
         self._goto("ACTION_RUNNING")
 
+        # Capture selected params from state_data for the worker thread
+        exec_ctx = {"selected_param": self.state_data.get("selected_param")}
+
         def _worker():
-            result = api_actions.execute(action_id, op, self.ctx)
+            result = api_actions.execute(action_id, op, exec_ctx)
             self.queue.put(("action_result", action_id, op, result))
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -574,7 +618,11 @@ class App:
     def _auto_refresh_worker(self):
         """Auto-refresh data for screens that need it."""
         while self._running:
-            time.sleep(5)
+            # Faster refresh for live-traffic screens
+            if self.state == "ACTION_VIEW" and self.ctx.get("action_id") in ("network_traffic", "iperf_server"):
+                time.sleep(2)
+            else:
+                time.sleep(5)
             try:
                 if self.state in AUTO_REFRESH_SCREENS:
                     self._fetch_data_async()
@@ -585,8 +633,8 @@ class App:
                         rs = action.get("refresh_seconds", 0)
                         if rs > 0:
                             self._refresh_action_status()
-                            if action_id == "network_traffic":
-                                self._fetch_data_async()
+                        if action_id in ("network_traffic", "iperf_server"):
+                            self._fetch_data_async()
             except Exception:
                 traceback.print_exc()
 
@@ -828,15 +876,43 @@ class App:
         if api_ready:
             print("[nekopi-lcd] API ready — showing ready splash", flush=True)
             self.lcd.show_image(screens.splash.render(ctx=self.ctx, variant='ready'))
-            time.sleep(1.5)
-            # Fetch full data before entering HOME
-            self._fetch_data_sync()
+            # Start data fetch in background while showing splash
+            self._fetch_data_async()
+            time.sleep(1.0)
         else:
             print("[nekopi-lcd] API timeout — entering HOME without data", flush=True)
             self.ctx["api_offline"] = True
 
+    def _handle_sigterm(self, signum, frame):
+        """Show shutdown splash on SIGTERM if system is going down."""
+        import subprocess
+        try:
+            out = subprocess.check_output(
+                ["systemctl", "list-jobs", "--no-legend", "--plain"],
+                timeout=2, text=True, stderr=subprocess.DEVNULL)
+        except Exception:
+            out = ""
+
+        # Only show splash if system is actually shutting down or rebooting
+        if "shutdown.target" in out or "reboot.target" in out:
+            variant = 'rebooting' if 'reboot.target' in out else 'shutdown'
+            print(f"[nekopi-lcd] SIGTERM — system {variant}", flush=True)
+            try:
+                self.lcd.show_image(screens.splash.render(variant=variant))
+            except Exception:
+                pass
+            sys.exit(0)
+        else:
+            # Service restart — exit non-zero so Restart=on-failure kicks in
+            print("[nekopi-lcd] SIGTERM — service restart", flush=True)
+            self._running = False
+            sys.exit(1)
+
     def run(self):
         print("[nekopi-lcd] Starting...", flush=True)
+
+        # Register SIGTERM handler to show splash on shutdown/reboot
+        signal.signal(signal.SIGTERM, self._handle_sigterm)
 
         # Splash boot — wait for API with visual feedback
         self._splash_wait_for_api()

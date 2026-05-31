@@ -9,18 +9,21 @@ def execute(action_id, op="run", ctx=None):
     """
     Execute an action.
     op: 'start' | 'stop' | 'run' (oneshot)
+    ctx may contain 'selected_param' dict with user-selected overrides.
     Returns: {'ok': bool, 'data': dict|None, 'error': str|None}
     """
     action = ACTIONS.get(action_id)
     if not action:
         return {"ok": False, "error": f"Unknown action: {action_id}"}
 
+    extra_params = (ctx or {}).get("selected_param") or {}
+
     t = action.get("type")
     try:
         if t == "toggle":
             return _exec_toggle(action, op)
         if t == "oneshot":
-            return _exec_oneshot(action_id, action)
+            return _exec_oneshot(action_id, action, extra_params)
         return {"ok": False, "error": f"Cannot execute type: {t}"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -53,19 +56,26 @@ def _exec_toggle(action, op):
     return {"ok": True, "data": result}
 
 
-def _exec_oneshot(action_id, action):
+def _exec_oneshot(action_id, action, extra_params=None):
     method = action["method"].upper()
     url = action["url"]
 
     if action.get("params_dynamic") == "iperf_client_params":
         params = iperf_client_params()
     else:
-        params = action.get("params", {})
+        params = dict(action.get("params", {}))
+
+    # Merge user-selected params (e.g. count from param selector)
+    if extra_params:
+        params.update(extra_params)
+
+    # Long-running actions get extended timeout
+    timeout = action.get("feedback_seconds", 5) * 4
 
     if method == "POST":
-        result = api.post(url, body=params if params else None)
+        result = api.post(url, body=params if params else None, timeout=timeout)
     else:
-        result = api.get(url, params=params if params else None)
+        result = api.get(url, params=params if params else None, timeout=timeout)
 
     if result is None:
         return {"ok": False, "error": "API call failed"}
