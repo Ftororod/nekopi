@@ -14,3 +14,15 @@ ui/assets/ota/
 bin/pktvisor*
 *.pcap
 *.pcapng
+
+# Local audits (no subir)
+/home/nekopi/nekopi-audit-*/
+
+# orchestrator-kit: memoria viva y estado (local, no a repo publico)
+.claude/memory/
+.claude/napkin.md
+orchestrator/state/
+orchestrator/inbox/
+orchestrator/handoff-archive/
+orchestrator/prompts/active/
+orchestrator/prompts/completed/

@@ -9000,6 +9000,31 @@ async def system_logs(unit: str = "nekopi", lines: int = 200):
     out = run_cmd(cmd, timeout=8)
     return {"unit": unit or "system", "lines": out.splitlines() if out else []}
 
+
+# ─── System reboot/shutdown — used by LCD Power menu ───
+
+@app.post("/api/system/reboot")
+async def system_reboot():
+    """Reboot the RPi5. Used by the LCD HAT power menu."""
+    import subprocess
+    try:
+        subprocess.Popen(["sudo", "systemctl", "reboot"])
+        return {"ok": True, "action": "reboot"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/system/shutdown")
+async def system_shutdown():
+    """Shutdown the RPi5. Used by the LCD HAT power menu."""
+    import subprocess
+    try:
+        subprocess.Popen(["sudo", "systemctl", "poweroff"])
+        return {"ok": True, "action": "shutdown"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 # ═══════════════════════════════════════════════════════════════
 #  OTA CAPTURE — passive WiFi pcap in monitor mode
 # ═══════════════════════════════════════════════════════════════
