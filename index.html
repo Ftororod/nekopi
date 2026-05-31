@@ -110,6 +110,30 @@ footer{position:relative;z-index:1;border-top:1px solid var(--border);padding:2r
 </head>
 <body>
 
+<!-- Acknowledgment gate: prototype / not-for-sale disclaimer (bilingual) -->
+<div id="dev-ack" style="position:fixed;inset:0;z-index:9999;background:rgba(5,12,24,0.94);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:1.5rem;font-family:'Syne',sans-serif">
+  <div style="max-width:480px;width:100%;background:#0A1525;border:2px solid #FF4C6A;border-radius:10px;padding:2rem 1.75rem;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.6)">
+    <div style="font-size:2.5rem;line-height:1;margin-bottom:.75rem">⚠️</div>
+    <h2 style="font-family:'Space Mono',monospace;color:#FF4C6A;font-size:1.1rem;letter-spacing:.04em;line-height:1.4;margin-bottom:1rem">PROTOTYPE IN ACTIVE DEVELOPMENT<br>PROTOTIPO EN DESARROLLO ACTIVO</h2>
+    <p style="color:#E8F4FF;font-size:.9rem;line-height:1.6;margin-bottom:.85rem"><b style="color:#00E5CC">EN ·</b> NekoPi is an unfinished open-source project. Features may be incomplete or not work at all, and hardware compatibility is <b>NOT guaranteed</b>. <b>Do not buy any hardware expecting it to work yet.</b></p>
+    <p style="color:#7A9BB5;font-size:.9rem;line-height:1.6;margin-bottom:1.5rem"><b style="color:#00E5CC">ES ·</b> NekoPi es un proyecto open-source sin terminar. Las funciones pueden estar incompletas o no funcionar, y la compatibilidad de hardware <b>NO está garantizada</b>. <b>No compres hardware esperando que funcione todavía.</b></p>
+    <button id="dev-ack-btn" style="background:#FF4C6A;color:#0A0A0A;border:none;border-radius:5px;padding:.8rem 1.75rem;font-family:'Space Mono',monospace;font-weight:700;font-size:.95rem;cursor:pointer">I understand · Entiendo</button>
+  </div>
+</div>
+<script>
+(function(){
+  var k='nekopi_dev_ack_v1';
+  var m=document.getElementById('dev-ack');
+  if(localStorage.getItem(k)){m.style.display='none';return;}
+  document.body.style.overflow='hidden';
+  document.getElementById('dev-ack-btn').addEventListener('click',function(){
+    try{localStorage.setItem(k,'1');}catch(e){}
+    m.style.display='none';
+    document.body.style.overflow='';
+  });
+})();
+</script>
+
 <div id="beta-banner" style="background:#7a4a00;color:#ffd580;text-align:center;padding:.5rem 1rem;font-size:.75rem;font-family:monospace;position:relative;z-index:200">⚠️ BETA — Active development. Hardware compatibility not guaranteed. Do not purchase hardware based solely on this project. <button onclick="this.parentElement.style.display='none';localStorage.setItem('nb',1)" style="background:none;border:none;color:#ffd580;cursor:pointer;margin-left:1rem;font-size:1rem">✕</button></div><script>if(localStorage.getItem('nb'))document.getElementById('beta-banner').style.display='none'</script>
 <nav>
   <a class="nav-logo" href="#">
