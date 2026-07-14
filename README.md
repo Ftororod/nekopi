@@ -36,8 +36,7 @@ Try the interactive demo at **[nekopi.net](https://nekopi.net)** — no hardware
 
 NekoPi is a field network diagnostic platform that runs on a Raspberry Pi 5. It provides a web-based interface accessible from any browser on the same network, featuring 25+ diagnostic modules covering WiFi analysis, wired LAN testing, security auditing, AI-powered analysis, and more.
 
-Inspired by the [WLANPi Project](https://www.wlanpi.com).  
-Built in Bogotá, Colombia 🇨🇴
+Inspired by the [WLANPi Project](https://www.wlanpi.com).
 
 ---
 
@@ -217,16 +216,11 @@ NekoPi is open source under the GPL v3 License. Contributions, bug reports and f
 
 ---
 
-## Author
+## Project
 
-**Fabián Toro Rodríguez**  
-Network & Infrastructure Specialist · Bogotá, Colombia 🇨🇴
+**NekoPi Field Unit** · Open Source · GPL v3
 
-Certifications: CCNP Enterprise · CCNA · CCS-EWD · CCS-EWI · CCS-EAI · CCS-ECore · Ekahau ECSE Design · Cisco CMNA (Meraki)  
-In progress: CCNP Wireless (350-101 WLCOR)
-
-[![GitHub](https://img.shields.io/badge/GitHub-Ftororod-black?logo=github)](https://github.com/Ftororod/nekopi)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Fabián_Toro-blue?logo=linkedin)](https://co.linkedin.com/in/fabian-toro-rodriguez-200a43185)
+[![GitHub](https://img.shields.io/badge/GitHub-nekopi-black?logo=github)](https://github.com/Ftororod/nekopi)
 
 ---
 

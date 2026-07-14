@@ -3781,7 +3781,7 @@ input,select,textarea { font-family:inherit; }
             </div>
             <div class="form-group">
               <label class="form-label">Site / Location</label>
-              <input class="form-input" id="rptSite" placeholder="Oficina Piso 3 — Bogotá">
+              <input class="form-input" id="rptSite" placeholder="Oficina Piso 3">
             </div>
           </div>
           <div class="form-row">
@@ -5102,7 +5102,7 @@ Received Access-Accept Id 42 from 127.0.0.1:1812</pre>
         <div style="font-size:20px;font-weight:800;color:var(--white);letter-spacing:1px" id="abTitle">NekoPi Field Unit</div>
         <!-- static demo content — demo.html does not call the real API; version is hardcoded for the marketing preview -->
         <div style="font-size:12px;color:var(--text2);margin-top:4px" id="abTagline">Codename: ToManchas · v1.3.0 · GPL v3 License</div>
-        <div style="font-size:12px;color:var(--cyan);margin-top:4px" id="abAuthor">by Fabián Toro Rodríguez · Bogotá, Colombia 🇨🇴</div>
+        <div style="font-size:12px;color:var(--cyan);margin-top:4px" id="abAuthor">NekoPi · Open Source</div>
       </div>
     </div>
 
@@ -5152,8 +5152,8 @@ Received Access-Accept Id 42 from 127.0.0.1:1812</pre>
       </div></div>
       <div class="card" style="margin:0"><div class="card-body" style="text-align:center;padding:14px">
         <div style="font-size:18px;margin-bottom:4px">🌎</div>
-        <div style="font-size:11px;font-weight:700;color:var(--white)">Built in</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:2px">Bogot&#225;, Colombia &#127464;&#127476;</div>
+        <div style="font-size:11px;font-weight:700;color:var(--white)">Open Source</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">GPL v3</div>
       </div></div>
       <div class="card" style="margin:0"><div class="card-body" style="text-align:center;padding:14px">
         <div style="font-size:18px;margin-bottom:4px">🐱</div>
@@ -5170,15 +5170,9 @@ Received Access-Accept Id 42 from 127.0.0.1:1812</pre>
     <!-- Author card (unified) -->
     <div class="card" style="margin-bottom:14px">
       <div class="card-body" style="text-align:center;padding:16px">
-        <!-- Name & Title -->
-        <div style="font-size:14px;font-weight:700;color:var(--white);margin-bottom:4px">Fabi&#225;n Toro Rodr&#237;guez</div>
-        <div style="font-size:11px;color:var(--text2);margin-bottom:14px">Network &amp; Infrastructure Specialist · Bogot&#225;, Colombia 🇨🇴</div>
-
-        <!-- Certificaciones -->
-        <div style="border-top:1px solid var(--border);margin:0 20px 14px"></div>
-        <div id="abCertsBody">
-          <div class="t-muted">Loading…</div>
-        </div>
+        <!-- Project -->
+        <div style="font-size:14px;font-weight:700;color:var(--white);margin-bottom:4px">NekoPi Field Unit</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:14px">Open Source · GPL v3</div>
 
         <!-- Skills -->
         <div style="border-top:1px solid var(--border);margin:14px 20px"></div>
@@ -5203,7 +5197,6 @@ Received Access-Accept Id 42 from 127.0.0.1:1812</pre>
         <!-- Links -->
         <div style="display:flex;justify-content:center;gap:10px">
           <a href="https://github.com/Ftororod/nekopi" target="_blank" class="btn btn-ghost btn-sm" style="font-size:12px;text-decoration:none;padding:6px 14px">🐱 GitHub</a>
-          <a href="https://co.linkedin.com/in/fabian-toro-rodriguez-200a43185" target="_blank" class="btn btn-ghost btn-sm" style="font-size:12px;text-decoration:none;padding:6px 14px">💼 LinkedIn</a>
         </div>
       </div>
     </div>
@@ -5853,7 +5846,7 @@ function initDashboard() {
     set('d-local-mask', '192.168.1.0/24');
     set('d-local-iface-lbl', 'Local IP (wlan0)');
     set('d-public-ip',  '181.52.' + Math.floor(Math.random()*255) + '.' + Math.floor(Math.random()*100+10));
-    set('d-public-isp', 'ETB - Bogota - Colombia');
+    set('d-public-isp', 'ISP Demo');
     set('d-gateway',    '192.168.1.1');
     set('d-gw-vendor',  'Cisco Systems');
     set('d-dns',        '8.8.8.8');
@@ -12315,7 +12308,7 @@ function _kismetDemoMode(){
   document.getElementById('kismetClients').textContent = 19;
   document.getElementById('kismetAlerts').textContent = 2;
   _kismetRenderDevices([
-    {mac:'34:60:F9:6A:E3:24',ssid:'FTOROROD',    manuf:'TP-Link',   type:'AP',     signal:-42, channel:6},
+    {mac:'34:60:F9:6A:E3:24',ssid:'HomeNet',     manuf:'TP-Link',   type:'AP',     signal:-42, channel:6},
     {mac:'F4:1E:57:31:36:08',ssid:'MikroTik',    manuf:'MikroTik',  type:'AP',     signal:-55, channel:1},
     {mac:'BC:5B:D5:BC:D5:C2',ssid:'TIGO-FE12',   manuf:'Arcadyan',  type:'AP',     signal:-62, channel:11},
     {mac:'60:81:10:D3:C8:ED',ssid:'—',            manuf:'Apple',     type:'Client', signal:-67, channel:6},
@@ -14079,7 +14072,7 @@ function loadAboutPage(){
     var tag = document.getElementById('abTagline');
     if(tag) tag.textContent = 'Codename: '+n.codename+' · v'+n.version+' · '+n.license+' License';
     var auth = document.getElementById('abAuthor');
-    if(auth) auth.innerHTML = 'by '+n.author.replace(/</g,'&lt;')+' &middot; '+n.location.replace(/</g,'&lt;')+' &#127464;&#127476;';
+    if(auth) auth.innerHTML = (n.author||'').replace(/</g,'&lt;');
 
     // Hardware card
     var hw = document.getElementById('abHwBody');
@@ -14319,7 +14312,7 @@ function applyRoamFilter() {
   var ssidRaw  = ((document.getElementById('roamSSID')      || {}).value || '').trim();
   // Lowercased copies are ONLY used for case-insensitive comparison. The
   // user-facing label keeps the original casing so an SSID like
-  // "FTOROROD_5G" doesn't get rendered as "ftororod_5g".
+  // "HomeNet_5G" doesn't get rendered as "homenet_5g".
   var mac   = macRaw.toLowerCase();
   var ssid  = ssidRaw.toLowerCase();
   var bar     = document.getElementById('roamFilterBar');

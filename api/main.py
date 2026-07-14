@@ -3031,7 +3031,7 @@ def _get_ssid_channels(iface: str, ssid: str) -> list[int]:
     isn't found, if the scan fails, or if iw scan times out. The interface
     must be in managed mode and UP before calling this.
 
-    Match is CASE-INSENSITIVE so "FTOROROD_5G" and "ftororod_5g" match the
+    Match is CASE-INSENSITIVE so "HomeNet_5G" and "homenet_5g" match the
     same AP (SSIDs are technically case-sensitive per 802.11 but humans type
     them inconsistently in the field)."""
     if not ssid:
@@ -9532,27 +9532,16 @@ async def api_about():
 
     # Certifications
     certs = {
-        "active": [
-            "CCNP Enterprise",
-            "CCS-EWD \u2014 Cisco Certified Specialist Enterprise Wireless Design",
-            "CCS-EWI \u2014 Cisco Certified Specialist Enterprise Wireless Implementation",
-            "CCS-EAI \u2014 Cisco Certified Specialist Enterprise Advanced Infrastructure",
-            "CCS-ECore \u2014 Cisco Certified Specialist Enterprise Core",
-            "CCNA",
-            "Ekahau ECSE Design",
-            "Cisco CMNA (Meraki)",
-        ],
-        "in_progress": [
-            "CCNP Wireless (350-101 WLCOR)",
-        ],
+        "active": [],
+        "in_progress": [],
     }
 
     return {
         "nekopi": {
             "version":  _VERSION_INFO["version"],
             "codename": _VERSION_INFO["codename"],
-            "author": "Fabi\u00e1n Toro Rodr\u00edguez",
-            "location": "Bogot\u00e1, Colombia",
+            "author": "NekoPi \u00b7 Open Source",
+            "location": "",
             "license": "GPL-3.0",
             "uptime_h": round(uptime_s / 3600, 1),
         },
