@@ -5578,8 +5578,19 @@ var _lastWifiOpenAPs   = 0;
 var _lastWifiIface     = '';
 var _wifiScanInterval  = parseInt(localStorage.getItem("nekopi_wifi_scan_interval") || "60");
 
+// Live-dashboard interval handles — cleared/re-armed on every setMode() toggle
+// so alternating LIVE/DEMO does not stack duplicate pollers.
+var _liveMetricIvs = [];   // refreshMetrics / refreshAIStatus / timestamp
+var _trafficPollIv = null; // sidebar traffic poller (LIVE and DEMO)
+var _liveGen       = 0;    // generation token — stale autoWifiScan chains stop
+
 function startLiveMetrics() {
   // scan state vars are global — see below
+  // Teardown any pollers/chains from a previous startLiveMetrics() before re-arming.
+  _liveMetricIvs.forEach(function(iv){ clearInterval(iv); });
+  _liveMetricIvs = [];
+  _liveGen++;
+  var _myGen = _liveGen;
 
   function refreshMetrics() {
     if (DEMO_MODE) {
@@ -5755,6 +5766,7 @@ function startLiveMetrics() {
 
   // WiFi scan automático para Nearby APs
   function autoWifiScan() {
+    if (_myGen !== _liveGen) return;  // superseded by a newer startLiveMetrics()
     var interval = parseInt(localStorage.getItem('nekopi_wifi_scan_interval') || '60');
     if (interval === 0) {
       // Manual only — no auto scan
@@ -5778,10 +5790,10 @@ function startLiveMetrics() {
   refreshAIStatus();
   updateDashTimestamp();
 
-  // Intervals
-  setInterval(refreshMetrics, 5000);
-  setInterval(refreshAIStatus, 10000);
-  setInterval(function(){ updateDashTimestamp(); updateNextScanCountdown(); }, 1000);
+  // Intervals — tracked so setMode() can tear them down before re-arming
+  _liveMetricIvs.push(setInterval(refreshMetrics, 5000));
+  _liveMetricIvs.push(setInterval(refreshAIStatus, 10000));
+  _liveMetricIvs.push(setInterval(function(){ updateDashTimestamp(); updateNextScanCountdown(); }, 1000));
 
   // WiFi scan: primera vez a los 3s, luego cada 60s
   setTimeout(autoWifiScan, 3000);
@@ -6578,6 +6590,14 @@ function goPage(id) {
     clearInterval(_cpPollIv);
     _cpPollIv = null;
   }
+  // Stop Kismet when leaving its page (on-demand only — parar al salir)
+  if (id !== 'kismet' && _kismetPollIv) {
+    try { stopKismet(); } catch(e) {}
+  }
+  // Stop roaming capture when leaving its page (frees wlan1 from monitor mode)
+  if (id !== 'roaming' && _roamPollIv) {
+    try { stopRoaming(); } catch(e) {}
+  }
   // Stop sensor capture when leaving sensor page (on-demand pktvisord only)
   if (id !== 'sensor' && sensorRunning) {
     clearInterval(sensorIntervalId);
@@ -6739,6 +6759,8 @@ function _ifaceLabel(name) {
 }
 
 function detectAllNetworkInfo() {
+  // Tear down any prior traffic poller so LIVE/DEMO toggles don't stack them.
+  if (_trafficPollIv) { clearInterval(_trafficPollIv); _trafficPollIv = null; }
   if (DEMO_MODE) {
     // DEMO: usar interfaces simuladas
     autoDetected = {
@@ -6753,7 +6775,7 @@ function detectAllNetworkInfo() {
     buildIfacePills();
     buildSidebarIfaceStatus();
     updateIfaceTraffic();
-    setInterval(function() { updateIfaceTraffic(); }, 2000);
+    _trafficPollIv = setInterval(function() { updateIfaceTraffic(); }, 2000);
     return;
   }
 
@@ -6805,34 +6827,20 @@ function detectAllNetworkInfo() {
         buildSidebarIfaceStatus();
       }
     });
-    // Sidebar traffic polling — show current value directly
-    setInterval(function(){
+    // Sidebar traffic polling — single 2s poller (CLAUDE.md spec), tracked so
+    // it can be torn down on the next detectAllNetworkInfo()/setMode().
+    _trafficPollIv = setInterval(function(){
       if(DEMO_MODE) return;
       fetchAPI('/api/network/traffic').then(function(td){
         if(!td||!td.interfaces) return;
         td.interfaces.forEach(function(ti){
           ifaceTraffic[ti.name] = { rxRate: ti.rx_mbps||0, txRate: ti.tx_mbps||0 };
+          var iface = detectedIfaces.find(function(i){ return i.name === ti.name; });
+          if (iface) { iface.rxRate = ti.rx_mbps; iface.txRate = ti.tx_mbps; }
         });
         buildSidebarIfaceStatus();
       });
     }, 2000);
-
-    // Tráfico real en polling
-    setInterval(function() {
-      fetchAPI('/api/network/traffic').then(function(td) {
-        if (td && td.interfaces) {
-          td.interfaces.forEach(function(ti) {
-            ifaceTraffic[ti.name] = {
-              rxRate: ti.rx_mbps || 0,
-              txRate: ti.tx_mbps || 0
-            };
-            var iface = detectedIfaces.find(function(i){ return i.name === ti.name; });
-            if (iface) { iface.rxRate = ti.rx_mbps; iface.txRate = ti.tx_mbps; }
-          });
-        }
-        buildSidebarIfaceStatus();
-      });
-    }, 3000);
 
     // Opacar módulos WiFi si no hay adaptador wireless
     var hasWifi = realIfaces.some(function(i){ return i.type === 'wifi'; });
@@ -8759,6 +8767,7 @@ function _bytesFmt(n){
 }
 
 function sensorPcapCapture(ev){
+  if(DEMO_MODE){ showToast('◎ Modo DEMO — captura pcap simulada, sin tcpdump real'); return; }
   var iface = (document.getElementById('sPcapIface')||{}).value || 'eth1';
   var secs  = (document.getElementById('sPcapSeconds')||{}).value || '10';
   var btn   = ev && ev.currentTarget;
@@ -9164,6 +9173,7 @@ function urlRenderEmpty(urls){
 }
 
 function urlAdd(){
+  if(DEMO_MODE){ showToast('◎ Modo DEMO — lista de URLs de solo lectura'); return; }
   var input = document.getElementById('urlAddInput');
   var url = (input && input.value || '').trim();
   if(!url){ showToast('Escribe una URL'); return; }
@@ -9182,6 +9192,7 @@ function urlAdd(){
 }
 
 function urlRemove(url){
+  if(DEMO_MODE){ showToast('◎ Modo DEMO — lista de URLs de solo lectura'); return; }
   fetch(API_BASE + '/api/sensor/urls?url='+encodeURIComponent(url), {method:'DELETE'})
     .then(function(r){ return r.json(); }).then(function(d){
       if(d && d.ok){
@@ -9192,6 +9203,7 @@ function urlRemove(url){
 }
 
 function urlProbeNow(ev){
+  if(DEMO_MODE){ showToast('◎ Modo DEMO — sin probe real de URLs'); return; }
   var btn = ev && ev.currentTarget;
   if(btn){ btn.disabled = true; btn._old = btn.textContent; btn.textContent = '⌛ Probing…'; }
   fetch(API_BASE + '/api/sensor/urls/probe', {method:'POST'})
@@ -9434,6 +9446,7 @@ function termSwitchTab(which){
 function termLocalNewTab(){ window.open(_ttydLocalUrl(), '_blank'); }
 
 function termSshConnect(ev){
+  if(DEMO_MODE){ showToast('◎ Modo DEMO — sin sesión SSH real (ttyd no se lanza)'); return; }
   var host = ((document.getElementById('termSshHost')||{}).value || '').trim();
   var user = ((document.getElementById('termSshUser')||{}).value || 'nekopi').trim();
   var port = ((document.getElementById('termSshPort')||{}).value || '22').trim();
@@ -9599,6 +9612,7 @@ document.addEventListener('change', function(e){
 });
 
 function otaStart(ev){
+  if(DEMO_MODE){ showToast('◎ Modo DEMO — sin captura OTA real (tcpdump no se lanza)'); return; }
   var btn = ev && ev.currentTarget;
   var iface = (document.getElementById('otaIface')||{}).value || getMonitorIfaceFallback();
   var mode  = (document.getElementById('otaChanMode')||{}).value || 'hop';
@@ -9650,6 +9664,7 @@ function otaStart(ev){
 }
 
 function otaStop(){
+  if(DEMO_MODE){ _otaResetUI(); return; }
   fetch(API_BASE + '/api/ota/stop', {method:'POST'}).then(function(r){ return r.json(); })
     .then(function(d){
       _otaResetUI();
@@ -9751,11 +9766,13 @@ function otaRefreshFiles(){
 }
 
 function otaDelete(name){
+  if(DEMO_MODE){ showToast('◎ Modo DEMO — sin borrado real de capturas'); return; }
   fetch(API_BASE + '/api/ota/files/'+encodeURIComponent(name), {method:'DELETE'})
     .then(function(){ otaRefreshFiles(); showToast('Archivo eliminado'); });
 }
 
 function otaAnalyze(name, ev){
+  if(DEMO_MODE){ showToast('◎ Modo DEMO — sin análisis IA real'); return; }
   var panel = document.getElementById('otaAiPanel');
   var out   = document.getElementById('otaAiOutput');
   var label = document.getElementById('otaAiName');
@@ -10926,6 +10943,13 @@ function closeWifiModal() {
 }
 
 function doWifiConnect() {
+  if (DEMO_MODE) {
+    // DEMO: simulate a successful association — never touch the real adapter.
+    var sD = document.getElementById('wifiConnectStatus');
+    if (sD) sD.innerHTML = '<span style="color:var(--green)">✓ Connected! (demo)</span>';
+    setTimeout(function(){ closeWifiModal(); showToast('Connected to ' + (_wifiConnectTarget.ssid||'AP') + ' (demo)'); }, 800);
+    return;
+  }
   // Modal dropdown takes precedence over the side-panel dropdown
   var iface   = (document.getElementById('wifiModalIface')||{}).value
              || (document.getElementById('wifiConnectIface')||{}).value
@@ -10967,6 +10991,7 @@ function doWifiConnect() {
 }
 
 function doWifiDisconnect(iface) {
+  if(DEMO_MODE){ showToast('◎ Modo DEMO — ' + iface + ' disconnected (demo)'); return; }
   fetch(API_BASE + '/api/wifi/disconnect?iface=' + encodeURIComponent(iface), {method:'POST'})
     .then(function(r){ return r.json(); })
     .then(function(d){
@@ -11622,6 +11647,7 @@ function addRoamEvent(e){
 }
 function stopRoaming(){
   clearInterval(_roamPollIv);
+  _roamPollIv = null;
   var st=document.getElementById('roamStatus');
   if(DEMO_MODE){
     if(st){st.className='status-badge sb-idle';st.innerHTML='<span class="sb-dot"></span>Idle';}
@@ -12633,6 +12659,7 @@ function _secDemoMode(){
 }
 function stopKismet(){
   clearInterval(_kismetPollIv);
+  _kismetPollIv = null;
   // Show stopping state
   var stopBtn = document.getElementById('kismetStopBtn');
   if(stopBtn){ stopBtn.style.opacity='0.4'; stopBtn.style.pointerEvents='none'; stopBtn.textContent='⏳ Stopping...'; }
@@ -15322,6 +15349,7 @@ function radLoadUsers(){
 }
 
 function radAddUser(){
+  if(DEMO_MODE){ showToast('◎ Modo DEMO — RADIUS de solo lectura'); return; }
   var u = (document.getElementById('radNewUser')||{}).value||'';
   var p = (document.getElementById('radNewPass')||{}).value||'';
   var g = (document.getElementById('radNewGroup')||{}).value||'';
@@ -15337,6 +15365,7 @@ function radAddUser(){
 }
 
 function radDeleteUser(username){
+  if(DEMO_MODE){ showToast('◎ Modo DEMO — RADIUS de solo lectura'); return; }
   fetch(API_BASE+'/api/radius/users/'+encodeURIComponent(username),{method:'DELETE'})
   .then(function(r){return r.json();}).then(function(d){
     if(d&&d.ok) showToast('User removed: '+username);
@@ -15361,6 +15390,7 @@ function radLoadClients(){
 }
 
 function radAddClient(){
+  if(DEMO_MODE){ showToast('◎ Modo DEMO — RADIUS de solo lectura'); return; }
   var n = (document.getElementById('radNewClientName')||{}).value||'';
   var i = (document.getElementById('radNewClientIP')||{}).value||'';
   var s = (document.getElementById('radNewClientSecret')||{}).value||'';
@@ -15376,6 +15406,7 @@ function radAddClient(){
 }
 
 function radDeleteClient(name){
+  if(DEMO_MODE){ showToast('◎ Modo DEMO — RADIUS de solo lectura'); return; }
   fetch(API_BASE+'/api/radius/clients/'+encodeURIComponent(name),{method:'DELETE'})
   .then(function(r){return r.json();}).then(function(d){
     if(d&&d.ok) showToast('Client removed: '+name);
@@ -15420,6 +15451,7 @@ function radLoadTestNas(){
 }
 
 function radTestAuth(){
+  if(DEMO_MODE){ showToast('◎ Modo DEMO — sin radtest real'); return; }
   var u = (document.getElementById('radTestUser')||{}).value||'';
   var p = (document.getElementById('radTestPass')||{}).value||'';
   var n = (document.getElementById('radTestNas')||{}).value||'127.0.0.1';
