@@ -8,8 +8,9 @@
 - wlan1 = CF-953AX MT7921AU USB (modo monitor/profiling)
 
 ## Estructura del proyecto
-- /opt/nekopi/ui/index.html     — Frontend (HTML/CSS/JS single-file, puerto 8080)
-- /opt/nekopi/api/main.py       — Backend (FastAPI + uvicorn, puerto 8000)
+- /opt/nekopi/ui/index.html     — Frontend (HTML/CSS/JS single-file)
+- /opt/nekopi/api/main.py       — Backend (FastAPI + uvicorn). Sirve UI + API
+  juntos en HTTPS :8080 (un solo uvicorn con TLS). El puerto 8000 NO se usa.
 - /opt/nekopi/logs/             — Logs del sistema
 - /opt/nekopi/data/             — Datos persistentes
 - /opt/nekopi/reports/          — Reportes generados
@@ -41,7 +42,8 @@
 - GET /api/traffic (polling sidebar, cache anti-flicker)
 
 ## Módulos INCOMPLETOS — INTELLIGENCE
-- Edge AI: integración con Ollama/llama3 corriendo en la RPi5,
+- Edge AI: integración con Ollama corriendo en la RPi5 (modelo local
+  actualmente instalado: phi3.5; ajustable en Settings),
   badge LIVE en menú debe reflejar estado real del servicio,
   se integra en TODOS los módulos que tienen "Analizar con AI"
 - Reports: exportar resultados de todos los módulos a PDF,
@@ -83,14 +85,14 @@
 - Contexto enviado: JSON con resultados del módulo + prompt por módulo
 
 ## Estrategia AI dual — Local vs Externa
-- Edge AI LOCAL (Ollama/llama3):
+- Edge AI LOCAL (Ollama, modelo local phi3.5):
   - Datos sensibles: IPs, MACs, SSIDs, topología del cliente
   - Análisis rápido, sin salir de la RPi, funciona sin internet
 - AI EXTERNA (Gemini API):
   - Recibe SOLO parámetros técnicos abstractos sin PII ni datos cliente
   - Ejemplos: "señal -72dBm, SNR 18dB, canal 6, retries 23%"
   - Prompts pre-construidos por módulo con placeholders, sin raw data
-  - Mayor capacidad de análisis y contexto que llama3
+  - Mayor capacidad de análisis y contexto que el modelo local
   - Requiere internet (wlan0 o eth0 con salida)
   - Fallback automático a Edge AI si no hay internet
 - UI indica claramente cuál AI se está usando en cada respuesta

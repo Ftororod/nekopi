@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  NekoPi Field Unit — Automated Installer v2
 #  Version:   1.3.0  ·  Codename: ToManchas
-#  Generated: 2026-07-16 12:03
+#  Generated: 2026-07-16 13:34
 #  Target:    Ubuntu 24.04 LTS · Raspberry Pi 5 · 8 GB
 #  License:   GPL-3.0-or-later
 # ═══════════════════════════════════════════════════════════════
@@ -35,7 +35,7 @@ else
     GREEN=''; YELLOW=''; CYAN=''; GRAY=''; BOLD=''; RED=''; RESET=''
 fi
 
-NEKOPI_TOTAL_STEPS=28
+NEKOPI_TOTAL_STEPS=29
 
 NEKOPI_CURRENT_STEP=0
 NEKOPI_START_TIME=$(date +%s)
@@ -449,7 +449,10 @@ else
         pillow==12.2.0 \
         python-dotenv==1.2.2 \
         python-multipart==0.0.24 \
-        scapy==2.5.0
+        scapy==2.5.0 \
+        lgpio==0.2.2.0 \
+        spidev==3.8 \
+        qrcode==8.2
 fi
 } >> "$INSTALL_LOG" 2>&1
 _nk_step_done 8 "Python venv + pip deps"
@@ -781,26 +784,13 @@ fi
 _nk_step_done 19 "Data files"
 
 
-_nk_step_start 20 ".gitignore"
+_nk_step_start 20 "Repo .gitignore (kept as-is)"
 {
-cat > "$NEKOPI_DIR/.gitignore" << 'GITIGNORE'
-*.kismet
-*.kismet-journal
-captures/
-logs/
-ssl/
-data/
-reports/
-*.tmp
-*.bak
-__pycache__/
-*.pyc
-venv/
-ui/assets/ota/
-GITIGNORE
-chown "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR/.gitignore"
+# No-op: the curated .gitignore is provided by the repo clone (step 7).
+# Do NOT overwrite it here — it would drop entries the project relies on.
+:
 } >> "$INSTALL_LOG" 2>&1
-_nk_step_done 20 ".gitignore"
+_nk_step_done 20 "Repo .gitignore (kept as-is)"
 
 
 _nk_step_start 21 "Final ownership"
@@ -1036,7 +1026,49 @@ MON0SVC
 _nk_step_done 27 "AX210 mon0 service"
 
 
-_nk_step_start 28 "Post-install verification"
+_nk_step_start 28 "LCD HAT service"
+{
+# Waveshare 1.44" ST7735S LCD HAT daemon. Runs lcd/nekopi_lcd.py, which
+# does `import lgpio` (installed in the venv via requirements.txt) and
+# relative imports (from lib..., import screens...), so WorkingDirectory
+# MUST be /opt/nekopi/lcd for those to resolve. Replicated verbatim from
+# the production unit.
+if [ -f "$NEKOPI_DIR/lcd/nekopi_lcd.py" ]; then
+    cat > /etc/systemd/system/nekopi-lcd.service << 'LCDUNIT'
+[Unit]
+Description=NekoPi LCD HAT Daemon (Waveshare 1.44" ST7735S)
+After=local-fs.target
+DefaultDependencies=yes
+
+[Service]
+Type=simple
+User=nekopi
+Group=nekopi
+WorkingDirectory=/opt/nekopi/lcd
+ExecStart=/opt/nekopi/venv/bin/python3 /opt/nekopi/lcd/nekopi_lcd.py
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
+LCDUNIT
+    sed -i 's/^    //' /etc/systemd/system/nekopi-lcd.service
+
+    systemctl daemon-reload
+    systemctl enable nekopi-lcd 2>/dev/null || true
+    echo "LCD HAT service installed and enabled"
+else
+    echo "  No lcd/nekopi_lcd.py — skipping LCD HAT service"
+fi
+} >> "$INSTALL_LOG" 2>&1
+_nk_step_done 28 "LCD HAT service"
+
+
+_nk_step_start 29 "Post-install verification"
 {
 INSTALL_ERRORS=0
 
@@ -1086,7 +1118,7 @@ fi
 
 echo "INSTALL_ERRORS=$INSTALL_ERRORS"
 } >> "$INSTALL_LOG" 2>&1
-_nk_step_done 28 "Post-install verification"
+_nk_step_done 29 "Post-install verification"
 
 
 # Overall progress bar — printed once at the end, not between steps

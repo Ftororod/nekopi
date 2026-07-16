@@ -47,7 +47,7 @@ def read_version() -> tuple[str, str]:
         return "unknown", "unknown"
 
 VERSION, CODENAME = read_version()
-TOTAL_STEPS = 28
+TOTAL_STEPS = 29
 
 def step(n: int, label: str, body: str) -> str:
     """Wrap a bash step body with progress display + log redirection.
@@ -523,7 +523,10 @@ parts.append(step(8, "Python venv + pip deps", """\
             pillow==12.2.0 \\
             python-dotenv==1.2.2 \\
             python-multipart==0.0.24 \\
-            scapy==2.5.0
+            scapy==2.5.0 \\
+            lgpio==0.2.2.0 \\
+            spidev==3.8 \\
+            qrcode==8.2
     fi
 """))
 
@@ -831,24 +834,17 @@ parts.append(step(19, "Data files", """\
     fi
 """))
 
-# ── Step 20: .gitignore ────────────────────────────────────────────
-parts.append(step(20, ".gitignore", """\
-    cat > "$NEKOPI_DIR/.gitignore" << 'GITIGNORE'
-    *.kismet
-    *.kismet-journal
-    captures/
-    logs/
-    ssl/
-    data/
-    reports/
-    *.tmp
-    *.bak
-    __pycache__/
-    *.pyc
-    venv/
-    ui/assets/ota/
-    GITIGNORE
-    chown "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR/.gitignore"
+# ── Step 20: (removed) ─────────────────────────────────────────────
+# The installer used to overwrite $NEKOPI_DIR/.gitignore with a reduced
+# copy, clobbering the curated .gitignore that ships in the repo (which
+# ignores living memory, orchestrator/state, ssl/, secrets.env, audit/,
+# etc.). The repo clone in step 7 already provides the correct .gitignore,
+# so writing it here is both redundant and destructive. Step intentionally
+# left as a no-op to preserve step numbering.
+parts.append(step(20, "Repo .gitignore (kept as-is)", """\
+    # No-op: the curated .gitignore is provided by the repo clone (step 7).
+    # Do NOT overwrite it here — it would drop entries the project relies on.
+    :
 """))
 
 # ── Step 21: Final ownership ───────────────────────────────────────
@@ -1090,8 +1086,48 @@ MON0SVC
     echo "mon0 boot service installed"
 """))
 
-# ── Step 28: Post-install verification ─────────────────────────────
-parts.append(step(28, "Post-install verification", """\
+# ── Step 28: LCD HAT daemon service ────────────────────────────────
+parts.append(step(28, "LCD HAT service", """\
+    # Waveshare 1.44" ST7735S LCD HAT daemon. Runs lcd/nekopi_lcd.py, which
+    # does `import lgpio` (installed in the venv via requirements.txt) and
+    # relative imports (from lib..., import screens...), so WorkingDirectory
+    # MUST be /opt/nekopi/lcd for those to resolve. Replicated verbatim from
+    # the production unit.
+    if [ -f "$NEKOPI_DIR/lcd/nekopi_lcd.py" ]; then
+        cat > /etc/systemd/system/nekopi-lcd.service << 'LCDUNIT'
+    [Unit]
+    Description=NekoPi LCD HAT Daemon (Waveshare 1.44" ST7735S)
+    After=local-fs.target
+    DefaultDependencies=yes
+
+    [Service]
+    Type=simple
+    User=nekopi
+    Group=nekopi
+    WorkingDirectory=/opt/nekopi/lcd
+    ExecStart=/opt/nekopi/venv/bin/python3 /opt/nekopi/lcd/nekopi_lcd.py
+    Restart=on-failure
+    RestartSec=2
+    StandardOutput=journal
+    StandardError=journal
+    NoNewPrivileges=yes
+    PrivateTmp=yes
+
+    [Install]
+    WantedBy=multi-user.target
+    LCDUNIT
+        sed -i 's/^    //' /etc/systemd/system/nekopi-lcd.service
+
+        systemctl daemon-reload
+        systemctl enable nekopi-lcd 2>/dev/null || true
+        echo "LCD HAT service installed and enabled"
+    else
+        echo "  No lcd/nekopi_lcd.py — skipping LCD HAT service"
+    fi
+"""))
+
+# ── Step 29: Post-install verification ─────────────────────────────
+parts.append(step(29, "Post-install verification", """\
     INSTALL_ERRORS=0
 
     check() {
