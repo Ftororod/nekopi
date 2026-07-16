@@ -3,6 +3,8 @@
 captures/
 logs/
 ssl/
+secrets.env
+audit/
 data/
 reports/
 *.tmp

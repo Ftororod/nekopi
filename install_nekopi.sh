@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  NekoPi Field Unit — Automated Installer v2
 #  Version:   1.3.0  ·  Codename: ToManchas
-#  Generated: 2026-04-19 21:59
+#  Generated: 2026-07-16 12:03
 #  Target:    Ubuntu 24.04 LTS · Raspberry Pi 5 · 8 GB
 #  License:   GPL-3.0-or-later
 # ═══════════════════════════════════════════════════════════════
@@ -616,11 +616,17 @@ else
         sleep 1
     done
 
+    # Random admin password — never hardcode a credential in the repo.
+    INFLUX_PASS=$(openssl rand -hex 16)
+    echo "$INFLUX_PASS" > "$NEKOPI_DIR/data/influx-admin-pass.txt"
+    chmod 600 "$NEKOPI_DIR/data/influx-admin-pass.txt"
+    chown "$NEKOPI_USER":"$NEKOPI_USER" "$NEKOPI_DIR/data/influx-admin-pass.txt"
+
     SETUP_OK=0
     for attempt in 1 2 3; do
         if influx setup \
             --username nekopi \
-            --password nekopi2024 \
+            --password "$INFLUX_PASS" \
             --org nekopi \
             --bucket nekopi \
             --retention 30d \

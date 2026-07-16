@@ -27,6 +27,24 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import asyncio, json, subprocess, re, socket, time, os, shutil
 
+def _load_secrets():
+    """Load credentials from an untracked secrets.env (KEY=VALUE) into the
+    environment, keeping them out of the public repo. Values already present in
+    the environment win (systemd EnvironmentFile / shell take precedence)."""
+    f = Path(__file__).parent.parent / "secrets.env"
+    try:
+        if f.is_file():
+            for line in f.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip())
+    except Exception as e:
+        print(f"[secrets] load failed: {e}")
+
+_load_secrets()
+
 def _read_version() -> dict:
     """Read version and codename from VERSION file at repo root."""
     version_file = Path(__file__).parent.parent / "VERSION"
@@ -3624,8 +3642,8 @@ async def kismet_status():
 # ── KISMET IDS ─────────────────────────────────────────────────────────────
 
 KISMET_URL  = "http://localhost:2501"
-KISMET_USER = "admin"
-KISMET_PASS = "admin"
+KISMET_USER = os.environ.get("NEKOPI_KISMET_USER", "admin")
+KISMET_PASS = os.environ.get("NEKOPI_KISMET_PASS", "admin")
 _KISMET_PROC = None
 
 def _kismet_get(path):
@@ -7137,11 +7155,26 @@ async def ai_test_ollama(request: Request):
 INFLUX_URL    = "http://localhost:8086"
 INFLUX_ORG    = "nekopi"
 INFLUX_BUCKET = "nekopi"
-INFLUX_TOKEN  = "5U4EfGnqooTW4E1J9vtjiXXI0A0UNKISIt2SQbeR_uacBOQGKz5twd-UcUlGCjwNWwYBhVXod80CbnSWw6P2OA=="
+
+def _influx_token():
+    """InfluxDB token: env/secrets.env first, then the installer-generated
+    data/influx-token.txt. Never hardcoded in the (public) repo."""
+    t = os.environ.get("NEKOPI_INFLUX_TOKEN", "").strip()
+    if t:
+        return t
+    try:
+        f = Path(__file__).parent.parent / "data" / "influx-token.txt"
+        if f.is_file():
+            return f.read_text().strip()
+    except Exception:
+        pass
+    return ""
+
+INFLUX_TOKEN  = _influx_token()
 
 GRAFANA_URL  = "http://localhost:3000"
-GRAFANA_USER = "admin"
-GRAFANA_PASS = "admin"
+GRAFANA_USER = os.environ.get("NEKOPI_GRAFANA_USER", "admin")
+GRAFANA_PASS = os.environ.get("NEKOPI_GRAFANA_PASS", "admin")
 
 _INFLUX_CLIENT = None
 _INFLUX_WRITE  = None
