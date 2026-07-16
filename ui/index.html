@@ -5512,7 +5512,7 @@ var TRANSLATIONS = {
     "stopped": "Detenido",
     "idle": "Inactivo",
     "connecting": "Conectando...",
-    "loading": "Loading...",
+    "loading": "Cargando…",
     "error": "Error",
     "success": "Éxito",
     // Settings
@@ -6357,19 +6357,6 @@ var closeWiredAiPanel       = makeCloser('wiredAiPanel');
 //  DHCP TOOLKIT
 // ═══════════════════════════════════════
 var dhcpRunning = false;
-function toggleDHCP() {
-  dhcpRunning = !dhcpRunning;
-  var stopBtn = document.getElementById('dhcpStop');
-  if (stopBtn) stopBtn.style.display = dhcpRunning ? '' : 'none';
-  showToast(dhcpRunning ? 'DHCP server started' : 'DHCP server stopped');
-}
-function stopDHCP() {
-  dhcpRunning = false;
-  var stopBtn = document.getElementById('dhcpStop');
-  if (stopBtn) stopBtn.style.display = 'none';
-  showToast('DHCP server stopped');
-}
-
 // ═══════════════════════════════════════
 //  SAFE SCROLL
 // ═══════════════════════════════════════
@@ -6502,7 +6489,7 @@ const pages = {
       if(cc) cc.value='interface Loopback0\n description NekoPi-Managed\n no shutdown\nntp server 8.8.8.8';
     }
   } },
-  kismet:     { title:'Kismet IDS', onload: function(){ _kismetPoll(); fetchAPI('/api/kismet/url').then(function(d){ _kismetRealURL=d.url; var a=document.getElementById('kismetFullUILink'); if(a&&d.url) a.href=d.url; }); },        sub:'Passive wireless IDS · rogue detection' },
+  kismet:     { title:'Kismet IDS', onload: function(){ _kismetPoll(); fetchAPI('/api/kismet/url').then(function(d){ if(!d) return; _kismetRealURL=d.url; var a=document.getElementById('kismetFullUILink'); if(a&&d.url) a.href=d.url; }); },        sub:'Passive wireless IDS · rogue detection' },
   ai:         { title:'Deep Analysis',     sub:'Local pcap analysis · logs · configs · technical chat', onload: function(){ try{ aiPageRefreshStatus(); }catch(e){} } },
   reports:    { title:'Reports',           sub:'PDF · QR · EN/ES' },
   tools:      { title:'Tools',             sub:'Subnet · VLSM · IP Converter · Reference' },
@@ -6650,11 +6637,6 @@ function closeMobileMenu() {
   if (sb) sb.classList.remove('open');
   if (ov) ov.classList.remove('open');
 }
-function toggleTheme() { return; // light mode removed
-  var html = document.documentElement;
-  html.dataset.theme = html.dataset.theme === 'light' ? 'dark' : 'light';
-}
-
 // Clock
 function updateClock() {
   var now = new Date();
@@ -6687,19 +6669,8 @@ function showToast(msg) {
 }
 // ── SECURITY AUDIT ─────────────────────────────────────────
 
-function updateSecNote() {
-  var net  = document.getElementById('secModNetTrack').classList.contains('on');
-  var wifi = document.getElementById('secModWifiTrack').classList.contains('on');
-  var wired= document.getElementById('secModWiredTrack').classList.contains('on');
-  var mods = [net&&'network', wifi&&'wifi', wired&&'wired'].filter(Boolean);
-  var times = {network:30, wifi:20, wired:15};
-  var total = mods.reduce(function(s,m){ return s+(times[m]||0); },0);
-  var note = document.getElementById('secAuditNote');
-  if(note) note.textContent = mods.length + ' module'+(mods.length!==1?'s':'') + ' · Est. ~'+total+'s';
-}
-
 function autoSecTarget() {
-  fetchAPI('/api/qc/run?gateway=auto&dns=auto&target=1.1.1.1', 'GET')
+  fetchAPI('/api/qc/run?gateway=auto&dns=auto&target=1.1.1.1')
   .catch(function(){});
   // Use gateway from network info
   fetchAPI('/api/network/info').then(function(d){
@@ -6729,14 +6700,6 @@ function autoSecTarget() {
 // ═══════════════════════════════════════
 //  INTERFACE DETECTION
 // ═══════════════════════════════════════
-var detectedIfaces = [
-  {name:'wlan0', type:'wifi', standard:'WiFi6', band:'5GHz', signal:-51, speed:'1.2Gb/s', status:'up'},
-  {name:'eth0',  type:'eth',  standard:'GbE',   band:'',     signal:null, speed:'1G',     status:'up'},
-  {name:'eth1',  type:'eth',  standard:'2.5GbE',band:'',     signal:null, speed:'2.5G',   status:'up'},
-];
-
-var autoDetected = { gateway:'', dns:'', hostname:'', domain:'CO', interfaces:[], subnets:{}, speeds:{} };
-
 // Interfaces simuladas para modo DEMO
 var _demoIfaces = [
   {name:'wlan0', label:'WLAN 0', type:'wifi', standard:'WiFi6', band:'5GHz', signal:-51, speed:'1.2Gb/s', status:'up'},
@@ -7162,6 +7125,12 @@ function runQC() {
         }
       }, idx * 200);
     });
+  })
+  .catch(function() {
+    clearInterval(_qcFakeIv);
+    addLine('t-fail', '  ✗ Error de conexión con la API');
+    if (statusEl) { statusEl.className='status-badge sb-fail'; statusEl.innerHTML='<span class="sb-dot"></span>ERROR'; }
+    bar.style.width = '100%'; bar.style.background = 'var(--red)';
   });
 }
 
@@ -7397,29 +7366,6 @@ function _populateWifiTable(aps) {
   window._wifiLastScan = filtered;
 }
 
-function _populateWifiTable_unused(aps) {
-  var tbody = document.getElementById('apTableBody'); if (!tbody) return;
-  tbody.innerHTML = '';
-  var limit = 0;
-  var displayAps = limit ? aps.slice(0, limit) : aps;
-  if (limit && aps.length > limit) {
-    var moreEl = document.getElementById('nearbyApMore');
-    if (moreEl) moreEl.textContent = '+ ' + (aps.length - limit) + ' more APs — Full Scan →';
-  }
-  displayAps.forEach(function(ap) {
-    var rssi = ap.signal_dbm || 0;
-    var rssiCls = rssi >= -60 ? 'rssi-great' : rssi >= -70 ? 'rssi-good' : rssi >= -80 ? 'rssi-fair' : 'rssi-poor';
-    var bandCls = ap.band === '6GHz' ? 'band-6' : ap.band === '5GHz' ? 'band-5' : 'band-24';
-    var tr = document.createElement('tr');
-    tr.innerHTML = '<td style="color:var(--white)">' + (ap.ssid || '(hidden)') + '</td>' +
-      '<td style="color:var(--text2);font-size:10px">' + (ap.bssid || '—') + '</td>' +
-      '<td class="rssi ' + rssiCls + '">' + (ap.signal_dbm || '—') + '</td>' +
-      '<td><span class="band ' + bandCls + '">' + (ap.band || '?') + '</span></td>' +
-      '<td style="color:var(--text2)">' + (ap.channel || '—') + '</td>' +
-      '<td style="color:var(--text2)">' + ((ap.security || []).join('+') || 'OPEN') + '</td>';
-    tbody.appendChild(tr);
-  });
-}
 function wifiFinish() { wizGoto('wifi', 2); }
 
 function runWifiAI(ev) {
@@ -8114,9 +8060,10 @@ function runNetScan() {
   var count  = document.getElementById('scanCount');
   if (!term) return;
   term.innerHTML = '';
-  var target = (document.getElementById('scanTarget')||{}).value || autoDetected.subnets
-    ? Object.values(autoDetected.subnets||{})[0] || '192.168.1.0/24'
-    : '192.168.1.0/24';
+  var _scanTargetVal = (document.getElementById('scanTarget')||{}).value;
+  var target = (_scanTargetVal && _scanTargetVal.trim())
+    ? _scanTargetVal.trim()
+    : (Object.values(autoDetected.subnets||{})[0] || '192.168.1.0/24');
   function addLine(cls, txt) {
     var s = document.createElement('span'); s.className='term-line '+cls; s.textContent=txt;
     term.appendChild(s); term.scrollTop=99999;
@@ -9377,10 +9324,15 @@ function addReportHistoryRow(r){
   var tbody=document.getElementById('rptHistoryBody'); if(!tbody) return;
   if(tbody.querySelector('td[colspan]')) tbody.innerHTML='';
   var tr=document.createElement('tr');
-  tr.innerHTML='<td style="color:var(--text2);font-size:10px">'+r.date+'</td><td style="color:var(--white)">'+r.client+'</td><td style="color:var(--text2)">'+r.site+'</td><td style="color:var(--text2);font-size:10px">5 sections</td><td><span style="font-size:11px;padding:2px 6px;background:rgba(33,150,243,.1);color:var(--blue-b);border-radius:2px">'+r.lang.toUpperCase()+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="downloadReportPDF()">&#11015; PDF</button></td>';
+  tr.innerHTML='<td style="color:var(--text2);font-size:10px">'+r.date+'</td><td style="color:var(--white)">'+r.client+'</td><td style="color:var(--text2)">'+r.site+'</td><td style="color:var(--text2);font-size:10px">5 sections</td><td><span style="font-size:11px;padding:2px 6px;background:rgba(33,150,243,.1);color:var(--blue-b);border-radius:2px">'+r.lang.toUpperCase()+'</span></td><td><button class="btn btn-ghost btn-sm" onclick="downloadReportById(\''+r.id+'\')">&#11015; PDF</button></td>';
   tbody.insertBefore(tr,tbody.firstChild);
 }
 function downloadReportPDF(){ generateReport(); }
+function downloadReportById(rid){
+  if(!rid) return;
+  if(DEMO_MODE){ showToast('Descarga disponible en modo LIVE'); return; }
+  window.open(API_BASE + '/api/reports/download/' + encodeURIComponent(rid), '_blank');
+}
 function shareReport(){ showToast('Share requires hosted mode'); }
 function exportReportJSON(){
   var meta = _rptMeta();
