@@ -45,6 +45,37 @@ def _load_secrets():
 
 _load_secrets()
 
+import tempfile
+
+def _popen_errfile(cmd, **kw):
+    """Popen for LONG-LIVED processes: stderr is redirected to a temp file
+    instead of a PIPE. An unread PIPE fills at ~64KB and deadlocks the child;
+    a file never blocks. Returns (proc, errpath). The caller reads errpath on
+    early death and MUST remove it (via _rm_errfile) when the process stops."""
+    fd, errpath = tempfile.mkstemp(prefix="nekopi-proc-", suffix=".err")
+    ef = os.fdopen(fd, "wb")
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                stderr=ef, **kw)
+    finally:
+        # The child holds its own dup'd fd; the parent handle is not needed.
+        ef.close()
+    return proc, errpath
+
+def _read_errfile(errpath, tail: int = 300) -> str:
+    try:
+        with open(errpath, "r", errors="replace") as fh:
+            return fh.read()[-tail:]
+    except Exception:
+        return ""
+
+def _rm_errfile(errpath) -> None:
+    try:
+        if errpath:
+            os.remove(errpath)
+    except Exception:
+        pass
+
 def _read_version() -> dict:
     """Read version and codename from VERSION file at repo root."""
     version_file = Path(__file__).parent.parent / "VERSION"
@@ -225,25 +256,25 @@ def get_iface_stats(name: str) -> dict:
     base = Path(f"/sys/class/net/{name}/statistics")
     def read(f):
         try: return int((base / f).read_text().strip())
-        except: return 0
+        except Exception: return 0
     return {"rx_bytes": read("rx_bytes"), "tx_bytes": read("tx_bytes"),
             "rx_errors": read("rx_errors"), "tx_errors": read("tx_errors")}
 
 def _get_uptime() -> int:
     try: return int(float(Path("/proc/uptime").read_text().split()[0]))
-    except: return 0
+    except Exception: return 0
 
 def _svc_active(name: str) -> bool:
     try:
         r = subprocess.run(["systemctl", "is-active", name], capture_output=True, text=True, timeout=3)
         return r.stdout.strip() == "active"
-    except: return False
+    except Exception: return False
 
 def _port_open(port: int) -> bool:
     import socket as _s
     try:
         s = _s.create_connection(("127.0.0.1", port), timeout=1); s.close(); return True
-    except: return False
+    except Exception: return False
 
 # ── HARDWARE CAPABILITIES ────────────────────────────────────
 # Driver-based interface lookup — kernel name (eth0/eth1) is unstable when
@@ -607,20 +638,20 @@ async def system_metrics():
         idle2 = int(out2[4]); total2 = sum(int(x) for x in out2[1:])
         dtotal = total2 - total1; didle = idle2 - idle1
         cpu_pct = round((1 - didle / dtotal) * 100, 1) if dtotal else 0
-    except: pass
+    except Exception: pass
     ram = {}
     try:
         mi = Path("/proc/meminfo").read_text()
         def mkb(k): m = re.search(k + r":\s+(\d+)", mi); return int(m.group(1)) if m else 0
         total = mkb("MemTotal"); avail = mkb("MemAvailable"); used = total - avail
         ram = {"total_mb": total//1024, "used_mb": used//1024, "pct": round(used/total*100, 1)}
-    except: pass
+    except Exception: pass
     disk = {}
     try:
         st = os.statvfs("/")
         tb = st.f_blocks * st.f_frsize; fb = st.f_bfree * st.f_frsize; ub = tb - fb
         disk = {"total_gb": round(tb/1e9,1), "used_gb": round(ub/1e9,1), "pct": round(ub/tb*100,1)}
-    except: pass
+    except Exception: pass
     wifi_throughput = None
     try:
         ifaces = get_interfaces()
@@ -629,7 +660,7 @@ async def system_metrics():
             s1 = get_iface_stats(wi["name"]); await asyncio.sleep(0.5); s2 = get_iface_stats(wi["name"])
             mbps = ((s2["rx_bytes"]-s1["rx_bytes"]) + (s2["tx_bytes"]-s1["tx_bytes"])) * 8/1e6/0.5
             wifi_throughput = round(mbps/1000, 3)
-    except: pass
+    except Exception: pass
     return {"cpu_temp": cpu_temp, "cpu_pct": cpu_pct, "ram": ram, "disk": disk,
             "wifi_throughput": wifi_throughput, "latency_ms": None, "uptime_s": _get_uptime()}
 
@@ -658,14 +689,14 @@ async def network_info():
             for r in routes:
                 if r.get("dev") == i["name"] and "dst" in r and r["dst"] != "default":
                     subnets[i["name"]] = r["dst"]; break
-    except: pass
+    except Exception: pass
 
     speeds = {}
     for i in ifaces:
         try:
             s = int(Path(f"/sys/class/net/{i['name']}/speed").read_text().strip())
             speeds[i["name"]] = (f"{s} Mb/s" if s < 1000 else f"{s//1000} Gb/s") if s > 0 else "down"
-        except: speeds[i["name"]] = "unknown"
+        except Exception: speeds[i["name"]] = "unknown"
 
     # Identify test and mgmt interfaces for frontend convenience
     test_iface = next((i for i in ifaces if i.get("is_test") and i["type"] == "eth"), None)
@@ -1518,7 +1549,7 @@ async def wifi_info(iface: str = ""):
 async def wired_lldp():
     out = run_cmd(["lldpcli", "show", "neighbors", "-f", "json"], timeout=10)
     try: return {"raw": json.loads(out), "ok": True}
-    except:
+    except Exception:
         txt = run_cmd(["lldpcli", "show", "neighbors"], timeout=10)
         return {"raw": txt, "ok": bool(txt), "format": "text"}
 
@@ -1584,7 +1615,7 @@ async def iperf_client(server: str = Query(...), duration: int = Query(10),
                 "recv_mbps":   round(recv.get("bits_per_second", 0) / 1e6, 2),
                 "retransmits": sent.get("retransmits", 0),
                 "intervals":   intervals}
-    except:
+    except Exception:
         return {"ok": False, "error": out or "iperf3 failed", "server": server}
 
 # ── TRACEROUTE ───────────────────────────────────────────────
@@ -1673,7 +1704,7 @@ async def path_trace(target: str = Query(...), iface: str = Query(""),
                     try:
                         v = float(token)
                         if v not in all_rtt_vals: all_rtt_vals.append(v)
-                    except: pass
+                    except Exception: pass
             avg_rtt = round(sum(all_rtt_vals) / len(all_rtt_vals), 2) if all_rtt_vals else None
             # Nota si hay múltiples IPs (ECMP)
             ips = [p[0] for p in ip_rtt_pairs]
@@ -1794,7 +1825,7 @@ async def path_stop():
     proc = _PATH.get("proc")
     if proc:
         try: proc.terminate()
-        except: pass
+        except Exception as e: print(f"[path] proc terminate failed: {e}")
     return {"ok": True}
 
 @app.get("/api/path/status")
@@ -1861,7 +1892,7 @@ async def scan_network(target: str = ""):
             vendor = next((a.get("vendor","") for a in h.get("addresses",[]) if a["addrtype"]=="mac"), "")
             hn     = h.get("hostnames",[{}])[0].get("name","") if h.get("hostnames") else ""
             hosts.append({"ip": addr, "mac": mac, "vendor": vendor, "hostname": hn, "state": "up"})
-    except:
+    except Exception:
         for line in out.splitlines():
             m = re.search(r"Nmap scan report for (.+?)\s*\(?([\d.]+)\)?$", line)
             if m: hosts.append({"ip": m.group(2), "hostname": m.group(1).strip(), "mac": None, "state": "up"})
@@ -1894,7 +1925,7 @@ async def profiler_start(
     # Stop any running instance
     if _PROFILER_PROC and _PROFILER_PROC.returncode is None:
         try: _PROFILER_PROC.terminate(); await asyncio.sleep(1)
-        except: pass
+        except Exception as e: print(f"[profiler] terminate failed: {e}")
     run_cmd(["sudo", "pkill", "-f", "profiler.*NekoPi"])
     await asyncio.sleep(1)
 
@@ -1951,7 +1982,7 @@ async def profiler_stop():
         try:
             _PROFILER_PROC.terminate()
             await asyncio.wait_for(_PROFILER_PROC.communicate(), timeout=5)
-        except: pass
+        except Exception as e: print(f"[profiler] stop terminate failed: {e}")
     run_cmd(["sudo", "pkill", "-f", "profiler.*NekoPi"])
     run_cmd(["sudo", "pkill", "-f", "hostapd.*profiler"])
     await asyncio.sleep(1)
@@ -2146,7 +2177,7 @@ async def profiler_clients():
     # Fix permissions on any new files written by root
     try:
         run_cmd(["sudo", "chmod", "-R", "755", clients_dir])
-    except: pass
+    except Exception: pass
 
     for mac_dir in os.listdir(clients_dir):
         mac_path = os.path.join(clients_dir, mac_dir)
@@ -2305,8 +2336,11 @@ def _hotspot_write_hostapd_conf(iface: str, ssid: str, password: str):
         f"wpa_key_mgmt=WPA-PSK\n"
         f"rsn_pairwise=CCMP\n"
     )
+    # Contains the WPA passphrase — unique 0600 temp file, removed after copy.
+    fd, tmp = tempfile.mkstemp(prefix="nekopi_hostapd_", suffix=".conf")
     try:
-        tmp = "/tmp/nekopi_hostapd.conf"
+        os.close(fd)
+        os.chmod(tmp, 0o600)
         Path(tmp).write_text(conf)
         subprocess.run(
             ["sudo", "mkdir", "-p", "/etc/hostapd"],
@@ -2316,8 +2350,13 @@ def _hotspot_write_hostapd_conf(iface: str, ssid: str, password: str):
             ["sudo", "cp", tmp, str(_HOTSPOT_CONF_FILE)],
             capture_output=True, text=True, timeout=5
         )
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[hotspot] hostapd conf write failed: {e}")
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 def _hotspot_get_clients(iface: str) -> list:
     """List connected hotspot clients from hostapd/arp."""
@@ -3360,12 +3399,23 @@ def _roam_capture_thread(iface, ssid, channel="hop", custom_channels=None):
             "ft_time": "—", "ft_ms": -1, "type": msg, "raw": msg
         })
 
+    def _run_t(cmd, timeout=10, **kw):
+        """Fire-and-forget subprocess.run with a hard timeout so a hung
+        nmcli/iw/ip/pkill can never wedge the roaming thread."""
+        kw.setdefault("capture_output", True)
+        try:
+            return _sp.run(cmd, timeout=timeout, **kw)
+        except _sp.TimeoutExpired:
+            _log_event(f"⚠ timeout: {' '.join(cmd[:5])}")
+            return None
+        except Exception as e:
+            _log_event(f"⚠ cmd error: {e}")
+            return None
+
     # Step 1: Disconnect NetworkManager / wpa_supplicant from this interface
     # so they don't interfere with monitor mode
-    _sp.run(["sudo", "nmcli", "device", "disconnect", iface],
-            capture_output=True)
-    _sp.run(["sudo", "pkill", "-f", f"wpa_supplicant.*{iface}"],
-            capture_output=True)
+    _run_t(["sudo", "nmcli", "device", "disconnect", iface])
+    _run_t(["sudo", "pkill", "-f", f"wpa_supplicant.*{iface}"])
     _t.sleep(0.5)
 
     # Step 1b: scan for the target SSID's channels BEFORE switching to monitor.
@@ -3375,11 +3425,11 @@ def _roam_capture_thread(iface, ssid, channel="hop", custom_channels=None):
     ssid_channels: list[int] = []
     if ssid and channel == "hop":
         uplink = _classify_wifi_ifaces().get("uplink", "wlan0")
-        _sp.run(["sudo", "ip", "link", "set", uplink, "up"], capture_output=True)
+        _run_t(["sudo", "ip", "link", "set", uplink, "up"])
         _t.sleep(0.3)
         _log_event(f"🔍 Scanning for SSID '{ssid}' via {uplink}…")
         ssid_channels = _get_ssid_channels(uplink, ssid)
-        _sp.run(["sudo", "ip", "link", "set", uplink, "down"], capture_output=True)
+        _run_t(["sudo", "ip", "link", "set", uplink, "down"])
         _ROAM_SSID_CH_FOUND = len(ssid_channels)
         if ssid_channels:
             _log_event(f"✓ Found '{ssid}' on {len(ssid_channels)} channel(s): "
@@ -3388,11 +3438,10 @@ def _roam_capture_thread(iface, ssid, channel="hop", custom_channels=None):
             _log_event(f"⚠ SSID '{ssid}' not found — falling back to selected channels")
 
     # Step 2: Put interface in monitor mode
-    _sp.run(["sudo", "ip", "link", "set", iface, "down"],  capture_output=True)
-    r = _sp.run(["sudo", "iw", "dev", iface, "set", "type", "monitor"],
-                capture_output=True, text=True)
-    if r.returncode != 0:
-        _log_event(f"⚠ Monitor mode failed: {r.stderr.strip()[:80]}")
+    _run_t(["sudo", "ip", "link", "set", iface, "down"])
+    r = _run_t(["sudo", "iw", "dev", iface, "set", "type", "monitor"], text=True)
+    if r is None or r.returncode != 0:
+        _log_event(f"⚠ Monitor mode failed: {(r.stderr.strip()[:80]) if r else 'timeout/error'}")
         # Try airmon-ng as fallback
         if run_cmd(["which", "airmon-ng"]):
             run_cmd(["sudo", "airmon-ng", "start", iface])
@@ -3400,7 +3449,7 @@ def _roam_capture_thread(iface, ssid, channel="hop", custom_channels=None):
         _ROAM_RUNNING = False
         return
 
-    _sp.run(["sudo", "ip", "link", "set", iface, "up"], capture_output=True)
+    _run_t(["sudo", "ip", "link", "set", iface, "up"])
     _t.sleep(0.3)
 
     # Verify monitor mode actually set
@@ -3468,8 +3517,7 @@ def _roam_capture_thread(iface, ssid, channel="hop", custom_channels=None):
                        f"{_ROAM_HOP_MS}ms/ch · full sweep")
     else:
         # Lock to specific channel
-        _sp.run(["sudo", "iw", "dev", iface, "set", "channel", channel],
-                capture_output=True)
+        _run_t(["sudo", "iw", "dev", iface, "set", "channel", channel])
         try:
             _ROAM_ACTIVE_CHANNELS = [int(channel)]
         except (TypeError, ValueError):
@@ -3520,11 +3568,11 @@ def _roam_capture_thread(iface, ssid, channel="hop", custom_channels=None):
         _hop_stop.set()  # Stop channel hopping
         proc.terminate()
         # Restore managed mode
-        _sp.run(["sudo", "ip",  "link", "set", iface, "down"],          capture_output=True)
-        _sp.run(["sudo", "iw",  "dev",  iface, "set", "type", "managed"], capture_output=True)
-        _sp.run(["sudo", "ip",  "link", "set", iface, "up"],            capture_output=True)
+        _run_t(["sudo", "ip",  "link", "set", iface, "down"])
+        _run_t(["sudo", "iw",  "dev",  iface, "set", "type", "managed"])
+        _run_t(["sudo", "ip",  "link", "set", iface, "up"])
         # Reconnect NetworkManager
-        _sp.run(["sudo", "nmcli", "device", "connect", iface],           capture_output=True)
+        _run_t(["sudo", "nmcli", "device", "connect", iface])
         _ROAM_RUNNING = False
 
 @app.post("/api/roaming/start")
@@ -4074,33 +4122,46 @@ def _try_default_cred(host: str, port: int, user: str, password: str) -> tuple[b
         if port in (80, 443, 8080, 8291, 8443):
             scheme = "https" if port in (443, 8443) else "http"
             url = f"{scheme}://{host}:{port}/"
-            # Step 1 — unauth baseline
-            base = subprocess.run(
-                ["curl", "-sk", "--max-time", "4", "--connect-timeout", "2",
-                 "-o", "/tmp/.nekopi-cred-base", "-w", "%{http_code}|%{size_download}", url],
-                capture_output=True, text=True, timeout=6)
+            # Unique per-call temp files (avoid fixed-name collisions between
+            # concurrent scans and world-readable leftovers). Mode 0600.
+            base_fd, base_path = tempfile.mkstemp(prefix=".nekopi-cred-base-")
+            auth_fd, auth_path = tempfile.mkstemp(prefix=".nekopi-cred-auth-")
+            os.close(base_fd); os.close(auth_fd)
+            os.chmod(base_path, 0o600); os.chmod(auth_path, 0o600)
             try:
-                base_code, base_size = (base.stdout or "0|0").split("|", 1)
-                base_code = int(base_code or 0)
-                base_size = int(base_size or 0)
-            except (ValueError, AttributeError):
-                base_code, base_size = 0, 0
-            # Step 2 — auth attempt
-            auth = subprocess.run(
-                ["curl", "-sk", "--max-time", "4", "--connect-timeout", "2",
-                 "-u", f"{user}:{password}",
-                 "-o", "/tmp/.nekopi-cred-auth", "-w", "%{http_code}|%{size_download}", url],
-                capture_output=True, text=True, timeout=6)
-            try:
-                auth_code, auth_size = (auth.stdout or "0|0").split("|", 1)
-                auth_code = int(auth_code or 0)
-                auth_size = int(auth_size or 0)
-            except (ValueError, AttributeError):
-                auth_code, auth_size = 0, 0
-            try:
-                auth_body = Path("/tmp/.nekopi-cred-auth").read_text("utf-8", errors="ignore")[:8000].lower()
-            except Exception:
-                auth_body = ""
+                # Step 1 — unauth baseline
+                base = subprocess.run(
+                    ["curl", "-sk", "--max-time", "4", "--connect-timeout", "2",
+                     "-o", base_path, "-w", "%{http_code}|%{size_download}", url],
+                    capture_output=True, text=True, timeout=6)
+                try:
+                    base_code, base_size = (base.stdout or "0|0").split("|", 1)
+                    base_code = int(base_code or 0)
+                    base_size = int(base_size or 0)
+                except (ValueError, AttributeError):
+                    base_code, base_size = 0, 0
+                # Step 2 — auth attempt
+                auth = subprocess.run(
+                    ["curl", "-sk", "--max-time", "4", "--connect-timeout", "2",
+                     "-u", f"{user}:{password}",
+                     "-o", auth_path, "-w", "%{http_code}|%{size_download}", url],
+                    capture_output=True, text=True, timeout=6)
+                try:
+                    auth_code, auth_size = (auth.stdout or "0|0").split("|", 1)
+                    auth_code = int(auth_code or 0)
+                    auth_size = int(auth_size or 0)
+                except (ValueError, AttributeError):
+                    auth_code, auth_size = 0, 0
+                try:
+                    auth_body = Path(auth_path).read_text("utf-8", errors="ignore")[:8000].lower()
+                except Exception:
+                    auth_body = ""
+            finally:
+                for _p in (base_path, auth_path):
+                    try:
+                        os.remove(_p)
+                    except OSError:
+                        pass
             # Decision matrix:
             # 1) unauth was 401/403 and auth is 2xx/3xx → real login
             # 2) unauth was 200 and auth is also 200 BUT body differs by >20%
@@ -4695,7 +4756,7 @@ def _tk_log(tool: str, msg: str):
 def _get_iface_mac(iface: str) -> str:
     try:
         return Path(f"/sys/class/net/{iface}/address").read_text().strip()
-    except:
+    except Exception:
         return ""
 
 # ── DHCP Server ──────────────────────────────────────────────
@@ -4756,10 +4817,10 @@ async def toolkit_dhcp_start(
                 pid = int(Path(pidfile).read_text().strip())
                 run_cmd(_tk_sudo() + ["kill", str(pid)])
                 time.sleep(0.3)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[toolkit] dhcp prior-kill failed: {e}")
             try: Path(pidfile).unlink()
-            except: pass
+            except Exception as e: print(f"[toolkit] dhcp pidfile unlink: {e}")
 
         # Ensure interface is up
         run_cmd(_tk_sudo() + ["ip", "link", "set", iface, "up"])
@@ -4816,12 +4877,12 @@ async def toolkit_dhcp_stop():
             pid = int(Path(pidfile).read_text().strip())
             run_cmd(_tk_sudo() + ["kill", str(pid)])
             Path(pidfile).unlink(missing_ok=True)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[toolkit] dhcp stop kill failed: {e}")
     proc = _TK["dhcp"].get("proc")
     if proc:
         try: proc.terminate()
-        except: pass
+        except Exception as e: print(f"[toolkit] dhcp proc terminate failed: {e}")
     _TK["dhcp"]["running"] = False
     _tk_log("dhcp", "■ DHCP stopped — management DHCP (eth1) untouched")
     return {"ok": True}
@@ -4861,10 +4922,10 @@ async def toolkit_tftp_start(iface: str = "eth0", directory: str = "/opt/nekopi/
                 pid = int(Path(tftp_pidfile).read_text().strip())
                 run_cmd(_tk_sudo() + ["kill", str(pid)])
                 time.sleep(0.3)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[toolkit] tftp prior-kill failed: {e}")
             try: Path(tftp_pidfile).unlink()
-            except: pass
+            except Exception as e: print(f"[toolkit] tftp pidfile unlink: {e}")
 
         nekopi_ip = run_cmd(["hostname", "-I"]).split()[0] if run_cmd(["hostname", "-I"]).split() else "?"
 
@@ -4932,7 +4993,7 @@ async def toolkit_tftp_stop():
     if proc:
         run_cmd(_tk_sudo() + ["pkill", "-f", "in.tftpd"])
         try: proc.terminate()
-        except: pass
+        except Exception as e: print(f"[toolkit] tftp proc terminate failed: {e}")
     _TK["tftp"]["running"] = False
     _tk_log("tftp", "■ TFTP stopped by user")
     # Restore system service if we stopped it
@@ -4972,7 +5033,7 @@ async def toolkit_tftp_upload(file: UploadFile = File(...)):
                 fh.write(chunk)
                 total += len(chunk)
         try: dest.chmod(0o644)
-        except Exception: pass
+        except Exception as e: print(f"[toolkit] tftp upload chmod failed: {e}")
     except Exception as e:
         dest.unlink(missing_ok=True)
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
@@ -5013,7 +5074,7 @@ async def toolkit_tftp_status():
             files = [{"name": f.name, "size": f.stat().st_size,
                       "modified": time.strftime("%H:%M:%S", time.localtime(f.stat().st_mtime))}
                      for f in sorted(d.iterdir()) if f.is_file()]
-    except:
+    except Exception:
         pass
     return {
         "running": _TK["tftp"]["running"],
@@ -5260,8 +5321,9 @@ async def toolkit_staticip_set(
             if f"nameserver {dns}" not in content:
                 resolv.write_text(f"nameserver {dns}\n" + content)
             log.append(f"DNS: {dns}")
-        except:
-            pass
+        except Exception as e:
+            print(f"[toolkit] resolv.conf write failed: {e}")
+            log.append(f"DNS write failed: {e}")
 
         # Verify
         actual = run_cmd(["ip", "addr", "show", iface])
@@ -6127,7 +6189,7 @@ async def wifits_scan(iface: str = ""):
         t0 = _t.time()
         socket.gethostbyname("www.google.com")
         result["dns_ms"] = round((_t.time() - t0) * 1000, 1)
-    except:
+    except Exception:
         result["dns_ms"] = None
 
     # 4. Neighbor APs on same channel (interference) + PHY mode / bandwidth
@@ -6822,6 +6884,9 @@ async def reports_list():
 
 @app.get("/api/reports/download/{rid}")
 async def reports_download(rid: str):
+    # Strict id whitelist — no path traversal (reject '..' and '/')
+    if not re.match(r"^[A-Za-z0-9_.-]+$", rid) or ".." in rid:
+        return JSONResponse({"error": "invalid id"}, status_code=400)
     for ext in ("pdf", "html", "json"):
         p = REPORTS_DIR / f"{rid}.{ext}"
         if p.exists():
@@ -7053,7 +7118,7 @@ async def ai_gemini(request: Request):
         return {"ok": True, "backend": "gemini", "model": used, "response": text}
     except _ai_err.HTTPError as e:
         try:    detail = e.read().decode("utf-8", "ignore")[:300]
-        except: detail = ""
+        except Exception: detail = ""
         return JSONResponse(
             {"ok": False, "backend": "gemini",
              "error": f"HTTP {e.code}: {e.reason} {detail}"}, status_code=502)
@@ -7082,7 +7147,7 @@ async def ai_ollama(request: Request):
         return {"ok": True, "backend": "ollama", "model": used, "response": text}
     except _ai_err.HTTPError as e:
         try:    detail = e.read().decode("utf-8", "ignore")[:300]
-        except: detail = ""
+        except Exception: detail = ""
         return JSONResponse(
             {"ok": False, "backend": "ollama",
              "error": f"HTTP {e.code}: {e.reason} {detail}"}, status_code=502)
@@ -7415,6 +7480,13 @@ async def _nekopi_boot():
     engineer gets a working board on first load. Failures are logged but
     never block API startup."""
     try:
+        # Grafana is an on-demand service — if it isn't running at boot, skip
+        # provisioning silently instead of spamming the journal with two
+        # "Connection refused" errors on every arranque. It gets provisioned
+        # later when the Sensor module starts Grafana on demand.
+        if not _svc_active("grafana-server"):
+            print("[grafana] server inactive at boot — provision deferred", flush=True)
+            return
         _grafana_ensure_datasource()
         _grafana_ensure_dashboard()
     except Exception as e:
@@ -7437,15 +7509,18 @@ def _pktvisor_running() -> bool:
 
 # ── Sensor backing services (InfluxDB + Grafana) — on-demand ──────
 def _svc_running(name: str) -> bool:
-    r = subprocess.run(["systemctl", "is-active", name],
-                       capture_output=True, text=True)
-    return r.stdout.strip() == "active"
+    # Unified with _svc_active (same `systemctl is-active` check, but that one
+    # carries the timeout + error handling). Kept as an alias so existing
+    # call-sites don't change.
+    return _svc_active(name)
 
 def _svc_pid(name: str) -> int:
-    r = subprocess.run(["systemctl", "show", name, "-p", "MainPID", "--value"],
-                       capture_output=True, text=True)
-    try: return int(r.stdout.strip())
-    except: return 0
+    try:
+        r = subprocess.run(["systemctl", "show", name, "-p", "MainPID", "--value"],
+                           capture_output=True, text=True, timeout=3)
+        return int(r.stdout.strip())
+    except Exception:
+        return 0
 
 def _wait_http(url: str, timeout: int = 15) -> bool:
     """Polls a URL every 0.5s until it returns 200 or timeout expires."""
@@ -7548,21 +7623,19 @@ async def sensor_start(iface: str = "auto"):
     cmd = [str(PKTVISOR_BIN), "-l", PKTVISOR_HOST, "-p", str(PKTVISOR_PORT),
            "--no-track", iface]
     try:
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-            text=True,
-        )
+        proc, errpath = _popen_errfile(cmd)
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
     # Give pktvisord ~1.2s to bind to the interface; if it dies, surface why.
     time.sleep(1.2)
     if proc.poll() is not None:
-        try:    err = (proc.stderr.read() or "")[-300:]
-        except: err = ""
+        err = _read_errfile(errpath)
+        _rm_errfile(errpath)
         return {"ok": False, "error": f"pktvisord exited (rc={proc.returncode}): {err.strip()}"}
 
     _PKT["proc"] = proc
+    _PKT["errpath"] = errpath
     _PKT["iface"] = iface
     _PKT["started_at"] = int(time.time())
     return {"ok": True, "iface": iface, "running": True,
@@ -7578,6 +7651,8 @@ async def sensor_stop():
         except Exception:
             try: p.kill()
             except Exception: pass
+    _rm_errfile(_PKT.get("errpath"))
+    _PKT["errpath"] = None
     _PKT["proc"] = None
     _PKT["iface"] = ""
     return {"ok": True, "running": False}
@@ -7831,6 +7906,18 @@ async def sensor_push(request: Request):
 # ── PCAP capture (one-shot, downloadable + Deep Analysis fodder) ──
 CAPTURE_DIR = BASE_DIR / "captures"
 CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+CAPTURE_MAX_FILES = 20
+
+def _capture_cleanup_old():
+    """Keep only the newest CAPTURE_MAX_FILES sensor pcaps (by mtime) so the
+    captures/ dir cannot grow without bound. Mirrors _ota_cleanup_old."""
+    try:
+        files = sorted(CAPTURE_DIR.glob("*.pcap"), key=lambda f: f.stat().st_mtime)
+        while len(files) > CAPTURE_MAX_FILES:
+            files[0].unlink(missing_ok=True)
+            files.pop(0)
+    except Exception as e:
+        print(f"[sensor] capture cleanup failed: {e}")
 
 @app.post("/api/sensor/pcap/capture")
 async def sensor_pcap_capture(iface: str = "eth1", seconds: int = 10, count: int = 0):
@@ -7857,6 +7944,7 @@ async def sensor_pcap_capture(iface: str = "eth1", seconds: int = 10, count: int
         return {"ok": False, "error": "capture timeout"}
     if not fpath.exists() or fpath.stat().st_size == 0:
         return {"ok": False, "error": (proc.stderr or "no packets captured")[-300:]}
+    _capture_cleanup_old()
     return {"ok": True, "file": fname, "size": fpath.stat().st_size,
             "iface": iface, "seconds": seconds}
 
@@ -8076,6 +8164,19 @@ async def sensor_pcap_analyze(name: str):
 DEEP_ANALYSIS_DIR = BASE_DIR / "captures" / "deep"
 DEEP_ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
 DEEP_ANALYSIS_MAX = 20 * 1024 * 1024  # 20 MB
+DEEP_ANALYSIS_MAX_FILES = 20
+
+def _deep_cleanup_old():
+    """Keep only the newest DEEP_ANALYSIS_MAX_FILES uploaded files (by mtime)
+    so captures/deep/ cannot grow without bound. Mirrors _ota_cleanup_old."""
+    try:
+        files = sorted((p for p in DEEP_ANALYSIS_DIR.glob("*") if p.is_file()),
+                       key=lambda f: f.stat().st_mtime)
+        while len(files) > DEEP_ANALYSIS_MAX_FILES:
+            files[0].unlink(missing_ok=True)
+            files.pop(0)
+    except Exception as e:
+        print(f"[deep] cleanup failed: {e}")
 
 def _deep_summary_log(text: str) -> dict:
     """Best-effort log summary: counts, top tokens, error/warning lines."""
@@ -8230,6 +8331,8 @@ async def ai_deep_analyze(file: UploadFile = File(...)):
                 return JSONResponse({"ok": False, "error": "file too large (max 20MB)"},
                                     status_code=413)
             fh.write(chunk)
+
+    _deep_cleanup_old()
 
     # Step 1 — local pre-processing
     summary: dict = {"name": safe_name, "size": size, "ext": ext}
@@ -8604,19 +8707,19 @@ async def terminal_ssh(request: Request):
         f"{user}@{host}",
     ]
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                                stderr=subprocess.PIPE, text=True)
+        proc, errpath = _popen_errfile(cmd)
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
     time.sleep(0.6)
     if proc.poll() is not None:
-        try:    err = (proc.stderr.read() or "")[-300:]
-        except: err = ""
+        err = _read_errfile(errpath)
+        _rm_errfile(errpath)
         return JSONResponse({"ok": False, "error": f"ttyd exited: {err.strip()}"},
                             status_code=500)
     session_id = f"sess-{int(time.time())}-{ttyd_port}"
     _TTYD_SESSIONS[session_id] = {
-        "proc": proc, "port": ttyd_port, "host": host, "user": user,
+        "proc": proc, "errpath": errpath, "port": ttyd_port,
+        "host": host, "user": user,
         "started_at": int(time.time()),
     }
     return {"ok": True, "session_id": session_id, "port": ttyd_port,
@@ -8635,6 +8738,7 @@ async def terminal_stop(session_id: str):
         except Exception:
             try: proc.kill()
             except Exception: pass
+    _rm_errfile(sess.get("errpath"))
     return {"ok": True}
 
 @app.get("/api/terminal/sessions")
@@ -8650,7 +8754,9 @@ async def terminal_sessions():
         else:
             dead.append(sid)
     for sid in dead:
-        _TTYD_SESSIONS.pop(sid, None)
+        s = _TTYD_SESSIONS.pop(sid, None)
+        if s:
+            _rm_errfile(s.get("errpath"))
     return {"sessions": out}
 
 
@@ -8673,6 +8779,7 @@ import serial as _serial_mod
 import serial.tools.list_ports as _serial_list
 
 _CP_TTYD_PROC: subprocess.Popen | None = None
+_CP_TTYD_ERR: str | None = None
 _CP_TTYD_PORT = 7682
 _CP_SERIAL_PORT = ""
 _CP_SERIAL_BAUD = 9600
@@ -8737,7 +8844,7 @@ _CP_VALID_BAUDS = {9600, 19200, 38400, 57600, 115200}
 async def console_connect(request: Request):
     """Spawns a ttyd process wrapping picocom → serial port so the engineer
     gets a full interactive terminal in an iframe. Returns the ttyd port."""
-    global _CP_TTYD_PROC, _CP_SERIAL_PORT, _CP_SERIAL_BAUD
+    global _CP_TTYD_PROC, _CP_TTYD_ERR, _CP_SERIAL_PORT, _CP_SERIAL_BAUD
     if not shutil.which("picocom"):
         return JSONResponse(
             {"ok": False, "error": "picocom not installed"},
@@ -8777,6 +8884,8 @@ async def console_connect(request: Request):
         except Exception:
             try: _CP_TTYD_PROC.kill()
             except Exception: pass
+    _rm_errfile(_CP_TTYD_ERR)
+    _CP_TTYD_ERR = None
     # picocom with --imap lfcrlf maps incoming LF→CRLF, fixing the
     # "staircase" output from Cisco devices that send bare LF.
     ssl_cert = str(BASE_DIR / "ssl" / "cert.pem")
@@ -8791,14 +8900,14 @@ async def console_connect(request: Request):
         "-b", str(baud), port,
     ]
     try:
-        _CP_TTYD_PROC = subprocess.Popen(
-            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        _CP_TTYD_PROC, _CP_TTYD_ERR = _popen_errfile(cmd)
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
     time.sleep(0.8)
     if _CP_TTYD_PROC.poll() is not None:
-        try: err = (_CP_TTYD_PROC.stderr.read() or "")[-300:]
-        except: err = ""
+        err = _read_errfile(_CP_TTYD_ERR)
+        _rm_errfile(_CP_TTYD_ERR)
+        _CP_TTYD_ERR = None
         return JSONResponse({"ok": False, "error": f"ttyd exited: {err.strip()}"},
                             status_code=500)
     _CP_SERIAL_PORT = port
@@ -8808,7 +8917,7 @@ async def console_connect(request: Request):
 
 @app.post("/api/console/disconnect")
 async def console_disconnect():
-    global _CP_TTYD_PROC, _CP_SERIAL_PORT, _CP_SERIAL_BAUD
+    global _CP_TTYD_PROC, _CP_TTYD_ERR, _CP_SERIAL_PORT, _CP_SERIAL_BAUD
     port = _CP_SERIAL_PORT  # remember before reset
     if _CP_TTYD_PROC and _CP_TTYD_PROC.poll() is None:
         try: _CP_TTYD_PROC.terminate()
@@ -8818,6 +8927,8 @@ async def console_disconnect():
             try: _CP_TTYD_PROC.kill()
             except Exception: pass
     _CP_TTYD_PROC = None
+    _rm_errfile(_CP_TTYD_ERR)
+    _CP_TTYD_ERR = None
     # Kill any orphan picocom still holding the port
     if port:
         try:
@@ -8831,8 +8942,8 @@ async def console_disconnect():
                     cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace")
                     if "picocom" in cmdline:
                         os.kill(int(pid), 9)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[console] orphan picocom kill failed (pid {pid}): {e}")
         except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
             pass
     _CP_SERIAL_PORT = ""
@@ -9066,6 +9177,7 @@ OTA_DIR.mkdir(parents=True, exist_ok=True)
 OTA_MAX_FILES = 10
 
 _OTA_PROC:  subprocess.Popen | None = None
+_OTA_ERR:   str | None = None
 _OTA_HOP:   _threading.Event | None = None
 _OTA_TIMER: _threading.Timer | None = None
 _OTA_STATUS = {
@@ -9107,7 +9219,7 @@ def _ota_build_filter(mgmt: bool, data: bool, ctrl: bool, mac: str) -> str:
 
 @app.post("/api/ota/start")
 async def ota_start(request: Request):
-    global _OTA_PROC, _OTA_HOP, _OTA_TIMER
+    global _OTA_PROC, _OTA_ERR, _OTA_HOP, _OTA_TIMER
     if _OTA_STATUS["running"]:
         return {"ok": False, "error": "capture already running"}
     try:
@@ -9158,8 +9270,12 @@ async def ota_start(request: Request):
 
     # Enter monitor mode
     run_cmd(["sudo", "ip", "link", "set", iface, "down"])
-    r = subprocess.run(["sudo", "iw", "dev", iface, "set", "type", "monitor"],
-                       capture_output=True, text=True)
+    try:
+        r = subprocess.run(["sudo", "iw", "dev", iface, "set", "type", "monitor"],
+                           capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        return JSONResponse({"ok": False, "error": "monitor mode timed out"},
+                            status_code=500)
     if r.returncode != 0:
         return JSONResponse({"ok": False, "error": f"monitor failed: {r.stderr[:80]}"},
                             status_code=500)
@@ -9208,8 +9324,13 @@ async def ota_start(request: Request):
             idx = 0
             while not _OTA_HOP.is_set():
                 ch = channels_list[idx % len(channels_list)]
-                subprocess.run(["sudo", "iw", "dev", iface, "set", "channel", str(ch)],
-                               capture_output=True)
+                try:
+                    subprocess.run(["sudo", "iw", "dev", iface, "set", "channel", str(ch)],
+                                   capture_output=True, timeout=5)
+                except subprocess.TimeoutExpired:
+                    print(f"[ota] channel set timeout on ch {ch}")
+                except Exception as e:
+                    print(f"[ota] channel set error: {e}")
                 _OTA_STATUS["channel"] = ch
                 idx += 1
                 _OTA_HOP.wait(0.3)
@@ -9225,17 +9346,16 @@ async def ota_start(request: Request):
         cmd += bpf.split()
 
     try:
-        _OTA_PROC = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.PIPE, text=True)
+        _OTA_PROC, _OTA_ERR = _popen_errfile(cmd)
     except Exception as e:
         _ota_restore(iface)
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
     time.sleep(0.5)
     if _OTA_PROC.poll() is not None:
-        err = ""
-        try: err = (_OTA_PROC.stderr.read() or "")[-200:]
-        except: pass
+        err = _read_errfile(_OTA_ERR, tail=200)
+        _rm_errfile(_OTA_ERR)
+        _OTA_ERR = None
         _ota_restore(iface)
         return JSONResponse({"ok": False, "error": f"tcpdump exited: {err}"}, status_code=500)
 
@@ -9283,7 +9403,7 @@ def _ota_restore(iface: str):
 
 
 def _ota_stop_inner():
-    global _OTA_PROC, _OTA_HOP, _OTA_TIMER
+    global _OTA_PROC, _OTA_ERR, _OTA_HOP, _OTA_TIMER
     if _OTA_HOP:
         _OTA_HOP.set()
     if _OTA_TIMER:
@@ -9291,12 +9411,14 @@ def _ota_stop_inner():
         _OTA_TIMER = None
     if _OTA_PROC and _OTA_PROC.poll() is None:
         try: _OTA_PROC.terminate()
-        except: pass
+        except Exception: pass
         try: _OTA_PROC.wait(timeout=3)
-        except:
+        except Exception:
             try: _OTA_PROC.kill()
-            except: pass
+            except Exception: pass
     _OTA_PROC = None
+    _rm_errfile(_OTA_ERR)
+    _OTA_ERR = None
     iface = _OTA_STATUS.get("iface") or get_monitor_iface() or ""
     _ota_restore(iface)
     # Final frame count + size
@@ -9745,16 +9867,25 @@ def _radius_write_users(users: list[dict]):
         if u.get("group") or u.get("comment"):
             comment = f'  # {u.get("group", "")} | {u.get("comment", "")}'
         lines.append(f'{u["username"]}  Cleartext-Password := "{u["password"]}"{comment}\n')
-    tmp = "/tmp/nekopi_radius_users"
-    Path(tmp).write_text("".join(lines))
-    subprocess.run(["sudo", "mkdir", "-p", str(_RADIUS_USERS_FILE.parent)],
-                   capture_output=True, text=True, timeout=5)
-    subprocess.run(["sudo", "cp", tmp, str(_RADIUS_USERS_FILE)],
-                   capture_output=True, text=True, timeout=5)
-    subprocess.run(["sudo", "chown", "freerad:freerad", str(_RADIUS_USERS_FILE)],
-                   capture_output=True, text=True, timeout=5)
-    subprocess.run(["sudo", "chmod", "640", str(_RADIUS_USERS_FILE)],
-                   capture_output=True, text=True, timeout=5)
+    # Cleartext passwords — write to a unique 0600 temp file, remove after copy.
+    fd, tmp = tempfile.mkstemp(prefix="nekopi_radius_users_")
+    try:
+        os.close(fd)
+        os.chmod(tmp, 0o600)
+        Path(tmp).write_text("".join(lines))
+        subprocess.run(["sudo", "mkdir", "-p", str(_RADIUS_USERS_FILE.parent)],
+                       capture_output=True, text=True, timeout=5)
+        subprocess.run(["sudo", "cp", tmp, str(_RADIUS_USERS_FILE)],
+                       capture_output=True, text=True, timeout=5)
+        subprocess.run(["sudo", "chown", "freerad:freerad", str(_RADIUS_USERS_FILE)],
+                       capture_output=True, text=True, timeout=5)
+        subprocess.run(["sudo", "chmod", "640", str(_RADIUS_USERS_FILE)],
+                       capture_output=True, text=True, timeout=5)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 def _radius_parse_clients() -> list[dict]:
     clients = []
@@ -9794,16 +9925,25 @@ def _radius_write_clients(clients: list[dict]):
         if c.get("description"):
             lines.append(f'    shortname = {c["description"]}\n')
         lines.append("}\n\n")
-    tmp = "/tmp/nekopi_radius_clients"
-    Path(tmp).write_text("".join(lines))
-    subprocess.run(["sudo", "mkdir", "-p", str(_RADIUS_CLIENTS_FILE.parent)],
-                   capture_output=True, text=True, timeout=5)
-    subprocess.run(["sudo", "cp", tmp, str(_RADIUS_CLIENTS_FILE)],
-                   capture_output=True, text=True, timeout=5)
-    subprocess.run(["sudo", "chown", "freerad:freerad", str(_RADIUS_CLIENTS_FILE)],
-                   capture_output=True, text=True, timeout=5)
-    subprocess.run(["sudo", "chmod", "640", str(_RADIUS_CLIENTS_FILE)],
-                   capture_output=True, text=True, timeout=5)
+    # NAS secrets — write to a unique 0600 temp file, remove after copy.
+    fd, tmp = tempfile.mkstemp(prefix="nekopi_radius_clients_")
+    try:
+        os.close(fd)
+        os.chmod(tmp, 0o600)
+        Path(tmp).write_text("".join(lines))
+        subprocess.run(["sudo", "mkdir", "-p", str(_RADIUS_CLIENTS_FILE.parent)],
+                       capture_output=True, text=True, timeout=5)
+        subprocess.run(["sudo", "cp", tmp, str(_RADIUS_CLIENTS_FILE)],
+                       capture_output=True, text=True, timeout=5)
+        subprocess.run(["sudo", "chown", "freerad:freerad", str(_RADIUS_CLIENTS_FILE)],
+                       capture_output=True, text=True, timeout=5)
+        subprocess.run(["sudo", "chmod", "640", str(_RADIUS_CLIENTS_FILE)],
+                       capture_output=True, text=True, timeout=5)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 def _radius_get_cert_info() -> dict:
     cert_file = str(_RADIUS_CERT_DIR / "server.pem")
